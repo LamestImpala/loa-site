@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     siteName: "Late Onset Audiophile",
     images: [
       {
-        url: "/og-image.jpg",
+        url: "/og-image.png",
         width: 1200,
         height: 630,
         alt: "Late Onset Audiophile",
