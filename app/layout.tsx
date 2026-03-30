@@ -28,6 +28,6 @@ export const metadata: Metadata = {
     title: "Late Onset Audiophile",
     description:
       "Audio journeys, music, gear, and the ah-ha moments that make hi-fi addictive.",
-    images: ["/og-image.jpg"],
+    images: ["/og-image.png"],
   },
 };
