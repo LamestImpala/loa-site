@@ -196,7 +196,7 @@ export default function Home() {
             Stay connected
           </p>
           <h2 className="mt-4 text-3xl font-semibold md:text-5xl">
-            Follow the LOA journey from the ground up.
+            Follow the LOA journey from the ground up
           </h2>
           <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300">
             Follow along for honest thoughts on music, hi-fi gear, room setup,
