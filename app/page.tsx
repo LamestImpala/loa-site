@@ -116,7 +116,7 @@ export default function Home() {
             <p className="mt-4 text-lg leading-8 text-neutral-100">
               Build a modern audio brand that feels personal, credible, curious,
               and eventually premium without losing the human side that made it
-              worth starting.
+              worth starting
             </p>
           </div>
         </div>
