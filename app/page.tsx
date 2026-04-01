@@ -1,4 +1,6 @@
 import Image from "next/image";
+import Link from "next/link";
+
 
 export default function Home() {
   const topics = [
@@ -14,6 +16,34 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
+      <nav className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/80 backdrop-blur-md">
+  <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 md:px-10">
+    <Link
+      href="/"
+      className="text-sm font-medium tracking-[0.2em] text-orange-200 uppercase"
+    >
+      LOA
+    </Link>
+
+    <div className="flex items-center gap-6 text-sm text-neutral-300">
+      <Link href="/" className="transition hover:text-white">
+        Home
+      </Link>
+      <Link href="/mysystem" className="transition hover:text-white">
+        My System
+      </Link>
+      <a
+        href="https://instagram.com/lateonsetaudiophile"
+        target="_blank"
+        rel="noreferrer"
+        className="transition hover:text-white"
+      >
+        Instagram
+      </a>
+    </div>
+  </div>
+</nav>
+
       <section className="relative overflow-hidden border-b border-white/10">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.06),transparent_25%)]" />
         <div className="relative mx-auto grid max-w-7xl gap-12 px-6 py-20 md:px-10 md:py-28 lg:grid-cols-2 lg:items-center">
@@ -204,26 +234,35 @@ export default function Home() {
           </p>
 
           <div className="mt-8 flex flex-wrap gap-4">
-            <a
-              href="https://instagram.com/lateonsetaudiophile"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
-            >
-              Instagram
-            </a>
-            <a
-              href="https://x.com/lateonsetaudio"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
-            >
-              X
-            </a>
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-200">
-              lateonsetaudiophile.com
-            </div>
-          </div>
+  <a
+    href="https://instagram.com/lateonsetaudiophile"
+    target="_blank"
+    rel="noreferrer"
+    className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
+  >
+    Instagram
+  </a>
+  <a
+    href="https://x.com/lateonsetaudio"
+    target="_blank"
+    rel="noreferrer"
+    className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
+  >
+    X
+  </a>
+
+  <Link
+    href="/mysystem"
+    className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
+  >
+    My System
+  </Link>
+
+  <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-200">
+    lateonsetaudiophile.com
+  </div>
+</div>
+
         </div>
       </section>
     </main>
