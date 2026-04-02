@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
 export const meta : Metadata = {
-
   metadataBase: new URL("https://lateonsetaudiophile.com"),
   title: "Late Onset Audiophile",
   description:
@@ -36,20 +36,29 @@ export const meta : Metadata = {
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en">
       <body className="bg-neutral-950 text-neutral-100">
         <nav className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/80 backdrop-blur-md">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 md:px-10">
             <Link
-              href="/"
-              className="text-sm font-medium uppercase tracking-[0.2em] text-orange-200 transition hover:text-white"
-            >
-              LOA
-            </Link>
+  href="/"
+  className="flex items-center transition hover:opacity-90"
+  aria-label="Late Onset Audiophile home"
+>
+  <Image
+    src="/images/loalogo.png"
+    alt="Late Onset Audiophile logo"
+    width={1024}
+    height={1024}
+    className="h-12 w-12 object-contain md:h-[52px] md:w-[52px]"
+    priority
+  />
+</Link>
+
 
             <div className="flex items-center gap-6 text-sm text-neutral-300">
               <Link href="/" className="transition hover:text-white">
@@ -57,6 +66,21 @@ export default function RootLayout({
               </Link>
               <Link href="/mysystem" className="transition hover:text-white">
                 My System
+              </Link>
+              <Link href="/reviews" className="transition hover:text-white">
+                Reviews
+              </Link>
+              <Link href="/music" className="transition hover:text-white">
+                Music
+              </Link>
+              <Link href="/podcast" className="transition hover:text-white">
+                Podcast
+              </Link>
+              <Link href="/about" className="transition hover:text-white">
+                About
+              </Link>
+              <Link href="/contact" className="transition hover:text-white">
+                Contact
               </Link>
               <a
                 href="https://instagram.com/lateonsetaudiophile"
@@ -70,7 +94,9 @@ export default function RootLayout({
           </div>
         </nav>
 
-        {children}
+        <main className="min-h-screen bg-neutral-950 text-neutral-100">
+          {children}
+        </main>
       </body>
     </html>
   );
