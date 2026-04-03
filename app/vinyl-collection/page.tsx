@@ -1,33 +1,72 @@
+import Image from "next/image";
 import Link from "next/link";
 
-export default function VinylCollectionPage() {
+type DiscogsRelease = {
+  id: number;
+  basic_information: {
+    artists?: { name: string }[];
+    title: string;
+    year?: string | number;
+    cover_image?: string;
+  };
+};
+
+async function getDiscogsCollection(): Promise<DiscogsRelease[]> {
+  return [];
+}
+
+export default async function VinylCollectionPage() {
+  const releases = await getDiscogsCollection();
+
   return (
     <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-5xl px-4 py-12 md:px-8 md:py-16">
+      <section className="mx-auto max-w-6xl px-4 py-12 md:px-8 md:py-16">
         <h1 className="text-3xl font-semibold md:text-5xl">Vinyl Collection</h1>
 
         <p className="mt-4 max-w-3xl text-base text-neutral-300 md:text-lg">
-          A look into the records that have shaped my listening journey, from
-          longtime favorites to newer discoveries.
+          A live look at my Discogs collection, from longtime favorites to newer discoveries.
         </p>
 
-        <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-6">
-          <p className="text-sm uppercase tracking-[0.2em] text-neutral-400">
-            Discogs
-          </p>
+        <Link
+          href="https://www.discogs.com/user/LateOnsetAudiophile"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-6 inline-block rounded-full border border-white/15 px-5 py-2 text-sm text-white transition hover:bg-white hover:text-black"
+        >
+          View Full Collection on Discogs
+        </Link>
 
-          <p className="mt-3 text-neutral-300">
-            Browse the full collection on Discogs.
-          </p>
+        <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {releases.map((item) => {
+            const info = item.basic_information;
+            const artist =
+              info.artists?.map((a) => a.name).join(", ") || "Unknown Artist";
 
-          <Link
-            href="https://www.discogs.com/user/LateOnsetAudiophile/collection"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-block rounded-full border border-white/15 px-5 py-2 text-sm text-white transition hover:bg-white hover:text-black"
-          >
-            View My Discogs Collection
-          </Link>
+            return (
+              <article
+                key={item.id}
+                className="rounded-2xl border border-white/10 bg-white/5 p-4"
+              >
+                {info.cover_image ? (
+                  <Image
+                    src={info.cover_image}
+                    alt={`${artist} - ${info.title}`}
+                    width={600}
+                    height={600}
+                    className="h-auto w-full rounded-xl object-cover"
+                  />
+                ) : null}
+
+                <div className="mt-4">
+                  <h2 className="text-lg font-medium">{info.title}</h2>
+                  <p className="mt-1 text-sm text-neutral-300">{artist}</p>
+                  <p className="mt-1 text-sm text-neutral-400">
+                    {info.year || "Unknown year"}
+                  </p>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
     </main>
