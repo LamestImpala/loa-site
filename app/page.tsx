@@ -10,6 +10,7 @@ export default function Home() {
     "Turntables, tonearms, and cartridges",
     "Streaming and digital audio",
     "Used gear wins and regrets",
+    "Collecting records and Discogs tips",
     "Podcast conversations",
   ];
 
@@ -253,6 +254,9 @@ export default function Home() {
             >
               Music
             </Link>
+            <Link href="/vinyl-collection" className="hover:text-white">
+  Vinyl Collection
+</Link>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-200">
               lateonsetaudiophile.com

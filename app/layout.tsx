@@ -71,6 +71,9 @@ export default function RootLayout({
               <Link href="/music" className="transition hover:text-white">
                 Music
               </Link>
+              <Link href="/vinyl-collection" className="hover:text-white">
+  Vinyl Collection
+</Link>
               <Link href="/podcast" className="transition hover:text-white">
                 Podcast
               </Link>
