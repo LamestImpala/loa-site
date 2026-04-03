@@ -2,12 +2,13 @@ import Link from "next/link";
 
 export default function MySystem() {
   const cartridges = [
-    "Audio-Technica ART9XI",
-    "Soundsmith Zephyr MKIII",
-    "Hana MH",
-    "Ortofon 2M Black",
-    "Ortofon 2M Bronze",
-  ];
+  "Hana Umami Red",
+  "Audio-Technica ART9XI",
+  "Soundsmith Zephyr MKIII",
+  "Hana MH",
+  "Ortofon 2M Black",
+  "Ortofon 2M Bronze",
+];
 
   const analogFrontEnd = [
     "Turntable: Clearaudio Concept",

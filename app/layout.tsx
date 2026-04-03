@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
-export const meta : Metadata = {
+export const metadata: Metadata = {
   metadataBase: new URL("https://lateonsetaudiophile.com"),
   title: "Late Onset Audiophile",
   description:
@@ -58,8 +58,6 @@ export default function RootLayout({
     priority
   />
 </Link>
-
-
             <div className="flex items-center gap-6 text-sm text-neutral-300">
               <Link href="/" className="transition hover:text-white">
                 Home
