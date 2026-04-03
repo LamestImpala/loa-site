@@ -43,54 +43,60 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-neutral-950 text-neutral-100">
         <nav className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/80 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 md:px-10">
+          <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 md:px-10">
             <Link
-  href="/"
-  className="flex items-center transition hover:opacity-90"
-  aria-label="Late Onset Audiophile home"
->
-  <Image
-    src="/images/loalogo.png"
-    alt="Late Onset Audiophile logo"
-    width={1024}
-    height={1024}
-    className="h-12 w-12 object-contain md:h-[52px] md:w-[52px]"
-    priority
-  />
-</Link>
-            <div className="flex items-center gap-6 text-sm text-neutral-300">
-              <Link href="/" className="transition hover:text-white">
-                Home
-              </Link>
-              <Link href="/mysystem" className="transition hover:text-white">
-                My System
-              </Link>
-              <Link href="/reviews" className="transition hover:text-white">
-                Reviews
-              </Link>
-              <Link href="/music" className="transition hover:text-white">
-                Music
-              </Link>
-              <Link href="/vinyl-collection" className="hover:text-white">
-  Vinyl Collection
-</Link>
-              <Link href="/podcast" className="transition hover:text-white">
-                Podcast
-              </Link>
-              <Link href="/about" className="transition hover:text-white">
-                About
-              </Link>
-              <Link href="/contact" className="transition hover:text-white">
-                Contact
-              </Link>
-              <a
-                href="https://instagram.com/lateonsetaudiophile"
-                target="_blank"
-                rel="noreferrer"
-                className="transition hover:text-white"
-              >
-                Instagram
-              </a>
+              href="/"
+              className="flex shrink-0 items-center transition hover:opacity-90"
+              aria-label="Late Onset Audiophile home"
+            >
+              <Image
+                src="/images/loalogo.png"
+                alt="Late Onset Audiophile logo"
+                width={1024}
+                height={1024}
+                className="h-12 w-12 object-contain md:h-[52px] md:w-[52px]"
+                priority
+              />
+            </Link>
+
+            <div className="min-w-0 flex-1 overflow-x-auto">
+              <div className="flex min-w-max items-center gap-6 whitespace-nowrap pr-2 text-sm text-neutral-300">
+                <Link href="/" className="transition hover:text-white">
+                  Home
+                </Link>
+                <Link href="/mysystem" className="transition hover:text-white">
+                  My System
+                </Link>
+                <Link href="/reviews" className="transition hover:text-white">
+                  Reviews
+                </Link>
+                <Link href="/music" className="transition hover:text-white">
+                  Music
+                </Link>
+                <Link
+                  href="/vinyl-collection"
+                  className="transition hover:text-white"
+                >
+                  Vinyl Collection
+                </Link>
+                <Link href="/podcast" className="transition hover:text-white">
+                  Podcast
+                </Link>
+                <Link href="/about" className="transition hover:text-white">
+                  About
+                </Link>
+                <Link href="/contact" className="transition hover:text-white">
+                  Contact
+                </Link>
+                <a
+                  href="https://instagram.com/lateonsetaudiophile"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="transition hover:text-white"
+                >
+                  Instagram
+                </a>
+              </div>
             </div>
           </div>
         </nav>
