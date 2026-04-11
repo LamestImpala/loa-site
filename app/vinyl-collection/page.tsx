@@ -1,19 +1,5 @@
 import Image from "next/image";
-import Link from "next/link";
-
-type DiscogsRelease = {
-  id: number;
-  basic_information: {
-    artists?: { name: string }[];
-    title: string;
-    year?: string | number;
-    cover_image?: string;
-  };
-};
-
-async function getDiscogsCollection(): Promise<DiscogsRelease[]> {
-  return [];
-}
+import { getDiscogsCollection } from "@/lib/discogs";
 
 export default async function VinylCollectionPage() {
   const releases = await getDiscogsCollection();
@@ -27,14 +13,14 @@ export default async function VinylCollectionPage() {
           A live look at my Discogs collection, from longtime favorites to newer discoveries.
         </p>
 
-        <Link
-          href="https://www.discogs.com/user/LateOnsetAudiophile"
+        <a
+          href="https://www.discogs.com/user/LateOnsetAudiophile/collection"
           target="_blank"
           rel="noopener noreferrer"
           className="mt-6 inline-block rounded-full border border-white/15 px-5 py-2 text-sm text-white transition hover:bg-white hover:text-black"
         >
           View Full Collection on Discogs
-        </Link>
+        </a>
 
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {releases.map((item) => {
