@@ -14,7 +14,7 @@ export default async function VinylCollectionPage() {
         </p>
 
         <a
-          href="https://www.discogs.com/user/LateOnsetAudiophile/collection"
+          href="https://www.discogs.com/user/LateOnsetAudiophile/collection?header=1"
           target="_blank"
           rel="noopener noreferrer"
           className="mt-6 inline-block rounded-full border border-white/15 px-5 py-2 text-sm text-white transition hover:bg-white hover:text-black"
