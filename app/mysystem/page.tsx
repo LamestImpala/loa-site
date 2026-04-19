@@ -2,13 +2,13 @@ import Link from "next/link";
 
 export default function MySystem() {
   const cartridges = [
-  "Hana Umami Red",
-  "Audio-Technica ART9XI",
-  "Soundsmith Zephyr MKIII",
-  "Hana MH",
-  "Ortofon 2M Black",
-  "Ortofon 2M Bronze",
-];
+    "Hana Umami Red",
+    "Audio-Technica ART9XI",
+    "Soundsmith Zephyr MKIII",
+    "Hana MH",
+    "Ortofon 2M Black",
+    "Ortofon 2M Bronze",
+  ];
 
   const analogFrontEnd = [
     "Turntable: Clearaudio Concept",
@@ -29,7 +29,7 @@ export default function MySystem() {
   ];
 
   const speakers = [
-    "Sonus Faber Olympica Nova V",
+    "Main Speakers: Sonus Faber Olympica Nova V",
     "Center: MartinLogan Motion XT C100",
     "Surrounds: 2x in-ceiling",
   ];
@@ -74,10 +74,9 @@ export default function MySystem() {
           </p>
 
           <p className="text-neutral-400">
-            Right now, my main speakers are the MartinLogan Motion XT F100
-            towers, though I am actively upgrading to the Sonus Faber Olympica
-            Nova V. The MartinLogans helped show me just how much system synergy
-            matters.
+            Right now, the heart of the system is built around the Sonus Faber
+            Olympica Nova V, supported by carefully chosen analog and digital
+            sources that keep me engaged for hours at a time.
           </p>
         </div>
 
@@ -176,8 +175,8 @@ export default function MySystem() {
             The goal stays the same: better connection to music. Detail and
             dynamics, but also warmth, realism, and that feeling that the
             performers are in the room. The Sonus Faber Olympica Nova V will
-            reshape everything, but the real point is not bigger gear energy —
-            it is deeper emotional return from every listening session.
+            continue to shape the system, but the real point is deeper emotional
+            return from every listening session.
           </p>
         </div>
 
