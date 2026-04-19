@@ -26,12 +26,10 @@ export default function MySystem() {
   const amplification = [
     "Integrated Amp: Marantz PM-10",
     "AV Receiver: Denon AVR-X4800H",
-    "Balanced Switcher: Bobwire XLR-1",
   ];
 
   const speakers = [
-    "Current: MartinLogan Motion XT F100",
-    "Incoming: Sonus Faber Olympica Nova V",
+    "Sonus Faber Olympica Nova V",
     "Center: MartinLogan Motion XT C100",
     "Surrounds: 2x in-ceiling",
   ];
