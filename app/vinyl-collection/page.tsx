@@ -7,6 +7,7 @@ const ALBUMS_PER_PAGE = 12;
 type VinylCollectionPageProps = {
   searchParams: Promise<{
     page?: string;
+    q?: string;
   }>;
 };
 
@@ -43,12 +44,25 @@ function buildPagination(currentPage: number, totalPages: number) {
   ] as const;
 }
 
+function buildPageHref(page: number, query: string) {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+
+  if (query.trim()) {
+    params.set("q", query.trim());
+  }
+
+  return `/vinyl-collection?${params.toString()}`;
+}
+
 function Pagination({
   safeCurrentPage,
   totalPages,
+  query,
 }: {
   safeCurrentPage: number;
   totalPages: number;
+  query: string;
 }) {
   const paginationItems = buildPagination(safeCurrentPage, totalPages);
 
@@ -58,7 +72,7 @@ function Pagination({
     <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
       {safeCurrentPage > 1 ? (
         <Link
-          href={`/vinyl-collection?page=${safeCurrentPage - 1}`}
+          href={buildPageHref(safeCurrentPage - 1, query)}
           className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 transition hover:bg-white hover:text-black"
         >
           Previous
@@ -67,7 +81,7 @@ function Pagination({
 
       {safeCurrentPage > 4 ? (
         <Link
-          href="/vinyl-collection?page=1"
+          href={buildPageHref(1, query)}
           className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 transition hover:bg-white hover:text-black"
         >
           First
@@ -91,7 +105,7 @@ function Pagination({
         return (
           <Link
             key={item}
-            href={`/vinyl-collection?page=${item}`}
+            href={buildPageHref(item, query)}
             className={`rounded-lg border px-4 py-2 text-sm transition ${
               isActive
                 ? "border-white bg-white text-black"
@@ -105,7 +119,7 @@ function Pagination({
 
       {safeCurrentPage < totalPages - 3 ? (
         <Link
-          href={`/vinyl-collection?page=${totalPages}`}
+          href={buildPageHref(totalPages, query)}
           className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 transition hover:bg-white hover:text-black"
         >
           Last
@@ -114,7 +128,7 @@ function Pagination({
 
       {safeCurrentPage < totalPages ? (
         <Link
-          href={`/vinyl-collection?page=${safeCurrentPage + 1}`}
+          href={buildPageHref(safeCurrentPage + 1, query)}
           className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 transition hover:bg-white hover:text-black"
         >
           Next
@@ -129,15 +143,26 @@ export default async function VinylCollectionPage({
 }: VinylCollectionPageProps) {
   const params = await searchParams;
   const currentPage = Math.max(1, Number(params.page) || 1);
+  const query = (params.q || "").trim().toLowerCase();
 
   const releases = await getDiscogsCollection();
-  const totalAlbums = releases.length;
-  const totalPages = Math.max(1, Math.ceil(totalAlbums / ALBUMS_PER_PAGE));
 
+  const filteredReleases = releases.filter((item) => {
+    const info = item.basic_information;
+    const title = info.title?.toLowerCase() || "";
+    const artist = info.artists?.map((a) => a.name).join(", ").toLowerCase() || "";
+
+    if (!query) return true;
+
+    return title.includes(query) || artist.includes(query);
+  });
+
+  const totalAlbums = filteredReleases.length;
+  const totalPages = Math.max(1, Math.ceil(totalAlbums / ALBUMS_PER_PAGE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * ALBUMS_PER_PAGE;
   const endIndex = startIndex + ALBUMS_PER_PAGE;
-  const visibleReleases = releases.slice(startIndex, endIndex);
+  const visibleReleases = filteredReleases.slice(startIndex, endIndex);
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -157,59 +182,102 @@ export default async function VinylCollectionPage({
           View Full Collection on Discogs
         </a>
 
+        <form action="/vinyl-collection" method="get" className="mt-8 max-w-xl">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              type="text"
+              name="q"
+              defaultValue={params.q || ""}
+              placeholder="Search by artist or album title"
+              className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-sm text-white transition hover:bg-white hover:text-black"
+            >
+              Search
+            </button>
+            {params.q ? (
+              <Link
+                href="/vinyl-collection"
+                className="rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-center text-sm text-white transition hover:bg-white hover:text-black"
+              >
+                Clear
+              </Link>
+            ) : null}
+          </div>
+        </form>
+
         <div className="mt-4 text-sm text-neutral-400">
-          Showing {startIndex + 1}-{Math.min(endIndex, totalAlbums)} of{" "}
-          {totalAlbums} albums
+          {query ? (
+            <>
+              Showing {totalAlbums === 0 ? 0 : startIndex + 1}-
+              {Math.min(endIndex, totalAlbums)} of {totalAlbums} albums for “{params.q}”
+            </>
+          ) : (
+            <>
+              Showing {totalAlbums === 0 ? 0 : startIndex + 1}-
+              {Math.min(endIndex, totalAlbums)} of {totalAlbums} albums
+            </>
+          )}
         </div>
 
         <Pagination
           safeCurrentPage={safeCurrentPage}
           totalPages={totalPages}
+          query={params.q || ""}
         />
 
-        <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleReleases.map((item) => {
-            const info = item.basic_information;
-            const artist =
-              info.artists?.map((a) => a.name).join(", ") || "Unknown Artist";
+        {totalAlbums === 0 ? (
+          <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8 text-neutral-300">
+            No albums matched your search.
+          </div>
+        ) : (
+          <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleReleases.map((item) => {
+              const info = item.basic_information;
+              const artist =
+                info.artists?.map((a) => a.name).join(", ") || "Unknown Artist";
 
-            const discogsUrl = info.resource_url
-              ? info.resource_url.replace("api.discogs.com", "www.discogs.com")
-              : `https://www.discogs.com/release/${info.id}`;
+              const discogsUrl = info.resource_url
+                ? info.resource_url.replace("api.discogs.com", "www.discogs.com")
+                : `https://www.discogs.com/release/${info.id}`;
 
-            return (
-              <Link
-                key={`${item.id}-${item.instance_id ?? "release"}`}
-                href={discogsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-white/25 hover:bg-white/10"
-              >
-                {info.cover_image ? (
-                  <Image
-                    src={info.cover_image}
-                    alt={`${artist} - ${info.title}`}
-                    width={600}
-                    height={600}
-                    className="h-auto w-full rounded-xl object-cover"
-                  />
-                ) : null}
+              return (
+                <Link
+                  key={`${item.id}-${item.instance_id ?? "release"}`}
+                  href={discogsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-white/25 hover:bg-white/10"
+                >
+                  {info.cover_image ? (
+                    <Image
+                      src={info.cover_image}
+                      alt={`${artist} - ${info.title}`}
+                      width={600}
+                      height={600}
+                      className="h-auto w-full rounded-xl object-cover"
+                    />
+                  ) : null}
 
-                <div className="mt-4">
-                  <h2 className="text-lg font-medium">{info.title}</h2>
-                  <p className="mt-1 text-sm text-neutral-300">{artist}</p>
-                  <p className="mt-1 text-sm text-neutral-400">
-                    {info.year || "Unknown year"}
-                  </p>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+                  <div className="mt-4">
+                    <h2 className="text-lg font-medium">{info.title}</h2>
+                    <p className="mt-1 text-sm text-neutral-300">{artist}</p>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      {info.year || "Unknown year"}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
         <Pagination
           safeCurrentPage={safeCurrentPage}
           totalPages={totalPages}
+          query={params.q || ""}
         />
       </section>
     </main>
