@@ -1,8 +1,29 @@
 import Image from "next/image";
+import Link from "next/link";
 import { getDiscogsCollection } from "@/lib/discogs";
 
-export default async function VinylCollectionPage() {
+const ALBUMS_PER_PAGE = 12;
+
+type VinylCollectionPageProps = {
+  searchParams: Promise<{
+    page?: string;
+  }>;
+};
+
+export default async function VinylCollectionPage({
+  searchParams,
+}: VinylCollectionPageProps) {
+  const params = await searchParams;
+  const currentPage = Math.max(1, Number(params.page) || 1);
+
   const releases = await getDiscogsCollection();
+  const totalAlbums = releases.length;
+  const totalPages = Math.max(1, Math.ceil(totalAlbums / ALBUMS_PER_PAGE));
+
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * ALBUMS_PER_PAGE;
+  const endIndex = startIndex + ALBUMS_PER_PAGE;
+  const visibleReleases = releases.slice(startIndex, endIndex);
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -10,7 +31,7 @@ export default async function VinylCollectionPage() {
         <h1 className="text-3xl font-semibold md:text-5xl">Vinyl Collection</h1>
 
         <p className="mt-4 max-w-3xl text-base text-neutral-300 md:text-lg">
-          A live look at my Discogs collection, from longtime favorites to newer discoveries.
+          A live look at my Discogs collection, sorted by most recently added.
         </p>
 
         <a
@@ -22,16 +43,27 @@ export default async function VinylCollectionPage() {
           View Full Collection on Discogs
         </a>
 
+        <div className="mt-4 text-sm text-neutral-400">
+          Showing {startIndex + 1}-{Math.min(endIndex, totalAlbums)} of {totalAlbums} albums
+        </div>
+
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {releases.map((item) => {
+          {visibleReleases.map((item) => {
             const info = item.basic_information;
             const artist =
               info.artists?.map((a) => a.name).join(", ") || "Unknown Artist";
 
+            const discogsUrl = info.resource_url
+              ? info.resource_url.replace("api.discogs.com", "www.discogs.com")
+              : `https://www.discogs.com/release/${info.id}`;
+
             return (
-              <article
-                key={item.id}
-                className="rounded-2xl border border-white/10 bg-white/5 p-4"
+              <Link
+                key={`${item.id}-${item.instance_id ?? "release"}`}
+                href={discogsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:border-white/25 hover:bg-white/10"
               >
                 {info.cover_image ? (
                   <Image
@@ -50,10 +82,51 @@ export default async function VinylCollectionPage() {
                     {info.year || "Unknown year"}
                   </p>
                 </div>
-              </article>
+              </Link>
             );
           })}
         </div>
+
+        {totalPages > 1 ? (
+          <div className="mt-12 flex flex-wrap items-center justify-center gap-2">
+            {safeCurrentPage > 1 ? (
+              <Link
+                href={`/vinyl-collection?page=${safeCurrentPage - 1}`}
+                className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 transition hover:bg-white hover:text-black"
+              >
+                Previous
+              </Link>
+            ) : null}
+
+            {Array.from({ length: totalPages }, (_, index) => {
+              const pageNumber = index + 1;
+              const isActive = pageNumber === safeCurrentPage;
+
+              return (
+                <Link
+                  key={pageNumber}
+                  href={`/vinyl-collection?page=${pageNumber}`}
+                  className={`rounded-lg border px-4 py-2 text-sm transition ${
+                    isActive
+                      ? "border-white bg-white text-black"
+                      : "border-white/15 text-neutral-200 hover:bg-white hover:text-black"
+                  }`}
+                >
+                  {pageNumber}
+                </Link>
+              );
+            })}
+
+            {safeCurrentPage < totalPages ? (
+              <Link
+                href={`/vinyl-collection?page=${safeCurrentPage + 1}`}
+                className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 transition hover:bg-white hover:text-black"
+              >
+                Next
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </main>
   );
