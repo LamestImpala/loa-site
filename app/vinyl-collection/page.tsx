@@ -239,10 +239,10 @@ export default async function VinylCollectionPage({
               const artist =
                 info.artists?.map((a) => a.name).join(", ") || "Unknown Artist";
 
-              const discogsUrl = info.resource_url
-                ? info.resource_url.replace("api.discogs.com", "www.discogs.com")
-                : `https://www.discogs.com/release/${info.id}`;
-
+            const discogsUrl =
+  typeof info.id === "number"
+    ? `https://www.discogs.com/release/${info.id}`
+    : "#";
               return (
                 <Link
                   key={`${item.id}-${item.instance_id ?? "release"}`}
