@@ -1,3 +1,11 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "About — Late Onset Audiophile",
+  description:
+    "The story behind Late Onset Audiophile — a personal journey into hi-fi, vinyl, and the music that made better sound worth caring about.",
+};
+
 export default function AboutPage() {
   return (
     <section className="mx-auto max-w-5xl px-6 py-20 text-white">

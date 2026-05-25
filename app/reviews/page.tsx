@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Reviews — Late Onset Audiophile",
+  description:
+    "Real-world listening impressions from a system I actually live with. Honest takes on gear that earns its place — no spec-sheet worship.",
+};
 
 const upcomingReviews = [
   {

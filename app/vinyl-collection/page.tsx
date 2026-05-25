@@ -1,6 +1,13 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { getDiscogsCollection } from "@/lib/discogs";
+
+export const metadata: Metadata = {
+  title: "Vinyl Collection — Late Onset Audiophile",
+  description:
+    "A live look at my Discogs vinyl collection, sorted by most recently added. ~500 records and counting.",
+};
 
 const ALBUMS_PER_PAGE = 12;
 

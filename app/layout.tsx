@@ -1,7 +1,18 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lateonsetaudiophile.com"),
@@ -16,7 +27,7 @@ export const metadata: Metadata = {
     siteName: "Late Onset Audiophile",
     images: [
       {
-        url: "/og-image.png",
+        url: "/images/og-image.png",
         width: 1200,
         height: 630,
         alt: "Late Onset Audiophile",
@@ -30,7 +41,7 @@ export const metadata: Metadata = {
     title: "Late Onset Audiophile",
     description:
       "Audio journeys, music, gear, and the ah-ha moments that make hi-fi addictive.",
-    images: ["/og-image.png"],
+    images: ["/images/og-image.png"],
   },
 };
 
@@ -40,8 +51,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="bg-neutral-950 text-neutral-100">
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className="bg-neutral-950 text-neutral-100 font-sans antialiased">
         <nav className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/80 backdrop-blur-md">
           <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 md:px-10">
             <Link
@@ -50,7 +61,7 @@ export default function RootLayout({
               aria-label="Late Onset Audiophile home"
             >
               <Image
-                src="/images/loalogo.png"
+                src="/images/loalogo.webp"
                 alt="Late Onset Audiophile logo"
                 width={1024}
                 height={1024}

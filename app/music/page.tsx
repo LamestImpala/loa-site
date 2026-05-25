@@ -1,4 +1,11 @@
-// app/music/page.tsx
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Music — Late Onset Audiophile",
+  description:
+    "The albums and tracks that reshaped how I think about systems, rooms, and what 'better' actually sounds like.",
+};
+
 export default function MusicPage() {
   const referenceGroups = [
     {

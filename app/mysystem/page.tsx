@@ -1,18 +1,24 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "My System — Late Onset Audiophile",
+  description:
+    "The hi-fi system behind Late Onset Audiophile: Sonus Faber Olympica Nova V, Marantz PM-10, Eversolo DMP-A8, Clearaudio Concept Signature Black, and more.",
+};
 
 export default function MySystem() {
   const cartridges = [
     "Hana Umami Red",
     "Audio-Technica ART9XI",
     "Soundsmith Zephyr MKIII",
-    "Hana MH",
     "Ortofon 2M Black",
     "Ortofon 2M Bronze",
   ];
 
   const analogFrontEnd = [
-    "Turntable: Clearaudio Concept",
-    "Tonearm: Clearaudio Satisfy Carbon",
+    "Turntable: Clearaudio Concept Signature Black",
+    "Tonearm: Clearaudio Tracer",
     "Phono Preamp: Sutherland 20/20",
     "Current Cartridge: Hana Umami Red",
   ];

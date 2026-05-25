@@ -1,4 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Marantz PM-10 vs Hegel H390 — Late Onset Audiophile",
+  description:
+    "I bought both amps used and lived with each in my own system. Both were impressive, but one was more complete, less fatiguing, and more emotionally convincing.",
+  openGraph: {
+    title: "Marantz PM-10 vs Hegel H390",
+    description:
+      "I bought both amps used and lived with each in my own system. Both were impressive, but one was more complete, less fatiguing, and more emotionally convincing.",
+    type: "article",
+  },
+};
 
 export default function MarantzVsHegelReviewPage() {
   return (
@@ -295,7 +308,7 @@ export default function MarantzVsHegelReviewPage() {
               <h2 className="text-xl font-semibold">System Used</h2>
 
               <div className="mt-5 space-y-3 text-sm leading-7 text-neutral-300">
-                <p>• Speakers: Sonus Faber speakers</p>
+                <p>• Speakers: Sonus Faber Olympica Nova V</p>
                 <p>• Source: Eversolo DMP-A8</p>
                 <p>• Streaming: Qobuz</p>
                 <p>• Local playback: Roon Nucleus One</p>

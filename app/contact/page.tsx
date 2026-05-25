@@ -1,3 +1,11 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Contact — Late Onset Audiophile",
+  description:
+    "Questions, podcast ideas, gear talk, or collaboration inquiries — reach out to Late Onset Audiophile.",
+};
+
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-black text-white">

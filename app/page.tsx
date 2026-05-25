@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Late Onset Audiophile — It's never too late to hear what you've been missing",
+  description:
+    "A modern hi-fi media brand for people who found hi-fi later in life and fell hard for the music, gear, and the ah-ha moments that changed how they listen.",
+};
 
 export default function Home() {
   const topics = [
@@ -38,12 +45,11 @@ export default function Home() {
           <div>
             <div className="mb-6">
               <Image
-                src="/images/loalogo.png"
+                src="/images/loalogo.webp"
                 alt="Late Onset Audiophile logo"
                 width={1024}
                 height={1024}
                 className="h-[72px] w-[72px] object-contain md:h-[96px] md:w-[96px]"
-                priority
               />
             </div>
 
@@ -95,7 +101,7 @@ export default function Home() {
           <div className="relative">
             <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 shadow-2xl">
               <Image
-                src="/images/loa-hero.jpg"
+                src="/images/loa-hero.webp"
                 alt="Late Onset Audiophile hero image"
                 width={1200}
                 height={1400}
@@ -254,9 +260,12 @@ export default function Home() {
             >
               Music
             </Link>
-            <Link href="/vinyl-collection" className="hover:text-white">
-  Vinyl Collection
-</Link>
+            <Link
+              href="/vinyl-collection"
+              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
+            >
+              Vinyl Collection
+            </Link>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-200">
               lateonsetaudiophile.com
