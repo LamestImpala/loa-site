@@ -9,11 +9,26 @@ export const metadata: Metadata = {
 
 export default function MySystem() {
   const cartridges = [
-    "Hana Umami Red",
-    "Audio-Technica ART9XI",
-    "Soundsmith Zephyr MKIII",
-    "Ortofon 2M Black",
-    "Ortofon 2M Bronze",
+    {
+      name: "Hana Umami Red",
+      url: "https://www.hanacartridges.com/products/hana-umami-red",
+    },
+    {
+      name: "Audio-Technica ART9XI",
+      url: "https://www.audio-technica.com/en-us/at-art9xi",
+    },
+    {
+      name: "Soundsmith Zephyr MKIII",
+      url: "https://www.sound-smith.com/cartridges/fixed-coil/zephyr-mk-iii",
+    },
+    {
+      name: "Ortofon 2M Black",
+      url: "https://ortofon.com/products/2m-black",
+    },
+    {
+      name: "Ortofon 2M Bronze",
+      url: "https://ortofon.com/products/2m-bronze",
+    },
   ];
 
   const analogFrontEnd = [
@@ -106,12 +121,15 @@ export default function MySystem() {
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             {cartridges.map((cartridge) => (
-              <div
-                key={cartridge}
-                className="rounded-xl border border-white/10 bg-neutral-900 p-3 text-sm text-neutral-100"
+              <a
+                key={cartridge.name}
+                href={cartridge.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-white/10 bg-neutral-900 p-3 text-sm text-neutral-100 transition hover:border-white/25 hover:bg-neutral-800 hover:text-white"
               >
-                {cartridge}
-              </div>
+                {cartridge.name}
+              </a>
             ))}
           </div>
         </div>
