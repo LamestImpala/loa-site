@@ -114,6 +114,16 @@ export default function RecordsClient({
 
   const available = records.filter((r) => !r.sold).length;
 
+  // Every narrowing control currently active, so the count line can show
+  // why fewer records are visible (stacked filters confused people).
+  const activeFilters = [
+    query.trim() ? `“${query.trim()}”` : null,
+    filter === "available" ? "available" : filter === "sold" ? "sold" : null,
+    genre !== "all" ? genre : null,
+    collection,
+    letter ? `artists “${letter}”` : null,
+  ].filter(Boolean) as string[];
+
   function recordCard(r: DbRecord) {
     return (
       <div
@@ -336,6 +346,26 @@ export default function RecordsClient({
       <p className="mt-4 text-sm text-neutral-400">
         {visible.length} shown · {available} available of {records.length}{" "}
         listed
+        {activeFilters.length > 0 ? (
+          <>
+            {" "}
+            · filtered to{" "}
+            <span className="text-white">{activeFilters.join(" + ")}</span>{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setFilter("all");
+                setGenre("all");
+                setCollection(null);
+                setLetter(null);
+              }}
+              className="ml-1 rounded-md border border-white/15 px-2 py-0.5 text-xs text-neutral-300 transition hover:bg-white hover:text-black"
+            >
+              Clear filters
+            </button>
+          </>
+        ) : null}
       </p>
 
       {visible.length === 0 ? (
