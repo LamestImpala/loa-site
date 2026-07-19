@@ -14,6 +14,12 @@ function cell(s: string | undefined) {
     .trim();
 }
 
+function requestToBuyUrl(r: { artist: string; title: string; pressing: string; price: number }) {
+  const subject = `Record purchase: ${r.artist} — ${r.title}`;
+  const message = `Hi! I'd like to buy this record from your list:\n\n${r.artist} — ${r.title}\n${r.pressing}\n$${r.price}\n\nhttps://lateonsetaudiophile.com/records`;
+  return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
+}
+
 function redditMarkdown() {
   const list = RECORDS.filter((r) => !r.sold).sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
@@ -167,6 +173,16 @@ export default function RecordsClient() {
                     Photos
                   </a>
                 </p>
+              ) : null}
+              {!r.sold && SELLER_INFO.redditUsername ? (
+                <a
+                  href={requestToBuyUrl(r)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-block rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
+                >
+                  Request to buy
+                </a>
               ) : null}
             </div>
           ))}

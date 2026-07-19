@@ -45,7 +45,7 @@ export type SellerInfo = {
 
 export const SELLER_INFO: SellerInfo = {
   pageTitle: "Records for Sale",
-  redditUsername: "",            // e.g. "YourRedditName" — shown on the page if filled in
+  redditUsername: "LateOnsetAudiophile", // shown on the page and used for "Request to buy" links
   contact: "PM me on Reddit to claim. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim).",
   shipping: "$6 media mail (USA), records shipped outside the jacket in a proper LP mailer. Combined shipping on multiple records.",

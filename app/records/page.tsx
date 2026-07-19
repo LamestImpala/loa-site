@@ -32,7 +32,15 @@ export default function RecordsPage() {
 
         {SELLER_INFO.redditUsername ? (
           <p className="mt-2 text-sm text-neutral-400">
-            Sold by u/{SELLER_INFO.redditUsername}
+            Sold by{" "}
+            <a
+              href={`https://www.reddit.com/user/${SELLER_INFO.redditUsername}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4 transition hover:text-white"
+            >
+              u/{SELLER_INFO.redditUsername}
+            </a>
           </p>
         ) : null}
 
