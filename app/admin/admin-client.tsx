@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { SELLER_INFO } from "@/lib/records";
+import { LETTERS, SELLER_INFO, artistLetter } from "@/lib/records";
 import {
   ADMIN_EMAIL,
   getBrowserSupabase,
@@ -131,6 +131,7 @@ export default function AdminClient() {
   const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
   const [genreFilter, setGenreFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
+  const [letterFilter, setLetterFilter] = useState<string | null>(null);
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
@@ -523,12 +524,18 @@ export default function AdminClient() {
         r.collection !== collectionFilter
       )
         return false;
+      if (letterFilter && artistLetter(r.artist) !== letterFilter) return false;
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""}`
         .toLowerCase()
         .includes(q);
     });
-  }, [records, search, genreFilter, collectionFilter]);
+  }, [records, search, genreFilter, collectionFilter, letterFilter]);
+
+  const activeLetters = useMemo(
+    () => new Set(records.map((r) => artistLetter(r.artist))),
+    [records]
+  );
 
   const allGenres = useMemo(
     () =>
@@ -1139,6 +1146,39 @@ export default function AdminClient() {
             ))}
             <option value="none">No collection</option>
           </select>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setLetterFilter(null)}
+            className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+              letterFilter === null
+                ? "border-white bg-white text-black"
+                : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+            }`}
+          >
+            All
+          </button>
+          {LETTERS.map((l) => {
+            const hasRecords = activeLetters.has(l);
+            return (
+              <button
+                key={l}
+                type="button"
+                disabled={!hasRecords}
+                onClick={() => setLetterFilter(letterFilter === l ? null : l)}
+                className={`w-8 rounded-lg border px-0 py-1.5 text-center text-xs transition ${
+                  letterFilter === l
+                    ? "border-white bg-white text-black"
+                    : hasRecords
+                      ? "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                      : "cursor-default border-white/5 text-neutral-700"
+                }`}
+              >
+                {l}
+              </button>
+            );
+          })}
         </div>
         <p className="mt-2 text-sm text-neutral-500">
           {filteredRecords.length} of {records.length} records

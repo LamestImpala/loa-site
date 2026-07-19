@@ -8,6 +8,14 @@
  * see lib/records.ts before commit "Add cover art, A-Z browser…".)
  */
 
+// A–Z browser shared by /records and /admin
+export const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+
+export function artistLetter(artist: string) {
+  const first = artist.trim().charAt(0).toUpperCase();
+  return first >= "A" && first <= "Z" ? first : "#";
+}
+
 export type SellerInfo = {
   pageTitle: string;
   redditUsername: string;

@@ -2,14 +2,12 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { SELLER_INFO } from "@/lib/records";
+import { LETTERS, SELLER_INFO, artistLetter } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc";
 type FilterOption = "all" | "available" | "sold";
 type GroupOption = "none" | "collection" | "genre";
-
-const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 
 // Format attributes derived from the pressing text — orthogonal to the
 // curated collection tag (a MoFi pressing can also be a 45 RPM cut).
@@ -25,11 +23,6 @@ const FORMAT_FILTERS: {
     test: (r) => /half[- ]?speed/i.test(r.pressing),
   },
 ];
-
-function artistLetter(artist: string) {
-  const first = artist.trim().charAt(0).toUpperCase();
-  return first >= "A" && first <= "Z" ? first : "#";
-}
 
 function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
