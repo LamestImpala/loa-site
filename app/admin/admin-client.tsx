@@ -308,6 +308,24 @@ export default function AdminClient() {
     );
   }, [records, search]);
 
+  // Live collection value — recomputed from local state, so it updates the
+  // moment a price is edited, a change is approved, or a record is sold.
+  const stats = useMemo(() => {
+    const forSale = records.filter((r) => r.listed && !r.sold);
+    const sold = records.filter((r) => r.sold);
+    const hidden = records.filter((r) => !r.listed && !r.sold);
+    const sum = (list: DbRecord[], pick: (r: DbRecord) => number) =>
+      list.reduce((total, r) => total + pick(r), 0);
+    return {
+      forSaleCount: forSale.length,
+      askingTotal: sum(forSale, (r) => Number(r.price)),
+      soldCount: sold.length,
+      soldTotal: sum(sold, (r) => Number(r.sold_price ?? r.price)),
+      hiddenCount: hidden.length,
+      hiddenTotal: sum(hidden, (r) => Number(r.price)),
+    };
+  }, [records]);
+
   const [bulkSaving, setBulkSaving] = useState(false);
 
   // --- Add record ---
@@ -505,6 +523,37 @@ export default function AdminClient() {
             {loadError}
           </p>
         ) : null}
+
+        {/* Collection value summary */}
+        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">For sale</p>
+            <p className="mt-1 text-2xl font-semibold">
+              ${stats.askingTotal.toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {stats.forSaleCount} records at asking price
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">Sold</p>
+            <p className="mt-1 text-2xl font-semibold text-green-400">
+              ${stats.soldTotal.toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {stats.soldCount} records · uses final sold price when entered
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">Hidden</p>
+            <p className="mt-1 text-2xl font-semibold text-neutral-300">
+              ${stats.hiddenTotal.toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {stats.hiddenCount} records not shown on the site
+            </p>
+          </div>
+        </div>
 
         {/* Reddit tools */}
         <h2 className="mt-10 text-xl font-medium">Reddit tools</h2>
