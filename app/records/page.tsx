@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SELLER_INFO } from "@/lib/records";
+import { createServerSupabase, type DbRecord } from "@/lib/supabase";
 import RecordsClient from "./records-client";
 
 export const metadata: Metadata = {
@@ -8,7 +9,20 @@ export const metadata: Metadata = {
     "Vinyl records for sale from my personal collection. Graded to the Goldmine standard, shipped in proper LP mailers.",
 };
 
-export default function RecordsPage() {
+export const revalidate = 60;
+
+export default async function RecordsPage() {
+  const supabase = createServerSupabase();
+  const { data, error } = await supabase
+    .from("records")
+    .select(
+      "id, artist, title, pressing, media, sleeve, price, notes, photos, discogs_release_id, sold, listed, updated_at"
+    )
+    .eq("listed", true)
+    .order("artist");
+
+  const records = (data ?? []) as DbRecord[];
+
   return (
     <main className="min-h-screen bg-black text-white">
       <section className="mx-auto max-w-6xl px-4 py-12 md:px-8 md:py-16">
@@ -59,7 +73,14 @@ export default function RecordsPage() {
           </p>
         </div>
 
-        <RecordsClient />
+        {error ? (
+          <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8 text-neutral-300">
+            The record list is temporarily unavailable — please check back in a
+            minute.
+          </div>
+        ) : (
+          <RecordsClient records={records} />
+        )}
       </section>
     </main>
   );

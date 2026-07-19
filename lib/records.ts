@@ -1,13 +1,12 @@
 /*
  * ============================================================
- *  RECORDS FOR SALE — edit this file to manage listings
+ *  RECORDS FOR SALE — seed data + seller info
  * ============================================================
  *
- * To add a record: copy one of the blocks below, paste it into the
- * RECORDS list, and fill in your details. To mark something sold,
- * change `sold: false` to `sold: true` (it stays visible with a
- * SOLD badge until you delete it). Save, commit, and the /records
- * page and the Reddit table both update automatically.
+ * NOTE: Listings now live in Supabase and are managed from /admin.
+ * The RECORDS array below is the original seed data, kept for
+ * reference — editing it does NOT change the live site. SELLER_INFO
+ * is still live: it feeds the /records page header and Reddit table.
  *
  * Condition grades follow Goldmine: M, NM, VG+, VG, G+, G, F, P
  *

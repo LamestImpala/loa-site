@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RECORDS, SELLER_INFO } from "@/lib/records";
+import { SELLER_INFO } from "@/lib/records";
+import type { DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc";
 type FilterOption = "all" | "available" | "sold";
@@ -14,16 +15,16 @@ function cell(s: string | undefined) {
     .trim();
 }
 
-function requestToBuyUrl(r: { artist: string; title: string; pressing: string; price: number }) {
+function requestToBuyUrl(r: DbRecord) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
   const message = `Hi! I'd like to buy this record from your list:\n\n${r.artist} — ${r.title}\n${r.pressing}\n$${r.price}\n\nhttps://lateonsetaudiophile.com/records`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 
-function redditMarkdown() {
-  const list = RECORDS.filter((r) => !r.sold).sort((a, b) =>
-    (a.artist + a.title).localeCompare(b.artist + b.title)
-  );
+function redditMarkdown(records: DbRecord[]) {
+  const list = records
+    .filter((r) => !r.sold)
+    .sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title));
   const rows = list.map((r) => {
     const title = r.photos
       ? `[${cell(r.title)}](${r.photos.trim()})`
@@ -45,7 +46,7 @@ function redditMarkdown() {
   ].join("\n");
 }
 
-export default function RecordsClient() {
+export default function RecordsClient({ records }: { records: DbRecord[] }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("artist");
   const [filter, setFilter] = useState<FilterOption>("all");
@@ -53,7 +54,7 @@ export default function RecordsClient() {
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = RECORDS.filter((r) => {
+    const list = records.filter((r) => {
       if (filter === "available" && r.sold) return false;
       if (filter === "sold" && !r.sold) return false;
       if (!q) return true;
@@ -67,12 +68,12 @@ export default function RecordsClient() {
           : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
-  }, [query, sort, filter]);
+  }, [records, query, sort, filter]);
 
-  const available = RECORDS.filter((r) => !r.sold).length;
+  const available = records.filter((r) => !r.sold).length;
 
   async function copyRedditTable() {
-    const md = redditMarkdown();
+    const md = redditMarkdown(records);
     try {
       await navigator.clipboard.writeText(md);
       setCopied(true);
@@ -122,7 +123,7 @@ export default function RecordsClient() {
       </div>
 
       <p className="mt-4 text-sm text-neutral-400">
-        {visible.length} shown · {available} available of {RECORDS.length}{" "}
+        {visible.length} shown · {available} available of {records.length}{" "}
         listed
       </p>
 
@@ -132,9 +133,9 @@ export default function RecordsClient() {
         </div>
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((r, i) => (
+          {visible.map((r) => (
             <div
-              key={`${r.artist}-${r.title}-${r.pressing}-${i}`}
+              key={r.id}
               className={`relative rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-white/25 hover:bg-white/10 ${
                 r.sold ? "opacity-50" : ""
               }`}
@@ -162,11 +163,11 @@ export default function RecordsClient() {
               {r.notes ? (
                 <p className="mt-2 text-sm text-neutral-300">{r.notes}</p>
               ) : null}
-              {r.photos || r.discogsReleaseId ? (
+              {r.photos || r.discogs_release_id ? (
                 <p className="mt-2 flex gap-4 text-sm">
-                  {r.discogsReleaseId ? (
+                  {r.discogs_release_id ? (
                     <a
-                      href={`https://www.discogs.com/release/${r.discogsReleaseId}`}
+                      href={`https://www.discogs.com/release/${r.discogs_release_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-neutral-300 underline underline-offset-4 transition hover:text-white"
