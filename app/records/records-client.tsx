@@ -162,16 +162,28 @@ export default function RecordsClient() {
               {r.notes ? (
                 <p className="mt-2 text-sm text-neutral-300">{r.notes}</p>
               ) : null}
-              {r.photos ? (
-                <p className="mt-2 text-sm">
-                  <a
-                    href={r.photos}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-neutral-300 underline underline-offset-4 transition hover:text-white"
-                  >
-                    Photos
-                  </a>
+              {r.photos || r.discogsReleaseId ? (
+                <p className="mt-2 flex gap-4 text-sm">
+                  {r.discogsReleaseId ? (
+                    <a
+                      href={`https://www.discogs.com/release/${r.discogsReleaseId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-neutral-300 underline underline-offset-4 transition hover:text-white"
+                    >
+                      View on Discogs
+                    </a>
+                  ) : null}
+                  {r.photos ? (
+                    <a
+                      href={r.photos}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-neutral-300 underline underline-offset-4 transition hover:text-white"
+                    >
+                      Photos
+                    </a>
+                  ) : null}
                 </p>
               ) : null}
               {!r.sold && SELLER_INFO.redditUsername ? (

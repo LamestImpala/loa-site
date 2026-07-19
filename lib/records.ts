@@ -18,6 +18,7 @@
  *   media    – vinyl condition grade
  *   sleeve   – jacket condition grade
  *   price    – asking price in dollars (number only, no $)
+ *   discogsReleaseId – Discogs release ID, used to link to the listing
  *   notes    – anything a buyer should know (optional, can be "")
  *   photos   – link to an Imgur album or photo (optional, can be "")
  *   sold     – true or false
@@ -30,6 +31,7 @@ export type RecordListing = {
   media: string;
   sleeve: string;
   price: number;
+  discogsReleaseId?: number;
   notes: string;
   photos: string;
   sold: boolean;
@@ -54,6 +56,7 @@ export const SELLER_INFO: SellerInfo = {
 export const RECORDS: RecordListing[] = [
   // Discogs suggests $57 for NM · lowest listing $35 · 8 for sale · release 16426854
   {
+    discogsReleaseId: 16426854,
     artist: "A Perfect Circle",
     title: "Eat The Elephant",
     pressing: "2020 · BMG 5383743105 · Reissue",
@@ -66,6 +69,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $67 for M · lowest listing $29 · 19 for sale · release 23308694
   {
+    discogsReleaseId: 23308694,
     artist: "A Perfect Circle",
     title: "Mer De Noms",
     pressing: "2022 · Virgin 7243 8 49253 1 4 · Mispress, Reissue",
@@ -78,6 +82,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $191 for M · lowest listing $125 · 14 for sale · release 35485681
   {
+    discogsReleaseId: 35485681,
     artist: "A Perfect Circle",
     title: "Mer De Noms",
     pressing: "2025 · Virgin DSS 2 · Reissue",
@@ -90,6 +95,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for NM · lowest listing $35 · 78 for sale · release 6434663
   {
+    discogsReleaseId: 6434663,
     artist: "A Perfect Circle",
     title: "Thirteenth Step",
     pressing: "2014 · Music On Vinyl MOVLP1114 · Reissue",
@@ -102,6 +108,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for M · lowest listing $7 · 82 for sale · release 20862265
   {
+    discogsReleaseId: 20862265,
     artist: "ABBA",
     title: "Voyage",
     pressing: "2021 · Polar 00602438690701 · Limited Edition",
@@ -114,18 +121,20 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG+ · lowest listing $18 · 10 for sale · release 10343499
   {
+    discogsReleaseId: 10343499,
     artist: "AC/DC",
     title: "Back In Black",
     pressing: "Columbia E 80207 · Reissue, Remastered",
     media: "VG+",
     sleeve: "VG+",
     price: 25,
-    notes: "TODO: grades assumed VG+, verify",
+    notes: "",
     photos: "",
     sold: false,
   },
   // Discogs suggests $79 for M · lowest listing $11 · 18 for sale · release 21099064
   {
+    discogsReleaseId: 21099064,
     artist: "Adele",
     title: "30",
     pressing: "2021 · Columbia 19439937971",
@@ -138,6 +147,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $103 for M · lowest listing $45 · 53 for sale · release 37601889
   {
+    discogsReleaseId: 37601889,
     artist: "AFI",
     title: "Decemberunderground",
     pressing: "2026 · Interscope Records 00199957798525 · 45 RPM, Club Edition, Limited Edition, Numbered, Reissue",
@@ -150,6 +160,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $28 · 15 for sale · release 7119823
   {
+    discogsReleaseId: 7119823,
     artist: "AIR",
     title: "10 000 Hz Legend",
     pressing: "2015 · Parlophone RP1 103324 · Reissue",
@@ -162,6 +173,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $96 for M · lowest listing $50 · 26 for sale · release 26016160
   {
+    discogsReleaseId: 26016160,
     artist: "AIR",
     title: "Moon Safari",
     pressing: "2023 · Parlophone 190296159305 · Club Edition, Reissue, Remastered",
@@ -174,6 +186,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for NM · lowest listing $25 · 71 for sale · release 37076820
   {
+    discogsReleaseId: 37076820,
     artist: "AIR",
     title: "Moon Safari (The Athens Concert)",
     pressing: "2026 · Aircheology 5026854162331 · Record Store Day, Limited Edition",
@@ -186,6 +199,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for M · lowest listing $17 · 157 for sale · release 7066979
   {
+    discogsReleaseId: 7066979,
     artist: "AIR",
     title: "Talkie Walkie",
     pressing: "2015 · Parlophone 72435 966001 1 · Reissue",
@@ -198,6 +212,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $62 for M · lowest listing $15 · 12 for sale · release 27201600
   {
+    discogsReleaseId: 27201600,
     artist: "Alan Menken, Lin-Manuel Miranda, Howard Ashman",
     title: "The Little Mermaid",
     pressing: "2023 · Walt Disney Records 004226601 · Limited Edition",
@@ -210,6 +225,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for VG+ · lowest listing $29 · 32 for sale · release 15354273
   {
+    discogsReleaseId: 15354273,
     artist: "Alanis Morissette",
     title: "Jagged Little Pill",
     pressing: "2020 · Maverick RCV1 45901 · Limited Edition, Reissue",
@@ -222,6 +238,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $61 for M · lowest listing $32 · 43 for sale · release 7156255
   {
+    discogsReleaseId: 7156255,
     artist: "Alanis Morissette",
     title: "Jagged Little Pill Acoustic",
     pressing: "2014 · Music On Vinyl MOVLP1229",
@@ -234,6 +251,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $165 for NM · lowest listing $49 · 36 for sale · release 36154351
   {
+    discogsReleaseId: 36154351,
     artist: "Alice In Chains",
     title: "Alice In Chains",
     pressing: "2026 · Columbia 19802848691 · Limited Edition, Reissue",
@@ -246,6 +264,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for M · lowest listing $26 · 179 for sale · release 24592160
   {
+    discogsReleaseId: 24592160,
     artist: "Alice In Chains",
     title: "Dirt",
     pressing: "2022 · Columbia 19439953541 · Reissue, Remastered",
@@ -258,6 +277,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for M · lowest listing $15 · 113 for sale · release 30106898
   {
+    discogsReleaseId: 30106898,
     artist: "Alice In Chains",
     title: "Jar Of Flies",
     pressing: "2024 · Columbia 19658800371 · EP, Reissue, Remastered",
@@ -270,6 +290,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $164 for M · none for sale · 0 for sale · release 28664530
   {
+    discogsReleaseId: 28664530,
     artist: "Alice In Chains",
     title: "Jar Of Flies/Sap (With Bonus Tracks)",
     pressing: "2023 · Not On Label (Alice In Chains) 4757131 · Reissue, Repress, Unofficial Release",
@@ -282,6 +303,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $142 for M · none for sale · 0 for sale · release 26374904
   {
+    discogsReleaseId: 26374904,
     artist: "Alice In Chains",
     title: "MTV Unplugged ",
     pressing: "2023 · Not On Label 484300 1 · Unofficial Release",
@@ -294,6 +316,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for M · lowest listing $24 · 45 for sale · release 20525341
   {
+    discogsReleaseId: 20525341,
     artist: "Amy Winehouse",
     title: "Back To Black",
     pressing: "2021 · Island Records 3579647 · Picture Disc, Reissue",
@@ -306,6 +329,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $171 for NM · none for sale · 0 for sale · release 33999126
   {
+    discogsReleaseId: 33999126,
     artist: "Angels & Airwaves",
     title: "I-Empire",
     pressing: "2025 · Geffen Records 00602478099847 · 45 RPM, Club Edition, Deluxe Edition, Limited Edition, Numbered, Reissue",
@@ -318,6 +342,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for M · lowest listing $11 · 11 for sale · release 27109449
   {
+    discogsReleaseId: 27109449,
     artist: "Angels & Airwaves",
     title: "Stomping The Phantom Brake Pedal",
     pressing: "2023 · To The Stars RISE 513 · 12\", 33 ⅓ RPM, EP, Limited Edition",
@@ -330,6 +355,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $63 for M · lowest listing $32 · 191 for sale · release 6095128
   {
+    discogsReleaseId: 6095128,
     artist: "Aphex Twin",
     title: "Syro",
     pressing: "2014 · Warp Records WARPLP247 · 12\", 33 ⅓ RPM",
@@ -342,6 +368,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for M · lowest listing $18 · 82 for sale · release 14693400
   {
+    discogsReleaseId: 14693400,
     artist: "Art Blakey & The Jazz Messengers",
     title: "Buhaina's Delight",
     pressing: "2020 · Blue Note 0838208 · Reissue",
@@ -354,6 +381,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $128 for NM · lowest listing $75 · 17 for sale · release 34404652
   {
+    discogsReleaseId: 34404652,
     artist: "Audioslave",
     title: "Out Of Exile",
     pressing: "2025 · Interscope Records 602478339172 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -366,6 +394,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $24 for VG+ · lowest listing $30 · 5 for sale · release 31614811
   {
+    discogsReleaseId: 31614811,
     artist: "Awolnation",
     title: "The Phantom Five",
     pressing: "2024 · Two Twenty Five Music",
@@ -378,6 +407,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $69 for M · lowest listing $33 · 16 for sale · release 31267862
   {
+    discogsReleaseId: 31267862,
     artist: "Bad Company",
     title: "Bad Company",
     pressing: "2024 · Rhino Records (2) RHF1 8410 · Limited Edition, Numbered, Reissue",
@@ -390,6 +420,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for M · lowest listing $17 · 28 for sale · release 20495107
   {
+    discogsReleaseId: 20495107,
     artist: "Band Of Horses",
     title: "Cease To Begin",
     pressing: "2017 · Sub Pop SP 745 · Reissue",
@@ -402,6 +433,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for M · lowest listing $31 · 5 for sale · release 22725593
   {
+    discogsReleaseId: 22725593,
     artist: "Barrie",
     title: "Barbara",
     pressing: "2022 · Winspear WSP045 · Club Edition, Limited Edition, Numbered",
@@ -414,6 +446,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $24 for M · lowest listing $25 · 2 for sale · release 23999483
   {
+    discogsReleaseId: 23999483,
     artist: "Beach Fossils",
     title: "Somersault",
     pressing: "2021 · Bayonet Records BR-014 · Reissue",
@@ -426,6 +459,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG+ · lowest listing $17 · 34 for sale · release 11248010
   {
+    discogsReleaseId: 11248010,
     artist: "Beastie Boys",
     title: "To The 5 Boroughs",
     pressing: "2017 · Capitol Records B0026992-01 · Reissue",
@@ -438,6 +472,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for VG+ · lowest listing $8 · 63 for sale · release 17909131
   {
+    discogsReleaseId: 17909131,
     artist: "Beck",
     title: "Hyperspace (2020)",
     pressing: "2021 · Fonograf (3) B003283601 · Limited Edition",
@@ -450,6 +485,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $130 for VG+ · lowest listing $110 · 9 for sale · release 35941699
   {
+    discogsReleaseId: 35941699,
     artist: "Beck",
     title: "Morning Phase",
     pressing: "2025 · Capitol Records 602478399817 · Reissue",
@@ -462,6 +498,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for M · lowest listing $29 · 77 for sale · release 9429675
   {
+    discogsReleaseId: 9429675,
     artist: "Beck",
     title: "Sea Change",
     pressing: "2016 · DGC 00602557034905 · Reissue",
@@ -474,6 +511,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for M · lowest listing $28 · 4 for sale · release 11994005
   {
+    discogsReleaseId: 11994005,
     artist: "Beck",
     title: "Sea Change",
     pressing: "2012 · Geffen Records UICY-25180 · Reissue, Remastered",
@@ -486,6 +524,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $34 · 19 for sale · release 34349269
   {
+    discogsReleaseId: 34349269,
     artist: "Benson Boone",
     title: "American Heart",
     pressing: "2025 · Warner Records 093624834533 · Limited Edition, Numbered",
@@ -498,6 +537,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $52 for NM · lowest listing $22 · 44 for sale · release 19676680
   {
+    discogsReleaseId: 19676680,
     artist: "Billie Eilish",
     title: "Happier Than Ever",
     pressing: "2021 · Interscope Records B0033887-01",
@@ -510,6 +550,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for M · lowest listing $8 · 23 for sale · release 28722319
   {
+    discogsReleaseId: 28722319,
     artist: "Black Pumas",
     title: "Chronicles Of A Diamond",
     pressing: "2023 · ATO Records ATO0654",
@@ -522,6 +563,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $106 for M · lowest listing $32 · 87 for sale · release 31231972
   {
+    discogsReleaseId: 31231972,
     artist: "Black Sabbath",
     title: "Black Sabbath",
     pressing: "2024 · Rhino Records (2) RHF1 1871 · Limited Edition, Reissue",
@@ -534,6 +576,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $131 for M · lowest listing $70 · 24 for sale · release 29434147
   {
+    discogsReleaseId: 29434147,
     artist: "Black Sabbath",
     title: "Master Of Reality",
     pressing: "2024 · Warner Records 081227818999 · Club Edition, Reissue",
@@ -546,6 +589,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $166 for NM · lowest listing $68 · 16 for sale · release 33448895
   {
+    discogsReleaseId: 33448895,
     artist: "Black Sabbath",
     title: "Paranoid",
     pressing: "2025 · Rhino Records (2) RHF1 3104 · Limited Edition, Numbered, Reissue",
@@ -558,6 +602,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for M · lowest listing $26 · 7 for sale · release 30372395
   {
+    discogsReleaseId: 30372395,
     artist: "Blink-182",
     title: "Cheshire Cat",
     pressing: "Geffen Records B0025293-01 · Reissue",
@@ -570,6 +615,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $66 for M · lowest listing $17 · 33 for sale · release 24287375
   {
+    discogsReleaseId: 24287375,
     artist: "Blossom Dearie",
     title: "Blossom Dearie",
     pressing: "2022 · Verve Records B0028934-01 · Club Edition, Reissue, Repress",
@@ -582,6 +628,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $284 for M · lowest listing $175 · 36 for sale · release 26029267
   {
+    discogsReleaseId: 26029267,
     artist: "Bob Marley & The Wailers",
     title: "Exodus",
     pressing: "2023 · Analogue Productions UHQR 0016 · Numbered, Reissue, Remastered",
@@ -594,6 +641,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $40 for NM · lowest listing $14 · 37 for sale · release 10909305
   {
+    discogsReleaseId: 10909305,
     artist: "Bon Iver",
     title: "Bon Iver, Bon Iver",
     pressing: "2016 · Jagjaguwar JAG135 · Reissue",
@@ -606,6 +654,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $81 for VG+ · lowest listing $9 · 29 for sale · release 13125386
   {
+    discogsReleaseId: 13125386,
     artist: "Boston",
     title: "Boston",
     pressing: "1976 · Epic PE 34188",
@@ -618,6 +667,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $142 for M · lowest listing $78 · 21 for sale · release 33131748
   {
+    discogsReleaseId: 33131748,
     artist: "Brand New",
     title: "The Devil And God Are Raging Inside Me",
     pressing: "2025 · Interscope Records 602475681908 · Reissue, Repress",
@@ -630,6 +680,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for VG+ · lowest listing $16 · 121 for sale · release 9369419
   {
+    discogsReleaseId: 9369419,
     artist: "Bruno Mars",
     title: "XXIVK Magic",
     pressing: "2016 · Atlantic 558305-1",
@@ -642,6 +693,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $57 for M · lowest listing $20 · 17 for sale · release 7490118
   {
+    discogsReleaseId: 7490118,
     artist: "Buckcherry",
     title: "Fuck",
     pressing: "2014 · F-Bomb Records 1790021763 · 12\", EP",
@@ -654,6 +706,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $76 for NM · lowest listing $28 · 68 for sale · release 35138480
   {
+    discogsReleaseId: 35138480,
     artist: "Buckingham Nicks",
     title: "Buckingham Nicks",
     pressing: "2025 · Rhino Records (2) RHF1 727705 · Limited Edition, Reissue",
@@ -666,6 +719,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for NM · lowest listing $30 · 12 for sale · release 27267966
   {
+    discogsReleaseId: 27267966,
     artist: "Bush",
     title: "Sixteen Stone",
     pressing: "2023 · Round Hill Records RHMCDBSH005 · Reissue",
@@ -678,6 +732,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for M · lowest listing $16 · 23 for sale · release 15615736
   {
+    discogsReleaseId: 15615736,
     artist: "Cage The Elephant",
     title: "Melophobia",
     pressing: "2019 · RCA 88883-76277-1 · Reissue",
@@ -690,6 +745,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $28 for VG+ · lowest listing $20 · 69 for sale · release 20360281
   {
+    discogsReleaseId: 20360281,
     artist: "Candlebox",
     title: "Happy Pills",
     pressing: "2021 · Maverick MOVLP2911 · Limited Edition, Numbered",
@@ -702,6 +758,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $91 for M · lowest listing $72 · 3 for sale · release 30029866
   {
+    discogsReleaseId: 30029866,
     artist: "Capital Cities",
     title: "In A Tidal Wave Of Mystery",
     pressing: "2024 · Capitol Records 00602458699463 · Limited Edition, Reissue",
@@ -714,6 +771,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for VG+ · lowest listing $23 · 73 for sale · release 28365832
   {
+    discogsReleaseId: 28365832,
     artist: "Chappell Roan",
     title: "The Rise And Fall Of A Midwest Princess",
     pressing: "2023 · Island Records B0038016-01",
@@ -726,6 +784,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $127 for NM · lowest listing $40 · 46 for sale · release 37144419
   {
+    discogsReleaseId: 37144419,
     artist: "Chris Cornell",
     title: "Carry On",
     pressing: "2026 · Interscope Records 199957337984 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -738,6 +797,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $76 for M · lowest listing $53 · 37 for sale · release 7685806
   {
+    discogsReleaseId: 7685806,
     artist: "Chris Cornell",
     title: "Higher Truth",
     pressing: "2015 · UMe 0602547524065",
@@ -750,6 +810,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $18 for VG+ · lowest listing $17 · 12 for sale · release 20369842
   {
+    discogsReleaseId: 20369842,
     artist: "Chris Stapleton",
     title: "Traveller",
     pressing: "2022 · Mercury Nashville B0033977-01",
@@ -762,6 +823,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for NM · lowest listing $20 · 31 for sale · release 15718025
   {
+    discogsReleaseId: 15718025,
     artist: "Collective Soul",
     title: "Collective Soul",
     pressing: "2020 · Craft Recordings CR00290 · Reissue",
@@ -774,6 +836,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for NM · lowest listing $26 · 25 for sale · release 15718066
   {
+    discogsReleaseId: 15718066,
     artist: "Collective Soul",
     title: "Hints Allegations And Things Left Unsaid",
     pressing: "2020 · Craft Recordings CR02559 · Reissue",
@@ -786,6 +849,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for NM · lowest listing $25 · 51 for sale · release 35786725
   {
+    discogsReleaseId: 35786725,
     artist: "Creed",
     title: "Live In San Antonio",
     pressing: "2025 · Craft Recordings CR00881 · Record Store Day, Limited Edition",
@@ -798,6 +862,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $53 for M · lowest listing $35 · 6 for sale · release 25351351
   {
+    discogsReleaseId: 25351351,
     artist: "Creed",
     title: "My Own Prison",
     pressing: "2022 · Wind-Up CR00495 · Reissue, Remastered",
@@ -810,6 +875,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG+ · lowest listing $2 · 119 for sale · release 1065210
   {
+    discogsReleaseId: 1065210,
     artist: "Crosby & Nash",
     title: "Wind On The Water",
     pressing: "1975 · ABC Records ABCD-902",
@@ -822,6 +888,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $9 for VG+ · lowest listing $1 · 128 for sale · release 2136131
   {
+    discogsReleaseId: 2136131,
     artist: "Crosby, Stills & Nash",
     title: "Allies",
     pressing: "1983 · Atlantic 80075-1",
@@ -834,6 +901,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $74 for NM · lowest listing $60 · 6 for sale · release 35788978
   {
+    discogsReleaseId: 35788978,
     artist: "Curtis Mayfield",
     title: "Curtis",
     pressing: "2025 · Rhino Records (2) RES1 728204 · Record Store Day, Limited Edition, Reissue",
@@ -846,6 +914,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $175 for NM · lowest listing $50 · 22 for sale · release 35708701
   {
+    discogsReleaseId: 35708701,
     artist: "D12",
     title: "Devil's Night",
     pressing: "2025 · Shady Records 602488159425 · Club Edition, Deluxe Edition, Limited Edition, Numbered, Reissue",
@@ -858,6 +927,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $66 for M · lowest listing $29 · 78 for sale · release 28924120
   {
+    discogsReleaseId: 28924120,
     artist: "Daft Punk",
     title: "Random Access Memories (Drumless Edition)",
     pressing: "2023 · Columbia 19658808331",
@@ -870,6 +940,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $65 for M · lowest listing $10 · 84 for sale · release 18643519
   {
+    discogsReleaseId: 18643519,
     artist: "DARKSIDE",
     title: "Psychic",
     pressing: "2021 · Other People OP003 · 45 RPM, Club Edition, Reissue, Remastered",
@@ -882,6 +953,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for NM · lowest listing $45 · 44 for sale · release 36242092
   {
+    discogsReleaseId: 36242092,
     artist: "Dashboard Confessional",
     title: "A Mark ● A Mission ● A Brand ● A Scar",
     pressing: "2026 · Interscope Records 602488084840 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -894,6 +966,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $48 for NM · lowest listing $34 · 38 for sale · release 28791859
   {
+    discogsReleaseId: 28791859,
     artist: "Dave Matthews Band",
     title: "Before These Crowded Streets",
     pressing: "2023 · Legacy SNYL-599015 · Reissue",
@@ -906,6 +979,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for NM · lowest listing $20 · 43 for sale · release 14703041
   {
+    discogsReleaseId: 14703041,
     artist: "Dave Matthews Band",
     title: "Big Whiskey And The GrooGrux King",
     pressing: "2009 · RCA 88697-48712-1",
@@ -918,6 +992,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for VG+ · lowest listing $25 · 57 for sale · release 8772005
   {
+    discogsReleaseId: 8772005,
     artist: "Dave Matthews Band",
     title: "Crash",
     pressing: "2016 · Bama Rags Records 88875189401 · Reissue, Remastered",
@@ -930,6 +1005,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for NM · lowest listing $30 · 55 for sale · release 12075393
   {
+    discogsReleaseId: 12075393,
     artist: "Dave Matthews Band",
     title: "Under The Table And Dreaming",
     pressing: "2018 · Bama Rags Records 88875022921 · Remastered, Repress",
@@ -942,6 +1018,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for NM · lowest listing $11 · 60 for sale · release 27129510
   {
+    discogsReleaseId: 27129510,
     artist: "Dave Matthews Band",
     title: "Walk Around The Moon ",
     pressing: "2023 · RCA 19658-79540-1",
@@ -954,6 +1031,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $121 for M · lowest listing $96 · 12 for sale · release 11287390
   {
+    discogsReleaseId: 11287390,
     artist: "Dave Matthews, Tim Reynolds",
     title: "Live At Luther College",
     pressing: "2018 · RCA 8898547554-1",
@@ -966,6 +1044,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for M · lowest listing $5 · 226 for sale · release 8527561
   {
+    discogsReleaseId: 8527561,
     artist: "David Bowie",
     title: "ChangesOneBowie",
     pressing: "2016 · Parlophone COBLP 2016 · Compilation, Reissue",
@@ -978,6 +1057,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $13 for VG+ · lowest listing $8 · 8 for sale · release 27971658
   {
+    discogsReleaseId: 27971658,
     artist: "David Gilmour",
     title: "About Face",
     pressing: "1984 · Columbia FC 39296",
@@ -990,6 +1070,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $114 for M · lowest listing $63 · 109 for sale · release 10920062
   {
+    discogsReleaseId: 10920062,
     artist: "David Gilmour",
     title: "Live At Pompeii",
     pressing: "2017 · Columbia 88985464971",
@@ -1002,6 +1083,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for VG+ · lowest listing $29 · 21 for sale · release 31692464
   {
+    discogsReleaseId: 31692464,
     artist: "David Gilmour",
     title: "Luck And Strange",
     pressing: "2024 · Sony Music 19802804611",
@@ -1014,6 +1096,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $135 for NM · lowest listing $90 · 13 for sale · release 35402056
   {
+    discogsReleaseId: 35402056,
     artist: "David Gilmour",
     title: "The Luck And Strange Concerts",
     pressing: "2025 · Sony Music 19802928951",
@@ -1026,6 +1109,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for NM · lowest listing $5 · 56 for sale · release 16000758
   {
+    discogsReleaseId: 16000758,
     artist: "Dawes",
     title: "Good Luck With Whatever",
     pressing: "2020 · Rounder Records 1166101019",
@@ -1038,6 +1122,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for NM · lowest listing $50 · 11 for sale · release 9326923
   {
+    discogsReleaseId: 9326923,
     artist: "Dean Ween Group",
     title: "The Deaner Album",
     pressing: "2016 · ATO Records 08822669913",
@@ -1050,6 +1135,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $76 for M · lowest listing $21 · 10 for sale · release 27224952
   {
+    discogsReleaseId: 27224952,
     artist: "Death Cab For Cutie",
     title: "Narrow Stairs",
     pressing: "2023 · Barsuk Records BARK75 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -1062,6 +1148,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $96 for M · lowest listing $75 · 8 for sale · release 27216318
   {
+    discogsReleaseId: 27216318,
     artist: "Death Cab For Cutie",
     title: "Plans",
     pressing: "2023 · Barsuk Records bark 47 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -1074,6 +1161,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $62 for M · lowest listing $52 · 18 for sale · release 27353475
   {
+    discogsReleaseId: 27353475,
     artist: "Death Cab For Cutie",
     title: "Transatlanticism",
     pressing: "2023 · Barsuk Records BARK32LP · Club Edition, Reissue",
@@ -1086,6 +1174,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for M · lowest listing $44 · 6 for sale · release 27279201
   {
+    discogsReleaseId: 27279201,
     artist: "Death Cab For Cutie",
     title: "We Have The Facts And We're Voting Yes",
     pressing: "2023 · Barsuk Records bark11lp · Club Edition, Limited Edition, Numbered, Reissue, Repress",
@@ -1098,6 +1187,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for VG+ · lowest listing $20 · 103 for sale · release 23137115
   {
+    discogsReleaseId: 23137115,
     artist: "Def Leppard",
     title: "Pyromania",
     pressing: "2022 · UMC 5777362 · Reissue, Remastered",
@@ -1110,6 +1200,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for NM · lowest listing $28 · 27 for sale · release 29395981
   {
+    discogsReleaseId: 29395981,
     artist: "Deftones",
     title: "White Pony",
     pressing: "2023 · Maverick 093624964667 · Reissue, Repress",
@@ -1122,6 +1213,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for NM · lowest listing $60 · 1 for sale · release 37817520
   {
+    discogsReleaseId: 37817520,
     artist: "Dire Straits",
     title: "Brothers In Arms",
     pressing: "2026 · Mobile Fidelity Sound Lab MFSL 2-441 · 12\", 45 RPM, Limited Edition, Numbered, Reissue, Remastered",
@@ -1134,6 +1226,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $68 for VG+ · lowest listing $5 · 55 for sale · release 3705797
   {
+    discogsReleaseId: 3705797,
     artist: "Dire Straits",
     title: "Brothers In Arms",
     pressing: "1985 · Warner Bros. Records 9 W1-25264 · Club Edition",
@@ -1146,6 +1239,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $71 for VG+ · lowest listing $20 · 76 for sale · release 14392221
   {
+    discogsReleaseId: 14392221,
     artist: "Dire Straits",
     title: "Communiqué",
     pressing: "2019 · Mobile Fidelity Sound Lab MFSL 2-467 · 12\", 45 RPM, Numbered, Reissue, Remastered, Special Edition",
@@ -1158,6 +1252,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $13 for VG · lowest listing $8 · 57 for sale · release 6959311
   {
+    discogsReleaseId: 6959311,
     artist: "Dire Straits",
     title: "Communiqué",
     pressing: "1979 · Warner Bros. Records HS 3330",
@@ -1170,6 +1265,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $104 for M · lowest listing $50 · 77 for sale · release 14391974
   {
+    discogsReleaseId: 14391974,
     artist: "Dire Straits",
     title: "Dire Straits",
     pressing: "2019 · Mobile Fidelity Sound Lab MFSL 2-466 · 12\", 45 RPM, Numbered, Reissue, Remastered, Special Edition",
@@ -1182,6 +1278,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $20 for VG · lowest listing $10 · 29 for sale · release 6516631
   {
+    discogsReleaseId: 6516631,
     artist: "Dire Straits",
     title: "Dire Straits",
     pressing: "1978 · Warner Bros. Records BSK 3266",
@@ -1194,6 +1291,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $84 for NM · lowest listing $80 · 3 for sale · release 34215715
   {
+    discogsReleaseId: 34215715,
     artist: "Dire Straits",
     title: "Love Over Gold",
     pressing: "2024 · Mobile Fidelity Sound Lab MFSL 2-469 · 12\", 45 RPM, Numbered, Reissue, Remastered, Repress, Special Edition",
@@ -1206,6 +1304,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $50 for VG+ · lowest listing $8 · 52 for sale · release 2883331
   {
+    discogsReleaseId: 2883331,
     artist: "Dire Straits",
     title: "Love Over Gold",
     pressing: "1982 · Warner Bros. Records 1-23728",
@@ -1218,6 +1317,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $26 for VG · lowest listing $10 · 29 for sale · release 6878167
   {
+    discogsReleaseId: 6878167,
     artist: "Dire Straits",
     title: "Making Movies",
     pressing: "1980 · Warner Bros. Records BSK 3480",
@@ -1230,6 +1330,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $90 for NM · lowest listing $60 · 35 for sale · release 29432527
   {
+    discogsReleaseId: 29432527,
     artist: "Dire Straits",
     title: "On Every Street",
     pressing: "2024 · Mobile Fidelity Sound Lab MFSL2-510 · 45 RPM, Numbered, Reissue, Remastered, Special Edition",
@@ -1242,6 +1343,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $6 for VG+ · lowest listing $5 · 10 for sale · release 21646693
   {
+    discogsReleaseId: 21646693,
     artist: "Dolly Parton",
     title: "In The Beginning",
     pressing: "1978 · Monument MG 7623 · Compilation",
@@ -1254,6 +1356,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for NM · lowest listing $20 · 11 for sale · release 30416027
   {
+    discogsReleaseId: 30416027,
     artist: "Dombrance",
     title: "Double Trouble",
     pressing: "2024 · Discolypso (2) DLYPSO020 · 12\", 33 ⅓ RPM",
@@ -1266,6 +1369,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $112 for NM · none for sale · 0 for sale · release 32050923
   {
+    discogsReleaseId: 32050923,
     artist: "Dombrance",
     title: "Make America Dance Again",
     pressing: "2023 · Universal Music France 4003276154 · 12\", 33 ⅓ RPM, Limited Edition",
@@ -1278,6 +1382,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $119 for M · lowest listing $109 · 1 for sale · release 23454137
   {
+    discogsReleaseId: 23454137,
     artist: "Dombrance",
     title: "République Electronique",
     pressing: "2022 · Echo Orange",
@@ -1290,6 +1395,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for NM · lowest listing $22 · 4 for sale · release 23796860
   {
+    discogsReleaseId: 23796860,
     artist: "Drugdealer",
     title: "The End of Comedy",
     pressing: "2022 · Weird World (2) Weird049LP · Club Edition, Limited Edition, Numbered, Reissue",
@@ -1302,6 +1408,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for VG+ · lowest listing $22 · 4 for sale · release 4753827
   {
+    discogsReleaseId: 4753827,
     artist: "Eagles",
     title: "Eagles",
     pressing: "1975 · Asylum Records SD-5054 · Club Edition, Reissue",
@@ -1314,6 +1421,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $16 for VG+ · lowest listing $12 · 20 for sale · release 13841065
   {
+    discogsReleaseId: 13841065,
     artist: "Eagles",
     title: "Eagles Live",
     pressing: "1980 · Asylum Records BB-705",
@@ -1326,6 +1434,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for M · lowest listing $29 · 81 for sale · release 13313629
   {
+    discogsReleaseId: 13313629,
     artist: "Eagles",
     title: "Hell Freezes Over",
     pressing: "2019 · Geffen Records 00602577189852 · Reissue, Remastered",
@@ -1338,6 +1447,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $30 for NM · lowest listing $4 · 2 for sale · release 6418252
   {
+    discogsReleaseId: 6418252,
     artist: "Eagles",
     title: "Hotel California",
     pressing: "Asylum Records 6EC-103 · Club Edition, Reissue",
@@ -1350,6 +1460,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for NM · lowest listing $45 · 1 for sale · release 25678390
   {
+    discogsReleaseId: 25678390,
     artist: "Earth, Wind & Fire",
     title: "The Best Of Earth Wind & Fire Vol. I",
     pressing: "2023 · ARC (3) 19658707301 · Compilation, Reissue",
@@ -1362,6 +1473,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $205 for VG+ · lowest listing $172 · 36 for sale · release 2485033
   {
+    discogsReleaseId: 2485033,
     artist: "Eddie Vedder",
     title: "Into The Wild",
     pressing: "2010 · Music On Vinyl MOVLP166 · Reissue",
@@ -1374,6 +1486,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for M · lowest listing $12 · 94 for sale · release 23134349
   {
+    discogsReleaseId: 23134349,
     artist: "Eddie Vedder",
     title: "Ukulele Songs",
     pressing: "2022 · Monkeywrench Records 00602445028825 · Reissue",
@@ -1386,6 +1499,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for M · lowest listing $15 · 33 for sale · release 18171994
   {
+    discogsReleaseId: 18171994,
     artist: "Eddie Vedder",
     title: "Wildflowers / Keep Me In Your Heart",
     pressing: "2021 · Ten Club TC-2017 · 7\", 45 RPM, Single, Club Edition",
@@ -1398,6 +1512,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for M · lowest listing $9 · 28 for sale · release 12938508
   {
+    discogsReleaseId: 12938508,
     artist: "Edie Brickell & New Bohemians",
     title: "Rocket",
     pressing: "2018 · Verve Forecast B0029220-01",
@@ -1410,6 +1525,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $94 for NM · lowest listing $60 · 17 for sale · release 33721242
   {
+    discogsReleaseId: 33721242,
     artist: "Elastica",
     title: "Elastica",
     pressing: "2025 · Geffen Records 602478045257 · Reissue",
@@ -1422,6 +1538,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for VG+ · lowest listing $3 · 12 for sale · release 8871867
   {
+    discogsReleaseId: 8871867,
     artist: "Electric Light Orchestra",
     title: "On The Third Day",
     pressing: "1973 · United Artists Records UA-LA188-F",
@@ -1434,6 +1551,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $55 for M · lowest listing $17 · 52 for sale · release 23904962
   {
+    discogsReleaseId: 23904962,
     artist: "Ella Fitzgerald, Louis Armstrong",
     title: "Ella And Louis",
     pressing: "2022 · Verve Records B0033748-01 · Reissue, Remastered",
@@ -1446,6 +1564,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $116 for M · lowest listing $59 · 15 for sale · release 31522193
   {
+    discogsReleaseId: 31522193,
     artist: "Elliott Smith",
     title: "XO",
     pressing: "2024 · Geffen Records 602465767230 · Reissue",
@@ -1458,6 +1577,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $76 for M · lowest listing $58 · 35 for sale · release 12274323
   {
+    discogsReleaseId: 12274323,
     artist: "Eric Clapton",
     title: "Life In 12 Bars",
     pressing: "2018 · UMC 673 213-2 · Compilation, Remastered",
@@ -1470,6 +1590,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $15 for VG+ · lowest listing $8 · 3 for sale · release 12173957
   {
+    discogsReleaseId: 12173957,
     artist: "Eric Clapton",
     title: "Slowhand",
     pressing: "Polydor 823 276-1 · Reissue",
@@ -1482,6 +1603,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $88 for NM · lowest listing $33 · 29 for sale · release 36890995
   {
+    discogsReleaseId: 36890995,
     artist: "Flea",
     title: "Honora",
     pressing: "2026 · Nonesuch 075597893601",
@@ -1494,6 +1616,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $90 for M · lowest listing $30 · 39 for sale · release 29749999
   {
+    discogsReleaseId: 29749999,
     artist: "Fleetwood Mac",
     title: "Fleetwood Mac",
     pressing: "2024 · Reprise Records RCV1-725680 · Club Edition, Reissue",
@@ -1506,6 +1629,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $87 for NM · lowest listing $36 · 17 for sale · release 34786241
   {
+    discogsReleaseId: 34786241,
     artist: "Fleetwood Mac",
     title: "Fleetwood Mac",
     pressing: "2025 · Rhino Records (2) RHF1 2225 · Limited Edition, Numbered, Reissue",
@@ -1518,6 +1642,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $295 for M · lowest listing $80 · 17 for sale · release 11980094
   {
+    discogsReleaseId: 11980094,
     artist: "Fleetwood Mac",
     title: "Rumours",
     pressing: "2011 · Reprise Records 517787-1 · 12\", 45 RPM, Record Store Day, Limited Edition, Reissue",
@@ -1530,6 +1655,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for M · lowest listing $20 · 96 for sale · release 22040284
   {
+    discogsReleaseId: 22040284,
     artist: "Fleetwood Mac",
     title: "Rumours",
     pressing: "2021 · Warner Records 9362-49793-5 · Reissue, Repress",
@@ -1542,6 +1668,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for M · lowest listing $11 · 44 for sale · release 27271026
   {
+    discogsReleaseId: 27271026,
     artist: "Foo Fighters",
     title: "But Here We Are",
     pressing: "2023 · Roswell Records 19658-80113-1",
@@ -1554,6 +1681,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $106 for M · lowest listing $35 · 9 for sale · release 21079558
   {
+    discogsReleaseId: 21079558,
     artist: "Foo Fighters",
     title: "Greatest Hits",
     pressing: "2021 · Roswell Records 88697-36921-1 · Compilation, Limited Edition",
@@ -1566,6 +1694,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for M · lowest listing $26 · 12 for sale · release 15744805
   {
+    discogsReleaseId: 15744805,
     artist: "Foo Fighters",
     title: "Skin And Bones",
     pressing: "2011 · Roswell Records 88697983281RE1 · Reissue",
@@ -1578,6 +1707,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for M · lowest listing $26 · 96 for sale · release 30065119
   {
+    discogsReleaseId: 30065119,
     artist: "Four Tet",
     title: "Three",
     pressing: "2024 · Text Records TEXT056",
@@ -1590,6 +1720,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $15 for VG+ · lowest listing $20 · 3 for sale · release 5780241
   {
+    discogsReleaseId: 5780241,
     artist: "Frank Ellis, Denny Delk, Kevin Pollack, Teresa Tudury",
     title: "Golf The Album",
     pressing: "Not On Label",
@@ -1602,6 +1733,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $73 for NM · lowest listing $34 · 27 for sale · release 37083255
   {
+    discogsReleaseId: 37083255,
     artist: "Freeman",
     title: "Free·Man",
     pressing: "2026 · Partisan Records PTKF2114-5 · Record Store Day, Limited Edition, Reissue",
@@ -1614,6 +1746,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $96 for NM · lowest listing $85 · 31 for sale · release 36608578
   {
+    discogsReleaseId: 36608578,
     artist: "Frou Frou",
     title: "Details",
     pressing: "2026 · Interscope Records 199957090148 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -1626,6 +1759,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for NM · lowest listing $24 · 2 for sale · release 37218537
   {
+    discogsReleaseId: 37218537,
     artist: "Funkadelic",
     title: "Free Your Mind And Your Ass Will Follow",
     pressing: "2026 · Westbound Records WB 2001 · Limited Edition, Numbered, Reissue, Remastered",
@@ -1638,6 +1772,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for NM · lowest listing $23 · 48 for sale · release 34958123
   {
+    discogsReleaseId: 34958123,
     artist: "Funkadelic",
     title: "Funkadelic",
     pressing: "2025 · Westbound Records WB-2000 · 12\", 45 RPM, Reissue, Remastered",
@@ -1650,6 +1785,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $109 for M · lowest listing $57 · 8 for sale · release 26183516
   {
+    discogsReleaseId: 26183516,
     artist: "Funkadelic",
     title: "Maggot Brain",
     pressing: "2023 · Westbound Records HIQLP 2 096 · Reissue, Remastered",
@@ -1662,6 +1798,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $30 for NM · lowest listing $17 · 121 for sale · release 35209627
   {
+    discogsReleaseId: 35209627,
     artist: "Geese",
     title: "Getting Killed",
     pressing: "2025 · Partisan Records PTPS60LPX",
@@ -1674,6 +1811,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $11 for VG · lowest listing $3 · 41 for sale · release 4516356
   {
+    discogsReleaseId: 4516356,
     artist: "Genesis",
     title: "...And Then There Were Three...",
     pressing: "1978 · Atlantic SD 19173",
@@ -1686,6 +1824,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $28 for VG+ · lowest listing $20 · 29 for sale · release 12345619
   {
+    discogsReleaseId: 12345619,
     artist: "Genesis",
     title: "Selling England By The Pound",
     pressing: "2018 · Charisma 00602567490456 · Reissue, Remastered, Repress",
@@ -1698,6 +1837,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $20 · 20 for sale · release 9882456
   {
+    discogsReleaseId: 9882456,
     artist: "George Harrison",
     title: "Gone Troppo",
     pressing: "2017 · Dark Horse Records 5713657 · Reissue, Remastered",
@@ -1710,6 +1850,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $20 · 20 for sale · release 9882456
   {
+    discogsReleaseId: 9882456,
     artist: "George Harrison",
     title: "Gone Troppo",
     pressing: "2017 · Dark Horse Records 5713657 · Reissue, Remastered",
@@ -1722,6 +1863,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for M · lowest listing $19 · 48 for sale · release 28117261
   {
+    discogsReleaseId: 28117261,
     artist: "Gerry Rafferty",
     title: "City To City",
     pressing: "2023 · Parlophone 0190296282126",
@@ -1734,6 +1876,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for M · lowest listing $18 · 97 for sale · release 26994684
   {
+    discogsReleaseId: 26994684,
     artist: "Gil Evans And His Orchestra, Johnny Coles",
     title: "Great Jazz Standards",
     pressing: "2023 · World Pacific Records B0034361-01 · Reissue",
@@ -1746,6 +1889,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $8 · 35 for sale · release 24115190
   {
+    discogsReleaseId: 24115190,
     artist: "Glass Animals",
     title: "Dreamland",
     pressing: "2022 · Wolf Tone 80034117-01 · Limited Edition",
@@ -1758,6 +1902,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for NM · lowest listing $26 · 19 for sale · release 26590409
   {
+    discogsReleaseId: 26590409,
     artist: "Glass Animals",
     title: "How To Be A Human Being",
     pressing: "2023 · Harvest 2557001877JK02 · Repress",
@@ -1770,6 +1915,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for M · lowest listing $20 · 30 for sale · release 22474634
   {
+    discogsReleaseId: 22474634,
     artist: "Glass Animals",
     title: "ZABA",
     pressing: "2022 · Harvest 2537776955 · Repress",
@@ -1782,6 +1928,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $13 · 22 for sale · release 7570683
   {
+    discogsReleaseId: 7570683,
     artist: "Glen Hansard",
     title: "Didn't He Ramble ",
     pressing: "2015 · Anti- 87419-1",
@@ -1794,6 +1941,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for VG+ · lowest listing $3 · 50 for sale · release 7704207
   {
+    discogsReleaseId: 7704207,
     artist: "Glenn Frey",
     title: "No Fun Aloud",
     pressing: "1982 · Asylum Records E1-60129",
@@ -1806,6 +1954,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $85 for NM · lowest listing $65 · 11 for sale · release 18609937
   {
+    discogsReleaseId: 18609937,
     artist: "Gorillaz",
     title: "Demon Days",
     pressing: "2021 · Warner Records 190295859992 · Club Edition, Reissue, Repress",
@@ -1818,6 +1967,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for NM · lowest listing $29 · 61 for sale · release 20414716
   {
+    discogsReleaseId: 20414716,
     artist: "Gorillaz",
     title: "Gorillaz",
     pressing: "2021 · Parlophone 7243 531138 1 0 · Reissue, Special Cut",
@@ -1830,6 +1980,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for M · lowest listing $22 · 45 for sale · release 29824684
   {
+    discogsReleaseId: 29824684,
     artist: "Grandaddy",
     title: "Blu Wav",
     pressing: "2024 · Dangerbird Records DGB272 · Limited Edition",
@@ -1842,6 +1993,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $83 for M · lowest listing $100 · 1 for sale · release 27559695
   {
+    discogsReleaseId: 27559695,
     artist: "Grandaddy",
     title: "Sumday",
     pressing: "2023 · Dangerbird Records DGB253 · Limited Edition, Reissue",
@@ -1854,6 +2006,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $109 for M · lowest listing $95 · 3 for sale · release 26567162
   {
+    discogsReleaseId: 26567162,
     artist: "Grandaddy",
     title: "The Sophtware Slump",
     pressing: "2023 · Dangerbird Records DGB252-1 · Reissue",
@@ -1866,6 +2019,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for M · lowest listing $23 · 80 for sale · release 14314655
   {
+    discogsReleaseId: 14314655,
     artist: "Grant Green",
     title: "Born To Be Blue",
     pressing: "2019 · Blue Note B0030486-01 · Reissue",
@@ -1878,6 +2032,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $52 for M · lowest listing $30 · 10 for sale · release 21211873
   {
+    discogsReleaseId: 21211873,
     artist: "Green Day",
     title: "Greatest Hits: God's Favorite Band",
     pressing: "2021 · Reprise Records 564901-1 · Compilation, Reissue, Repress",
@@ -1890,6 +2045,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $28 for M · lowest listing $10 · 50 for sale · release 27723939
   {
+    discogsReleaseId: 27723939,
     artist: "Greta Van Fleet",
     title: "Starcatcher",
     pressing: "2023 · Republic Records B0037872-01",
@@ -1902,6 +2058,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for NM · lowest listing $33 · 121 for sale · release 15964384
   {
+    discogsReleaseId: 15964384,
     artist: "Guns N' Roses",
     title: "Greatest Hits",
     pressing: "2020 · Geffen Records 602507124793 · Compilation",
@@ -1914,6 +2071,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $57 for NM · lowest listing $34 · 21 for sale · release 21533920
   {
+    discogsReleaseId: 21533920,
     artist: "Guru",
     title: "Jazzmatazz (Volume 1)",
     pressing: "2018 · Virgin B0028048-01 · Reissue",
@@ -1926,6 +2084,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $92 for M · lowest listing $34 · 11 for sale · release 30049423
   {
+    discogsReleaseId: 30049423,
     artist: "Heart",
     title: "Little Queen",
     pressing: "2024 · Portrait 19658748021 · Club Edition, Reissue",
@@ -1938,6 +2097,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $85 for M · lowest listing $55 · 13 for sale · release 30866859
   {
+    discogsReleaseId: 30866859,
     artist: "Helmet",
     title: "Betty",
     pressing: "2024 · Interscope Records 602465367010",
@@ -1950,6 +2110,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for VG · lowest listing $1 · 27 for sale · release 6975142
   {
+    discogsReleaseId: 6975142,
     artist: "Herbie Mann",
     title: "Memphis Underground",
     pressing: "1969 · Atlantic SD 1522",
@@ -1962,6 +2123,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $18 for NM · lowest listing $3 · 47 for sale · release 6293131
   {
+    discogsReleaseId: 6293131,
     artist: "Herbie Mann",
     title: "Push Push",
     pressing: "1971 · Embryo Records SD 532 · Club Edition",
@@ -1974,6 +2136,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $149 for NM · lowest listing $190 · 5 for sale · release 35277334
   {
+    discogsReleaseId: 35277334,
     artist: "Hole",
     title: "Celebrity Skin",
     pressing: "2025 · DGC 602478806384 · Club Edition, Deluxe Edition, Limited Edition, Numbered, Reissue",
@@ -1986,6 +2149,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for M · lowest listing $15 · 5 for sale · release 21125536
   {
+    discogsReleaseId: 21125536,
     artist: "Houses",
     title: "Drugstore Heaven",
     pressing: "2021 · Downtown DR 42069 · Special Edition",
@@ -1998,6 +2162,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for M · lowest listing $20 · 30 for sale · release 4228045
   {
+    discogsReleaseId: 4228045,
     artist: "Incubus",
     title: "A Crow Left Of The Murder...",
     pressing: "2013 · Epic 88765404061 · Reissue",
@@ -2010,6 +2175,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $29 · 51 for sale · release 4228036
   {
+    discogsReleaseId: 4228036,
     artist: "Incubus",
     title: "Morning View",
     pressing: "2013 · Epic 88765404101 · Reissue",
@@ -2022,6 +2188,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $85 for NM · lowest listing $70 · 4 for sale · release 30670702
   {
+    discogsReleaseId: 30670702,
     artist: "Incubus",
     title: "Morning View XXIII",
     pressing: "2024 · Virgin 196922855313 · Limited Edition",
@@ -2034,6 +2201,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for NM · lowest listing $75 · 4 for sale · release 37260765
   {
+    discogsReleaseId: 37260765,
     artist: "INXS",
     title: "Kick",
     pressing: "2026 · Rhino Records (2) RHF1 81796 · Limited Edition, Numbered, Reissue",
@@ -2046,6 +2214,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for VG+ · lowest listing $30 · 8 for sale · release 30290111
   {
+    discogsReleaseId: 30290111,
     artist: "Jack Johnson",
     title: "Brushfire Fairytales",
     pressing: "2024 · Everloving EVE-120NB2 · Limited Edition, Reissue, Remastered",
@@ -2058,6 +2227,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $115 for NM · lowest listing $30 · 66 for sale · release 36766081
   {
+    discogsReleaseId: 36766081,
     artist: "James Blake",
     title: "Trying Times",
     pressing: "2026 · Good Boy Records (6) 198704834639 · Limited Edition",
@@ -2070,6 +2240,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for M · lowest listing $30 · 28 for sale · release 17040747
   {
+    discogsReleaseId: 17040747,
     artist: "Janet Jackson",
     title: "Number Ones",
     pressing: "2021 · A&M Records B0033136-01 · Compilation, Limited Edition, Reissue",
@@ -2082,6 +2253,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $30 for NM · lowest listing $25 · 21 for sale · release 18198031
   {
+    discogsReleaseId: 18198031,
     artist: "Japan",
     title: "Quiet Life",
     pressing: "2021 · BMG BMGCAT403CLP · Reissue, Remastered",
@@ -2094,6 +2266,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $26 for NM · lowest listing $15 · 31 for sale · release 10432621
   {
+    discogsReleaseId: 10432621,
     artist: "Jason Isbell And The 400 Unit",
     title: "The Nashville Sound",
     pressing: "2017 · Southeastern Records (2) SER99881 · Repress",
@@ -2106,6 +2279,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for NM · lowest listing $21 · 34 for sale · release 27326364
   {
+    discogsReleaseId: 27326364,
     artist: "Jason Isbell And The 400 Unit",
     title: "Weathervanes",
     pressing: "2023 · Thirty Tigers SER99961EXC",
@@ -2118,6 +2292,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $18 for VG+ · lowest listing $15 · 67 for sale · release 26839061
   {
+    discogsReleaseId: 26839061,
     artist: "Jason Isbell, Amanda Shires",
     title: "The Sound Emporium EP",
     pressing: "2023 · Southeastern Records (2) SER99951RSD · 12\", Single Sided, EP, Record Store Day, Etched",
@@ -2130,6 +2305,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $34 · 41 for sale · release 35293630
   {
+    discogsReleaseId: 35293630,
     artist: "Jason Isbell",
     title: "Something More Than Free",
     pressing: "2025 · Southeastern Records (2) SER998610YR · Reissue, Remastered",
@@ -2142,6 +2318,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for NM · lowest listing $23 · 64 for sale · release 26132159
   {
+    discogsReleaseId: 26132159,
     artist: "Jeff Buckley",
     title: "Grace",
     pressing: "2023 · Columbia 88875147701 · Reissue",
@@ -2154,6 +2331,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for NM · lowest listing $20 · 79 for sale · release 37098891
   {
+    discogsReleaseId: 37098891,
     artist: "Jeff Buckley",
     title: "Live A L'Olympia",
     pressing: "2026 · Columbia 19958414501 · Record Store Day, Limited Edition, Reissue",
@@ -2166,6 +2344,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $10 for M · lowest listing $1 · 7 for sale · release 13490791
   {
+    discogsReleaseId: 13490791,
     artist: "Jim Woods, Pamela Cisneros, Gene Cisneros",
     title: "Exercising Together: The Avolante Method",
     pressing: "1982 · Gateway Records GSLP-7621",
@@ -2178,6 +2357,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for VG+ · lowest listing $8 · 48 for sale · release 578056
   {
+    discogsReleaseId: 578056,
     artist: "Jimmy Buffett",
     title: "Changes In Latitudes Changes In Attitudes",
     pressing: "1977 · ABC Records AB-990",
@@ -2190,6 +2370,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for M · lowest listing $5 · 14 for sale · release 7537771
   {
+    discogsReleaseId: 7537771,
     artist: "Jimmy Buffett",
     title: "Coconut Telegraph",
     pressing: "1981 · MCA Records MCA-5169 · Repress",
@@ -2202,6 +2383,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $22 · 22 for sale · release 25973083
   {
+    discogsReleaseId: 25973083,
     artist: "JJ Grey & Mofro",
     title: "Country Ghetto ",
     pressing: "2023 · Alligator Records AL 4914 · Reissue",
@@ -2214,6 +2396,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $17 for NM · lowest listing $20 · 1 for sale · release 29913568
   {
+    discogsReleaseId: 29913568,
     artist: "JJ Grey & Mofro",
     title: "Olustee",
     pressing: "2024 · Alligator Records AL5018 · Limited Edition",
@@ -2226,6 +2409,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $85 for NM · lowest listing $50 · 12 for sale · release 33678090
   {
+    discogsReleaseId: 33678090,
     artist: "JJ Grey & Mofro",
     title: "Orange Blossoms",
     pressing: "2025 · Alligator Records AL 4925 · 45 RPM, Record Store Day, Deluxe Edition, Reissue, Remastered",
@@ -2238,6 +2422,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for VG+ · lowest listing $2 · 197 for sale · release 379910
   {
+    discogsReleaseId: 379910,
     artist: "Joe Walsh",
     title: "\"But Seriously, Folks...\"",
     pressing: "1978 · Asylum Records 6E-141",
@@ -2250,6 +2435,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $7 for VG · lowest listing $4 · 24 for sale · release 4966778
   {
+    discogsReleaseId: 4966778,
     artist: "Joe Walsh",
     title: "The Confessor",
     pressing: "1985 · Warner Bros. Records 9 25281-1",
@@ -2262,6 +2448,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $73 for NM · lowest listing $50 · 22 for sale · release 30698731
   {
+    discogsReleaseId: 30698731,
     artist: "Joe Walsh",
     title: "The Smoker You Drink, The Player You Get",
     pressing: "2024 · Analogue Productions AAPP 108-45 · 45 RPM, Reissue, Remastered",
@@ -2274,6 +2461,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $70 for M · lowest listing $38 · 137 for sale · release 24522110
   {
+    discogsReleaseId: 24522110,
     artist: "John Coltrane",
     title: "Blue Train: The Complete Masters",
     pressing: "2022 · Blue Note B0035204-01 · Reissue",
@@ -2286,6 +2474,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $76 for M · lowest listing $35 · 8 for sale · release 26849027
   {
+    discogsReleaseId: 26849027,
     artist: "John Craigie",
     title: "Sgt. Pepper's Lonely",
     pressing: "2023 · Zabriskie Point Records ZSKI1452.1 · Record Store Day, Limited Edition",
@@ -2298,6 +2487,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for VG+ · lowest listing $5 · 42 for sale · release 4618499
   {
+    discogsReleaseId: 4618499,
     artist: "John Lennon, The Plastic Ono Band",
     title: "Shaved Fish",
     pressing: "1975 · Apple Records SW-3421 · Compilation",
@@ -2310,6 +2500,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for NM · lowest listing $23 · 30 for sale · release 14815893
   {
+    discogsReleaseId: 14815893,
     artist: "John Lennon",
     title: "Imagine",
     pressing: "2015 · Apple Records 0600753570951 · Reissue, Remastered",
@@ -2322,6 +2513,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for VG+ · lowest listing $3 · 55 for sale · release 1089439
   {
+    discogsReleaseId: 1089439,
     artist: "John Lennon",
     title: "Rock 'N' Roll",
     pressing: "1975 · Apple Records SK-3419",
@@ -2334,6 +2526,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for M · lowest listing $25 · 27 for sale · release 3692316
   {
+    discogsReleaseId: 3692316,
     artist: "John Mayer",
     title: "Born And Raised",
     pressing: "2012 · Columbia 88691 97606 1",
@@ -2346,6 +2539,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $74 for NM · lowest listing $35 · 62 for sale · release 3430867
   {
+    discogsReleaseId: 3430867,
     artist: "John Mayer",
     title: "Where The Light Is: John Mayer Live In Los Angeles",
     pressing: "2012 · Music On Vinyl MOVLP444 · Reissue, Remastered",
@@ -2358,6 +2552,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for VG+ · lowest listing $8 · 4 for sale · release 10182885
   {
+    discogsReleaseId: 10182885,
     artist: "Johnny Cash",
     title: "Orange Blossom Special",
     pressing: "1965 · Columbia CS 9109",
@@ -2370,6 +2565,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for M · lowest listing $26 · 130 for sale · release 24747581
   {
+    discogsReleaseId: 24747581,
     artist: "Joni Mitchell",
     title: "Blue",
     pressing: "2022 · Reprise Records R1 2038 · Reissue, Remastered",
@@ -2382,6 +2578,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $15 for M · lowest listing $7 · 46 for sale · release 22229755
   {
+    discogsReleaseId: 22229755,
     artist: "Joywave",
     title: "Cleanse",
     pressing: "2022 · Hollywood Records D003909301",
@@ -2394,6 +2591,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $57 for NM · lowest listing $25 · 19 for sale · release 33676653
   {
+    discogsReleaseId: 33676653,
     artist: "Joywave",
     title: "How Do You Feel Now?",
     pressing: "2025 · Hollywood Records D004682801",
@@ -2406,6 +2604,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for M · lowest listing $10 · 35 for sale · release 25514593
   {
+    discogsReleaseId: 25514593,
     artist: "Joywave",
     title: "Live",
     pressing: "2022 · Hollywood Records D004097301",
@@ -2418,6 +2617,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $91 for NM · lowest listing $78 · 21 for sale · release 36637474
   {
+    discogsReleaseId: 36637474,
     artist: "Jungle",
     title: "Volcano",
     pressing: "2026 · Caiola Records CAI002LP · Limited Edition, Numbered, Reissue",
@@ -2430,6 +2630,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG+ · lowest listing $50 · 3 for sale · release 3541080
   {
+    discogsReleaseId: 3541080,
     artist: "Kaiser Chiefs",
     title: "Off With Their Heads",
     pressing: "2008 · Universal Motown B0012106-01",
@@ -2442,6 +2643,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $67 for NM · lowest listing $24 · 41 for sale · release 7345404
   {
+    discogsReleaseId: 7345404,
     artist: "Kendrick Lamar",
     title: "Good Kid, M.A.A.D City",
     pressing: "2015 · Top Dawg Entertainment B0017695-01 · Deluxe Edition, Reissue",
@@ -2454,6 +2656,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for NM · lowest listing $3 · 105 for sale · release 25758160
   {
+    discogsReleaseId: 25758160,
     artist: "Kid Cudi",
     title: "Entergalactic",
     pressing: "2023 · Wicked Awesome Records B0036707-01",
@@ -2466,6 +2669,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for M · lowest listing $9 · 125 for sale · release 21318349
   {
+    discogsReleaseId: 21318349,
     artist: "Kid Cudi",
     title: "Man On The Moon III: The Chosen",
     pressing: "2021 · Republic Records B0033387-01",
@@ -2478,6 +2682,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $87 for VG · lowest listing $18 · 18 for sale · release 4871309
   {
+    discogsReleaseId: 4871309,
     artist: "King Crimson",
     title: "In The Court Of The Crimson King  An Observation By King Crimson",
     pressing: "1969 · Atlantic SD 8245 · Club Edition",
@@ -2490,6 +2695,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $61 for M · lowest listing $30 · 72 for sale · release 14338110
   {
+    discogsReleaseId: 14338110,
     artist: "King Crimson",
     title: "In The Court Of The Crimson King (An Observation By King Crimson)",
     pressing: "2019 · Panegyric KCLPX2019 · Reissue, Remastered",
@@ -2502,6 +2708,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for VG+ · none for sale · 0 for sale · release 26194505
   {
+    discogsReleaseId: 26194505,
     artist: "King Gizzard And The Lizard Wizard",
     title: "K.G. / L.W.  (Explorations Into Microtonal Tuning Volume 2 & 3)",
     pressing: "2023 · Not On Label (King Gizzard And The Lizard Wizard Self-released) KGLW-007-2LP · Reissue",
@@ -2514,6 +2721,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for M · lowest listing $8 · 142 for sale · release 22888391
   {
+    discogsReleaseId: 22888391,
     artist: "Kurt Vile",
     title: "(Watch My Moves)",
     pressing: "2022 · Verve Records B0034851-01",
@@ -2526,6 +2734,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for VG+ · lowest listing $38 · 45 for sale · release 28629328
   {
+    discogsReleaseId: 28629328,
     artist: "Lana Del Rey",
     title: "Blue Banisters",
     pressing: "2023 · Polydor 3859014 · Reissue",
@@ -2538,6 +2747,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for NM · lowest listing $3 · 31 for sale · release 16005081
   {
+    discogsReleaseId: 16005081,
     artist: "Lana Del Rey",
     title: "Born To Die",
     pressing: "Interscope Records B0016425-01 · Reissue",
@@ -2550,6 +2760,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for M · lowest listing $27 · 21 for sale · release 26725262
   {
+    discogsReleaseId: 26725262,
     artist: "Lana Del Rey",
     title: "Chemtrails Over The Country Club",
     pressing: "2021 · Polydor 3549780",
@@ -2562,6 +2773,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for M · lowest listing $23 · 255 for sale · release 26524775
   {
+    discogsReleaseId: 26524775,
     artist: "Lana Del Rey",
     title: "Did You Know That There's A Tunnel Under Ocean Blvd",
     pressing: "2023 · Polydor 4859191",
@@ -2574,6 +2786,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for NM · lowest listing $40 · 12 for sale · release 26762510
   {
+    discogsReleaseId: 26762510,
     artist: "Lana Del Rey",
     title: "NFR!",
     pressing: "2023 · Polydor 0840940 · Reissue, Repress",
@@ -2586,6 +2799,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $90 for M · lowest listing $54 · 9 for sale · release 6238123
   {
+    discogsReleaseId: 6238123,
     artist: "Led Zeppelin",
     title: "Houses Of The Holy",
     pressing: "2014 · Atlantic R1-542493 · Deluxe Edition, Reissue, Remastered",
@@ -2598,6 +2812,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for VG · lowest listing $12 · 27 for sale · release 4088373
   {
+    discogsReleaseId: 4088373,
     artist: "Led Zeppelin",
     title: "Led Zeppelin II",
     pressing: "1977 · Atlantic SD 19127 · Reissue",
@@ -2610,6 +2825,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for VG+ · lowest listing $16 · 2 for sale · release 10028179
   {
+    discogsReleaseId: 10028179,
     artist: "Led Zeppelin",
     title: "Led Zeppelin III",
     pressing: "1970 · Atlantic SD 7201",
@@ -2622,6 +2838,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for VG+ · lowest listing $25 · 6 for sale · release 24556400
   {
+    discogsReleaseId: 24556400,
     artist: "Led Zeppelin",
     title: "The Soundtrack From The Film The Song Remains The Same",
     pressing: "1976 · Swan Song SS 2-201",
@@ -2634,6 +2851,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $65 for VG+ · lowest listing $20 · 13 for sale · release 3529275
   {
+    discogsReleaseId: 3529275,
     artist: "Led Zeppelin",
     title: "Untitled",
     pressing: "1982 · Atlantic SD 19129 · Reissue",
@@ -2646,6 +2864,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $32 for VG+ · lowest listing $28 · 57 for sale · release 25926235
   {
+    discogsReleaseId: 25926235,
     artist: "Lil Yachty",
     title: "Let’s Start Here.",
     pressing: "2023 · Quality Control Music (2) B003692801",
@@ -2658,6 +2877,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $10 for M · lowest listing $4 · 28 for sale · release 1318033
   {
+    discogsReleaseId: 1318033,
     artist: "Limp Bizkit",
     title: "N 2 Gether Now",
     pressing: "1999 · Interscope Records 069497183-1 · 12\", 33 ⅓ RPM",
@@ -2670,6 +2890,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $126 for NM · lowest listing $63 · 8 for sale · release 34278640
   {
+    discogsReleaseId: 34278640,
     artist: "Linkin Park",
     title: "From Zero",
     pressing: "2025 · Warner Records 093624830733 · Reissue",
@@ -2682,6 +2903,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $131 for NM · lowest listing $95 · 12 for sale · release 31443344
   {
+    discogsReleaseId: 31443344,
     artist: "Linkin Park",
     title: "Meteora",
     pressing: "2024 · Warner Records 093624844068 · Limited Edition, Numbered, Special Edition",
@@ -2694,6 +2916,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $197 for M · lowest listing $90 · 16 for sale · release 31466645
   {
+    discogsReleaseId: 31466645,
     artist: "Linkin Park",
     title: "Minutes To Midnight",
     pressing: "2024 · Warner Records 093624844099 · Limited Edition, Numbered, Reissue, Special Edition",
@@ -2706,6 +2929,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for NM · lowest listing $2 · 86 for sale · release 8703299
   {
+    discogsReleaseId: 8703299,
     artist: "Lionel Richie",
     title: "Can't Slow Down",
     pressing: "1983 · Motown 6059ML",
@@ -2718,6 +2942,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $88 for NM · lowest listing $34 · 66 for sale · release 36817693
   {
+    discogsReleaseId: 36817693,
     artist: "Lisa Loeb & Nine Stories",
     title: "Tails",
     pressing: "2026 · Geffen Records 199957353045 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -2730,6 +2955,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $15 · 13 for sale · release 5121876
   {
+    discogsReleaseId: 5121876,
     artist: "Lorde",
     title: "Pure Heroine",
     pressing: "2013 · Lava B0019254-01",
@@ -2742,6 +2968,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for NM · lowest listing $14 · 152 for sale · release 19893862
   {
+    discogsReleaseId: 19893862,
     artist: "Lorde",
     title: "Solar Power",
     pressing: "2021 · Universal Music New Zealand 00602438176489",
@@ -2754,6 +2981,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for VG+ · lowest listing $46 · 4 for sale · release 9996680
   {
+    discogsReleaseId: 9996680,
     artist: "Lotus",
     title: "Hammerstrike",
     pressing: "2016 · SCI Fidelity Records 115 · 12\", Limited Edition, Reissue, Repress",
@@ -2766,6 +2994,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $84 for NM · lowest listing $91 · 1 for sale · release 34289338
   {
+    discogsReleaseId: 34289338,
     artist: "Lotus",
     title: "Nomad",
     pressing: "2025 · Lotus Vibes Music LVM-004 · Reissue, Remastered, Repress",
@@ -2778,6 +3007,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for NM · lowest listing $46 · 1 for sale · release 36544225
   {
+    discogsReleaseId: 36544225,
     artist: "Lotus",
     title: "Rise of the Anglerfish",
     pressing: "2026 · Lotus Vibes Music LVM-015",
@@ -2790,6 +3020,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for M · lowest listing $32 · 82 for sale · release 7643695
   {
+    discogsReleaseId: 7643695,
     artist: "Mad Season",
     title: "Above",
     pressing: "2015 · Music On Vinyl MOVLP169 · Reissue, Remastered",
@@ -2802,6 +3033,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for M · lowest listing $10 · 16 for sale · release 24049475
   {
+    discogsReleaseId: 24049475,
     artist: "Maggie Rogers",
     title: "Surrender",
     pressing: "2022 · Capitol Records B003452501 · Limited Edition",
@@ -2814,6 +3046,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for M · lowest listing $21 · 15 for sale · release 24258701
   {
+    discogsReleaseId: 24258701,
     artist: "Manchester Orchestra",
     title: "A Black Mile To The Surface",
     pressing: "2022 · Loma Vista LVR00165",
@@ -2826,6 +3059,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $57 for M · lowest listing $40 · 4 for sale · release 5567584
   {
+    discogsReleaseId: 5567584,
     artist: "Manchester Orchestra",
     title: "Cope",
     pressing: "2014 · Seven Four Entertainment, LLC 602537741878",
@@ -2838,6 +3072,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $62 for M · lowest listing $32 · 8 for sale · release 31675247
   {
+    discogsReleaseId: 31675247,
     artist: "Manchester Orchestra",
     title: "Cope (Live At The Earl)",
     pressing: "2024 · Loma Vista LVR04133 · Limited Edition",
@@ -2850,6 +3085,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for NM · lowest listing $15 · 23 for sale · release 6417384
   {
+    discogsReleaseId: 6417384,
     artist: "Manchester Orchestra",
     title: "Hope",
     pressing: "2014 · Favorite Gentlemen FGR041",
@@ -2862,6 +3098,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for M · lowest listing $30 · 7 for sale · release 27702600
   {
+    discogsReleaseId: 27702600,
     artist: "Manchester Orchestra",
     title: "I'm Like A Virgin Losing A Child",
     pressing: "2023 · Favorite Gentlemen FGR002 · Limited Edition, Repress",
@@ -2874,6 +3111,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $119 for NM · lowest listing $250 · 1 for sale · release 32909832
   {
+    discogsReleaseId: 32909832,
     artist: "Manchester Orchestra",
     title: "Live From Favorite Gentlemen Vol. 1",
     pressing: "2025 · Favorite Gentlemen FGPVC001 · Limited Edition",
@@ -2886,6 +3124,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $48 for M · lowest listing $35 · 5 for sale · release 27703107
   {
+    discogsReleaseId: 27703107,
     artist: "Manchester Orchestra",
     title: "Mean Everything To Nothing",
     pressing: "2023 · Favorite Gentlemen 8697359341 · Limited Edition, Repress",
@@ -2898,6 +3137,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $61 for M · lowest listing $33 · 7 for sale · release 27702675
   {
+    discogsReleaseId: 27702675,
     artist: "Manchester Orchestra",
     title: "Simple Math",
     pressing: "2023 · Favorite Gentlemen 88697 89322 1 · Limited Edition, Repress",
@@ -2910,6 +3150,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $85 for NM · lowest listing $30 · 5 for sale · release 22134349
   {
+    discogsReleaseId: 22134349,
     artist: "Manchester Orchestra",
     title: "Simple Math",
     pressing: "2021 · Favorite Gentlemen 88697 89322 1 · Limited Edition, Repress",
@@ -2922,6 +3163,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for M · lowest listing $9 · 13 for sale · release 26692982
   {
+    discogsReleaseId: 26692982,
     artist: "Manchester Orchestra",
     title: "The Valley Of Vision",
     pressing: "2023 · Loma Vista LVR02847 · 12\", EP",
@@ -2934,6 +3176,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $74 for M · lowest listing $25 · 36 for sale · release 22739588
   {
+    discogsReleaseId: 22739588,
     artist: "Marvin Gaye",
     title: "What's Going On",
     pressing: "2022 · Tamla B0033348-01",
@@ -2946,6 +3189,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for M · lowest listing $20 · 18 for sale · release 26758025
   {
+    discogsReleaseId: 26758025,
     artist: "Metallica",
     title: "72 Seasons",
     pressing: "2023 · Blackened BLCKND055-1 · Limited Edition",
@@ -2958,6 +3202,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $55 for NM · lowest listing $24 · 39 for sale · release 22440361
   {
+    discogsReleaseId: 22440361,
     artist: "Metallica",
     title: "Metallica",
     pressing: "2021 · Blackened BLCKND008R-1W · Limited Edition, Reissue, Remastered",
@@ -2970,6 +3215,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $103 for NM · lowest listing $80 · 3 for sale · release 37174359
   {
+    discogsReleaseId: 37174359,
     artist: "Metric",
     title: "Romanticize The Dive",
     pressing: "2026 · Metric Music International MET21789 · Limited Edition",
@@ -2982,6 +3228,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG · lowest listing $25 · 1 for sale · release 23553305
   {
+    discogsReleaseId: 23553305,
     artist: "Michael Jackson",
     title: "Off The Wall",
     pressing: "1979 · Epic FE 35745",
@@ -2994,6 +3241,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for VG · lowest listing $10 · 18 for sale · release 11925525
   {
+    discogsReleaseId: 11925525,
     artist: "Michael Jackson",
     title: "Thriller",
     pressing: "1982 · Epic QE 38112 · Misprint",
@@ -3006,6 +3254,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $15 for NM · lowest listing $150 · 1 for sale · release 8653105
   {
+    discogsReleaseId: 8653105,
     artist: "Miles Davis",
     title: "Kind Of Blue",
     pressing: "Columbia PC 8163 · Reissue",
@@ -3018,6 +3267,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $166 for NM · lowest listing $58 · 13 for sale · release 35775850
   {
+    discogsReleaseId: 35775850,
     artist: "Misfits",
     title: "American Psycho",
     pressing: "2025 · Interscope Records 602478972577 · Club Edition, Limited Edition, Numbered, Reissue, Remastered",
@@ -3030,6 +3280,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for M · lowest listing $30 · 36 for sale · release 18917332
   {
+    discogsReleaseId: 18917332,
     artist: "Moby",
     title: "Reprise",
     pressing: "2021 · Deutsche Grammophon 483 9868",
@@ -3042,6 +3293,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG+ · lowest listing $34 · 62 for sale · release 21118429
   {
+    discogsReleaseId: 21118429,
     artist: "Mogwai",
     title: "E.P. X 3",
     pressing: "2021 · Chemikal Underground CHEM250 · 12\", 33 ⅓ RPM, EP",
@@ -3054,6 +3306,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $92 for NM · lowest listing $54 · 11 for sale · release 15504582
   {
+    discogsReleaseId: 15504582,
     artist: "Mogwai",
     title: "Mr Beast",
     pressing: "2020 · [PIAS] Recordings PIASX062DLP",
@@ -3066,6 +3319,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for M · lowest listing $23 · 36 for sale · release 28506388
   {
+    discogsReleaseId: 28506388,
     artist: "Mogwai",
     title: "Mr Beast",
     pressing: "2023 · [PIAS] Recordings PIASX062DLP",
@@ -3078,6 +3332,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for NM · lowest listing $34 · 39 for sale · release 32935755
   {
+    discogsReleaseId: 32935755,
     artist: "Mogwai",
     title: "The Bad Fire",
     pressing: "2025 · Rock Action Records ROCKACT166 · Deluxe Edition, Limited Edition",
@@ -3090,6 +3345,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $30 for NM · lowest listing $17 · 168 for sale · release 15996141
   {
+    discogsReleaseId: 15996141,
     artist: "Muse",
     title: "Black Holes And Revelations",
     pressing: "2020 · Warner Records 0825646350919 · Reissue, Repress",
@@ -3102,6 +3358,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for NM · lowest listing $35 · 75 for sale · release 37072911
   {
+    discogsReleaseId: 37072911,
     artist: "Mutemath",
     title: "Mutemath",
     pressing: "2026 · Warner Records RCV1 728492 · Record Store Day, Limited Edition, Reissue",
@@ -3114,6 +3371,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $40 for M · lowest listing $15 · 15 for sale · release 11227070
   {
+    discogsReleaseId: 11227070,
     artist: "My Morning Jacket",
     title: "Evil Urges",
     pressing: "ATO Records ATO0058 · Reissue, Repress",
@@ -3126,6 +3384,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for NM · lowest listing $10 · 30 for sale · release 33475370
   {
+    discogsReleaseId: 33475370,
     artist: "My Morning Jacket",
     title: "Is",
     pressing: "2025 · ATO Records ATO0688 · Limited Edition",
@@ -3138,6 +3397,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for M · lowest listing $8 · 32 for sale · release 20691538
   {
+    discogsReleaseId: 20691538,
     artist: "My Morning Jacket",
     title: "My Morning Jacket",
     pressing: "2021 · ATO Records ATO0573",
@@ -3150,6 +3410,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $80 for M · lowest listing $29 · 6 for sale · release 15844593
   {
+    discogsReleaseId: 15844593,
     artist: "My Morning Jacket",
     title: "The Waterfall II",
     pressing: "2020 · ATO Records ATO0530 · Deluxe Edition, Limited Edition",
@@ -3162,6 +3423,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $82 for M · lowest listing $68 · 42 for sale · release 1704887
   {
+    discogsReleaseId: 1704887,
     artist: "Natalie Merchant",
     title: "Tigerlily",
     pressing: "2007 · Mobile Fidelity Sound Lab MFSL 2-45008 · 12\", 45 RPM, Limited Edition, Numbered, Reissue, Remastered, Special Edition",
@@ -3174,6 +3436,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for NM · lowest listing $25 · 4 for sale · release 20889958
   {
+    discogsReleaseId: 20889958,
     artist: "Nathaniel Rateliff And The Night Sweats",
     title: "The Future",
     pressing: "2021 · Stax Records STX00477 · Limited Edition",
@@ -3186,6 +3449,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for NM · lowest listing $27 · 29 for sale · release 27974766
   {
+    discogsReleaseId: 27974766,
     artist: "Neil Young",
     title: "Chrome Dreams",
     pressing: "2023 · Reprise Records 093624869375",
@@ -3198,6 +3462,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $160 for M · lowest listing $40 · 9 for sale · release 18058189
   {
+    discogsReleaseId: 18058189,
     artist: "Neil Young",
     title: "Greatest Hits",
     pressing: "2021 · Reprise Records 521636-1",
@@ -3210,6 +3475,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for VG · lowest listing $3 · 20 for sale · release 4142780
   {
+    discogsReleaseId: 4142780,
     artist: "Neil Young",
     title: "Harvest",
     pressing: "1972 · Reprise Records MS 2032",
@@ -3222,6 +3488,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $78 for M · lowest listing $30 · 18 for sale · release 17477521
   {
+    discogsReleaseId: 17477521,
     artist: "Neil Young",
     title: "Live At Massey Hall 1971",
     pressing: "2020 · Reprise Records 43328-1 · Reissue",
@@ -3234,6 +3501,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for NM · lowest listing $39 · 69 for sale · release 37411551
   {
+    discogsReleaseId: 37411551,
     artist: "Neil Young",
     title: "Mirror Ball",
     pressing: "2026 · Reprise Records 093624846635 · Reissue, Remastered, Repress",
@@ -3246,6 +3514,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $149 for VG+ · lowest listing $5 · 203 for sale · release 721305
   {
+    discogsReleaseId: 721305,
     artist: "Neil Young",
     title: "Time Fades Away",
     pressing: "1973 · Reprise Records MS 2151",
@@ -3258,6 +3527,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $170 for NM · lowest listing $80 · 15 for sale · release 19288117
   {
+    discogsReleaseId: 19288117,
     artist: "Nine Inch Nails",
     title: "Hesitation Marks",
     pressing: "2021 · The Null Corporation halo 28v · Reissue",
@@ -3270,6 +3540,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for VG+ · lowest listing $39 · 20 for sale · release 9644085
   {
+    discogsReleaseId: 9644085,
     artist: "Nine Inch Nails",
     title: "Pretty Hate Machine",
     pressing: "2010 · The Bicycle Music Company B0015099-01",
@@ -3282,6 +3553,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $94 for M · lowest listing $55 · 18 for sale · release 30300293
   {
+    discogsReleaseId: 30300293,
     artist: "Nine Inch Nails",
     title: "The Downward Spiral",
     pressing: "2024 · Interscope Records 602465089943 · Club Edition, Limited Edition, Numbered, Reissue, Repress",
@@ -3294,6 +3566,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for M · lowest listing $37 · 35 for sale · release 27503610
   {
+    discogsReleaseId: 27503610,
     artist: "Nine Inch Nails",
     title: "The Downward Spiral",
     pressing: "2023 · Interscope Records B0025683-01 · Reissue, Remastered, Repress",
@@ -3306,6 +3579,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $58 for M · lowest listing $15 · 55 for sale · release 10694620
   {
+    discogsReleaseId: 10694620,
     artist: "Nine Inch Nails",
     title: "The Fragile",
     pressing: "2017 · Nothing Records B0025682-01 · Reissue, Remastered",
@@ -3318,6 +3592,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for NM · lowest listing $34 · 65 for sale · release 14457631
   {
+    discogsReleaseId: 14457631,
     artist: "Nine Inch Nails",
     title: "With Teeth",
     pressing: "2019 · Interscope Records B0025681-01 · Reissue, Remastered",
@@ -3330,6 +3605,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for M · lowest listing $38 · 70 for sale · release 14341626
   {
+    discogsReleaseId: 14341626,
     artist: "Nirvana",
     title: "MTV Unplugged In New York",
     pressing: "2019 · DGC 00602577307348 · Reissue",
@@ -3342,6 +3618,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $77 for NM · lowest listing $25 · 6 for sale · release 13358150
   {
+    discogsReleaseId: 13358150,
     artist: "Nirvana",
     title: "Nevermind",
     pressing: "2013 · DGC 0720642442517 · Reissue, Remastered",
@@ -3354,6 +3631,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for VG · lowest listing $3 · 108 for sale · release 1204559
   {
+    discogsReleaseId: 1204559,
     artist: "No Artist",
     title: "Era IV An Audio Obstacle Course",
     pressing: "1977 · Shure TTR 115",
@@ -3366,6 +3644,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $83 for M · lowest listing $55 · 16 for sale · release 31134872
   {
+    discogsReleaseId: 31134872,
     artist: "No Doubt",
     title: "Rock Steady",
     pressing: "2024 · Interscope Records 602465659214 · 45 RPM",
@@ -3378,6 +3657,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $185 for NM · lowest listing $110 · 40 for sale · release 37479747
   {
+    discogsReleaseId: 37479747,
     artist: "Olivia Rodrigo",
     title: "Sour",
     pressing: "2026 · Geffen Records 199957556903 · Club Edition, Limited Edition, Numbered, Reissue",
@@ -3390,6 +3670,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $26 for VG+ · lowest listing $2 · 45 for sale · release 190440
   {
+    discogsReleaseId: 190440,
     artist: "Orchestral Manoeuvres In The Dark",
     title: "Architecture & Morality",
     pressing: "1981 · Dindisc VL2231",
@@ -3402,6 +3683,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $35 · 9 for sale · release 25419445
   {
+    discogsReleaseId: 25419445,
     artist: "Otis Redding",
     title: "The Immortal Otis Redding",
     pressing: "2022 · ATCO Records R1 627557 · Club Edition, Reissue, Remastered, Repress",
@@ -3414,6 +3696,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for M · lowest listing $40 · 4 for sale · release 12938125
   {
+    discogsReleaseId: 12938125,
     artist: "Ott",
     title: "Blumenkraft",
     pressing: "2018 · Ottsonic Music OTT039 · Reissue",
@@ -3426,6 +3709,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for M · lowest listing $38 · 8 for sale · release 8848344
   {
+    discogsReleaseId: 8848344,
     artist: "Ott",
     title: "Fairchildren",
     pressing: "2016 · Ottsonic Music OTT042 · Limited Edition, Reissue",
@@ -3438,6 +3722,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for M · lowest listing $40 · 6 for sale · release 27482466
   {
+    discogsReleaseId: 27482466,
     artist: "Ott",
     title: "Heads",
     pressing: "2023 · Ottsonic Music OTT054",
@@ -3450,6 +3735,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for M · lowest listing $14 · 6 for sale · release 10288453
   {
+    discogsReleaseId: 10288453,
     artist: "Ott",
     title: "Mir",
     pressing: "2017 · Ottsonic Music Ott041 · Reissue, Remastered",
@@ -3462,6 +3748,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $90 for M · lowest listing $39 · 6 for sale · release 11593205
   {
+    discogsReleaseId: 11593205,
     artist: "Ott",
     title: "Skylon",
     pressing: "2018 · Ottsonic Music OTT040 · Reissue",
@@ -3474,6 +3761,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $24 for VG+ · lowest listing $5 · 56 for sale · release 14987949
   {
+    discogsReleaseId: 14987949,
     artist: "Overcoats",
     title: "The Fight",
     pressing: "2020 · Loma Vista LVR00963",
@@ -3486,6 +3774,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $20 · 89 for sale · release 24455249
   {
+    discogsReleaseId: 24455249,
     artist: "Ozzy Osbourne",
     title: "Patient Number 9",
     pressing: "2022 · Epic 19439939221",
@@ -3498,6 +3787,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for VG+ · lowest listing $10 · 23 for sale · release 11361514
   {
+    discogsReleaseId: 11361514,
     artist: "Pearl Jam",
     title: "Alive",
     pressing: "2017 · Ten Club TC-2016 · 7\", 45 RPM, Single, Limited Edition",
@@ -3510,6 +3800,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for VG+ · lowest listing $29 · 4 for sale · release 28519735
   {
+    discogsReleaseId: 28519735,
     artist: "Pearl Jam",
     title: "Backspacer",
     pressing: "2023 · Monkeywrench Records MWR9413 · Reissue",
@@ -3534,6 +3825,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for NM · lowest listing $22 · 45 for sale · release 11112572
   {
+    discogsReleaseId: 11112572,
     artist: "Pearl Jam",
     title: "Binaural",
     pressing: "2017 · Epic 88985409121 · Reissue, Remastered",
@@ -3546,6 +3838,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for M · none for sale · 0 for sale · release 15884892
   {
+    discogsReleaseId: 15884892,
     artist: "Pearl Jam",
     title: "Completely Unplugged - The Acoustic Broadcast",
     pressing: "2020 · Parachute Recording Company PARA323LP · Unofficial Release",
@@ -3558,6 +3851,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $131 for M · lowest listing $30 · 42 for sale · release 30476126
   {
+    discogsReleaseId: 30476126,
     artist: "Pearl Jam",
     title: "Dark Matter",
     pressing: "2024 · Monkeywrench Records 602458971163 · Limited Edition",
@@ -3570,6 +3864,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $23 for NM · lowest listing $21 · 15 for sale · release 30463505
   {
+    discogsReleaseId: 30463505,
     artist: "Pearl Jam",
     title: "Dark Matter",
     pressing: "2024 · Monkeywrench Records 602465084962",
@@ -3582,6 +3877,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $72 for NM · lowest listing $21 · 32 for sale · release 23922122
   {
+    discogsReleaseId: 23922122,
     artist: "Pearl Jam",
     title: "Gigaton: Tour Edition",
     pressing: "2022 · Monkeywrench Records B0031607-01",
@@ -3594,6 +3890,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for NM · lowest listing $25 · 12 for sale · release 7420155
   {
+    discogsReleaseId: 7420155,
     artist: "Pearl Jam",
     title: "Lightning Bolt",
     pressing: "2013 · Monkeywrench Records B0018983-01 · Repress",
@@ -3606,6 +3903,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for M · lowest listing $25 · 35 for sale · release 23615804
   {
+    discogsReleaseId: 23615804,
     artist: "Pearl Jam",
     title: "Live On Two Legs",
     pressing: "2022 · Epic 19439952191 · Record Store Day, Reissue",
@@ -3618,6 +3916,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for NM · lowest listing $24 · 51 for sale · release 19831372
   {
+    discogsReleaseId: 19831372,
     artist: "Pearl Jam",
     title: "No Code",
     pressing: "2021 · Epic 88875188981 · Reissue, Remastered, Repress",
@@ -3630,6 +3929,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $26 for VG+ · lowest listing $29 · 24 for sale · release 29778511
   {
+    discogsReleaseId: 29778511,
     artist: "Pearl Jam",
     title: "Pearl Jam",
     pressing: "2023 · Not On Label (Pearl Jam Self-released) 88985409141 · Reissue, Remastered",
@@ -3642,6 +3942,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $10 · 36 for sale · release 16244388
   {
+    discogsReleaseId: 16244388,
     artist: "Pearl Jam",
     title: "Ten",
     pressing: "2020 · Epic Associated 88985376871 · Limited Edition, Reissue, Repress",
@@ -3654,6 +3955,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for NM · lowest listing $27 · 51 for sale · release 1704831
   {
+    discogsReleaseId: 1704831,
     artist: "Pearl Jam",
     title: "Ten",
     pressing: "2009 · Epic 88697413021 · Reissue, Remastered",
@@ -3666,6 +3968,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $163 for M · lowest listing $77 · 17 for sale · release 27138813
   {
+    discogsReleaseId: 27138813,
     artist: "Pearl Jam",
     title: "The Fox Theater 4/03/94",
     pressing: "2023 · Not On Label (Pearl Jam Self-released)",
@@ -3678,6 +3981,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $156 for NM · lowest listing $90 · 9 for sale · release 34416547
   {
+    discogsReleaseId: 34416547,
     artist: "Pearl Jam",
     title: "The Last Of Us",
     pressing: "2025 · Not On Label (Pearl Jam Self-released) · 12\", 45 RPM, EP, Limited Edition",
@@ -3690,6 +3994,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $17 for M · lowest listing $5 · 35 for sale · release 2326242
   {
+    discogsReleaseId: 2326242,
     artist: "Pearl Jam",
     title: "Turning Mist",
     pressing: "2010 · Ten Club TC-2009 · 7\", 45 RPM, Single",
@@ -3702,6 +4007,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $40 for VG+ · lowest listing $30 · 3 for sale · release 32504532
   {
+    discogsReleaseId: 32504532,
     artist: "Pearl Jam",
     title: "Vitalogy",
     pressing: "2024 · Epic 19802819819 · Blu-ray Audio, Deluxe Edition, Reissue, Remastered, Multichannel",
@@ -3714,6 +4020,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $32 for VG+ · lowest listing $25 · 78 for sale · release 2838477
   {
+    discogsReleaseId: 2838477,
     artist: "Pearl Jam",
     title: "Vitalogy",
     pressing: "2011 · Epic 88697843111-JK1 · Reissue, Remastered",
@@ -3726,6 +4033,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $193 for M · lowest listing $62 · 14 for sale · release 28989292
   {
+    discogsReleaseId: 28989292,
     artist: "Pearl Jam",
     title: "Vs.",
     pressing: "2023 · Epic 19658830051 · 12\", 45 RPM, Reissue, Remastered",
@@ -3738,6 +4046,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for NM · lowest listing $21 · 18 for sale · release 11383279
   {
+    discogsReleaseId: 11383279,
     artist: "Pearl Jam",
     title: "Vs.",
     pressing: "2015 · Epic 88697843131-jk1 · Reissue, Remastered",
@@ -3750,6 +4059,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $12 for M · lowest listing $4 · 42 for sale · release 8977167
   {
+    discogsReleaseId: 8977167,
     artist: "Pearl Jam",
     title: "Who You Are",
     pressing: "2016 · Epic 88875189007JK1 · 7\", 45 RPM, Single, Reissue",
@@ -3762,6 +4072,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $120 for M · lowest listing $73 · 22 for sale · release 28606300
   {
+    discogsReleaseId: 28606300,
     artist: "Pearl Jam",
     title: "Yield",
     pressing: "2023 · Epic 19658759891 · 45 RPM, Club Edition, Deluxe Edition, Reissue",
@@ -3774,6 +4085,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for NM · lowest listing $20 · 58 for sale · release 8975040
   {
+    discogsReleaseId: 8975040,
     artist: "Pearl Jam",
     title: "Yield",
     pressing: "2016 · Epic 88985303661 · Reissue, Remastered",
@@ -3786,6 +4098,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $23 for VG+ · lowest listing $5 · 23 for sale · release 15849309
   {
+    discogsReleaseId: 15849309,
     artist: "Peter Frampton",
     title: "Frampton Comes Alive!",
     pressing: "1976 · A&M Records SP-3703",
@@ -3798,6 +4111,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for VG+ · lowest listing $21 · 14 for sale · release 2685446
   {
+    discogsReleaseId: 2685446,
     artist: "Phantogram",
     title: "Eyelid Movies",
     pressing: "2011 · Barsuk Records bark94LP · Reissue, Repress",
@@ -3810,6 +4124,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $23 for VG+ · lowest listing $5 · 62 for sale · release 4214323
   {
+    discogsReleaseId: 4214323,
     artist: "Phil Collins",
     title: "No Jacket Required",
     pressing: "1985 · Atlantic 81240-1",
@@ -3822,6 +4137,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $25 · 57 for sale · release 29668525
   {
+    discogsReleaseId: 29668525,
     artist: "Phish",
     title: "Round Room",
     pressing: "2024 · Jemp Records JEMP1107 · Limited Edition, Numbered, Reissue",
@@ -3834,6 +4150,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for NM · lowest listing $9 · 140 for sale · release 37099245
   {
+    discogsReleaseId: 37099245,
     artist: "Phoenix",
     title: "Alphabetical",
     pressing: "2026 · Parlophone 5026854144856 · Record Store Day, Limited Edition, Reissue, Repress",
@@ -3846,6 +4163,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for NM · lowest listing $20 · 36 for sale · release 30773574
   {
+    discogsReleaseId: 30773574,
     artist: "Phoenix",
     title: "Ti Amo",
     pressing: "2024 · Glassnote (2) 0190295811853 · Reissue",
@@ -3858,6 +4176,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $32 for M · lowest listing $21 · 51 for sale · release 6648457
   {
+    discogsReleaseId: 6648457,
     artist: "Phoenix",
     title: "United",
     pressing: "2015 · Parlophone 0724384885311 / LPVIR 107 · Reissue",
@@ -3870,6 +4189,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for NM · lowest listing $30 · 13 for sale · release 18359044
   {
+    discogsReleaseId: 18359044,
     artist: "Phoenix",
     title: "Wolfgang Amadeus Phoenix",
     pressing: "2020 · Glassnote (2) GLS-0105-01 · Reissue",
@@ -3882,6 +4202,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $161 for VG+ · none for sale · 0 for sale · release 2973659
   {
+    discogsReleaseId: 2973659,
     artist: "Pinback",
     title: "Blue Screen Life",
     pressing: "2003 · Ace Fu Records ace 015 · Limited Edition",
@@ -3894,6 +4215,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for NM · lowest listing $25 · 32 for sale · release 34035849
   {
+    discogsReleaseId: 34035849,
     artist: "Pinback",
     title: "Information Retrieved",
     pressing: "2025 · Temporary Residence Limited TRR179 LP · Limited Edition, Reissue",
@@ -3906,6 +4228,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $24 · 11 for sale · release 28518916
   {
+    discogsReleaseId: 28518916,
     artist: "Pinback",
     title: "Summer In Abaddon",
     pressing: "2023 · Touch And Go TG237 · Reissue",
@@ -3918,6 +4241,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $108 for M · lowest listing $45 · 40 for sale · release 24771323
   {
+    discogsReleaseId: 24771323,
     artist: "Pink Floyd",
     title: "Animals (2018 Remix)",
     pressing: "2022 · Pink Floyd Records PFR28D · Reissue",
@@ -3930,6 +4254,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $149 for NM · lowest listing $90 · 86 for sale · release 37098792
   {
+    discogsReleaseId: 37098792,
     artist: "Pink Floyd",
     title: "Live From The Los Angeles Sports Arena, April 26th , 1975",
     pressing: "2026 · Columbia 19802990901 · Reissue, Remastered",
@@ -3942,6 +4267,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for NM · lowest listing $34 · 170 for sale · release 33849456
   {
+    discogsReleaseId: 33849456,
     artist: "Pink Floyd",
     title: "Pink Floyd At Pompeii MCMLXXII",
     pressing: "2025 · Columbia 19802876231",
@@ -3954,6 +4280,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $171 for M · lowest listing $40 · 38 for sale · release 12016127
   {
+    discogsReleaseId: 12016127,
     artist: "Pink Floyd",
     title: "Pulse",
     pressing: "2018 · Pink Floyd Records PFRLP17 · Reissue, Remastered",
@@ -3966,6 +4293,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $82 for M · lowest listing $31 · 65 for sale · release 28580086
   {
+    discogsReleaseId: 28580086,
     artist: "Pink Floyd",
     title: "The Dark Side Of The Moon",
     pressing: "2023 · Pink Floyd Records PFR50LP1 · Reissue, Remastered",
@@ -3978,6 +4306,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $48 for VG+ · lowest listing $25 · 33 for sale · release 9296607
   {
+    discogsReleaseId: 9296607,
     artist: "Pink Floyd",
     title: "The Dark Side Of The Moon",
     pressing: "2016 · Pink Floyd Records PFRLP8 · Reissue, Remastered",
@@ -3990,6 +4319,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for VG+ · lowest listing $22 · 83 for sale · release 26503601
   {
+    discogsReleaseId: 26503601,
     artist: "Pink Floyd",
     title: "The Dark Side Of The Moon (Live At Wembley 1974)",
     pressing: "2023 · Pink Floyd Records PFR50LP2",
@@ -4002,6 +4332,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for M · lowest listing $18 · 37 for sale · release 8984837
   {
+    discogsReleaseId: 8984837,
     artist: "Pink Floyd",
     title: "The Division Bell",
     pressing: "2016 · Pink Floyd Records PFRLP14 · Reissue, Remastered",
@@ -4014,6 +4345,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for M · lowest listing $33 · 48 for sale · release 15540799
   {
+    discogsReleaseId: 15540799,
     artist: "Pink Floyd",
     title: "The Wall",
     pressing: "2018 · Pink Floyd Records PFRLP11 · Reissue, Remastered, Repress",
@@ -4026,6 +4358,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $87 for NM · lowest listing $60 · 75 for sale · release 35915389
   {
+    discogsReleaseId: 35915389,
     artist: "Pink Floyd",
     title: "Wish You Were Here",
     pressing: "2025 · Columbia 19802987581SV · Limited Edition, Numbered, Reissue, Remastered",
@@ -4038,6 +4371,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for M · lowest listing $17 · 28 for sale · release 14474203
   {
+    discogsReleaseId: 14474203,
     artist: "Pink Floyd",
     title: "Wish You Were Here",
     pressing: "2016 · Pink Floyd Records PFRLP9 · Reissue, Remastered",
@@ -4050,6 +4384,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for M · lowest listing $38 · 2 for sale · release 28323163
   {
+    discogsReleaseId: 28323163,
     artist: "Pink Floyd",
     title: "Wish You Were Here (The Definitive Alternate Version)",
     pressing: "2024 · Not On Label (Pink Floyd) · Unofficial Release",
@@ -4062,6 +4397,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for M · lowest listing $25 · 137 for sale · release 17545360
   {
+    discogsReleaseId: 17545360,
     artist: "PJ Harvey",
     title: "Stories From The City, Stories From The Sea",
     pressing: "2021 · Island Records 0898541 · Reissue",
@@ -4074,6 +4410,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for M · lowest listing $21 · 25 for sale · release 27549642
   {
+    discogsReleaseId: 27549642,
     artist: "Portugal. The Man",
     title: "Evil Friends",
     pressing: "2023 · Atlantic 075678635052 · Limited Edition, Reissue",
@@ -4086,6 +4423,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $63 for M · lowest listing $24 · 20 for sale · release 25043797
   {
+    discogsReleaseId: 25043797,
     artist: "Prince",
     title: "The Hits 1",
     pressing: "2022 · NPG Records 19439953411 · Compilation, Limited Edition, Reissue",
@@ -4098,6 +4436,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $56 for NM · lowest listing $60 · 5 for sale · release 16407867
   {
+    discogsReleaseId: 16407867,
     artist: "Puscifer",
     title: "Existential Reckoning",
     pressing: "2020 · BMG 538637781",
@@ -4110,6 +4449,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for M · lowest listing $16 · 57 for sale · release 26607992
   {
+    discogsReleaseId: 26607992,
     artist: "Puscifer",
     title: "Existential Reckoning: Rewired",
     pressing: "2023 · Puscifer Entertainment 538770230",
@@ -4122,6 +4462,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for NM · lowest listing $43 · 9 for sale · release 26009758
   {
+    discogsReleaseId: 26009758,
     artist: "Puscifer",
     title: "Money Shot",
     pressing: "2023 · Puscifer Entertainment 538676570 · Limited Edition, Repress",
@@ -4134,6 +4475,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $285 for M · lowest listing $130 · 6 for sale · release 36900468
   {
+    discogsReleaseId: 36900468,
     artist: "Puscifer",
     title: "Normal Isn't",
     pressing: "2026 · Puscifer Entertainment 964246081 · Limited Edition",
@@ -4146,6 +4488,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $35 · 6 for sale · release 36413701
   {
+    discogsReleaseId: 36413701,
     artist: "Puscifer",
     title: "Normal Isn't",
     pressing: "2026 · Puscifer Entertainment 964209941 · Limited Edition",
@@ -4158,6 +4501,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for NM · lowest listing $17 · 85 for sale · release 37102356
   {
+    discogsReleaseId: 37102356,
     artist: "Puscifer",
     title: "Normal Isn't - Live at the Pacific Stock Exchange",
     pressing: "2026 · BMG 964223721 · Record Store Day, Limited Edition",
@@ -4170,6 +4514,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $40 for M · lowest listing $45 · 1 for sale · release 25613377
   {
+    discogsReleaseId: 25613377,
     artist: "Puscifer",
     title: "Parole Violator",
     pressing: "2022 · Puscifer Entertainment 0670541704653 · Limited Edition",
@@ -4182,6 +4527,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $63 for M · lowest listing $150 · 1 for sale · release 25613683
   {
+    discogsReleaseId: 25613683,
     artist: "Puscifer",
     title: "V Is For Versatile",
     pressing: "2022 · Puscifer Entertainment 670541704615 · Limited Edition",
@@ -4194,6 +4540,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $2 for G+ · lowest listing $3 · 12 for sale · release 13317873
   {
+    discogsReleaseId: 13317873,
     artist: "Quarterflash",
     title: "Quarterflash",
     pressing: "1981 · Geffen Records GHS 2003 · Repress",
@@ -4206,6 +4553,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $67 for NM · lowest listing $25 · 34 for sale · release 16262240
   {
+    discogsReleaseId: 16262240,
     artist: "Queen",
     title: "Greatest Hits",
     pressing: "2020 · Hollywood Records D003654901 · Compilation, Limited Edition, Reissue",
@@ -4218,6 +4566,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $35 · 8 for sale · release 26704982
   {
+    discogsReleaseId: 26704982,
     artist: "Queen",
     title: "Jazz",
     pressing: "2023 · Hollywood Records D002946101 · Reissue",
@@ -4230,6 +4579,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for NM · lowest listing $30 · 10 for sale · release 27309741
   {
+    discogsReleaseId: 27309741,
     artist: "Queens Of The Stone Age",
     title: "...Like Clockwork",
     pressing: "2020 · Matador OLE-1040-1 · 12\", 45 RPM, Reissue",
@@ -4242,6 +4592,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $17 for VG · lowest listing $24 · 63 for sale · release 27376533
   {
+    discogsReleaseId: 27376533,
     artist: "Queens Of The Stone Age",
     title: "In Times New Roman...",
     pressing: "2023 · Matador OLE1947LP",
@@ -4254,6 +4605,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for NM · lowest listing $33 · 24 for sale · release 25829350
   {
+    discogsReleaseId: 25829350,
     artist: "Radiohead",
     title: "Amnesiac",
     pressing: "2023 · XL Recordings XLLP783B · 12\", 45 RPM, Reissue",
@@ -4266,6 +4618,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $50 for M · lowest listing $49 · 1 for sale · release 12721135
   {
+    discogsReleaseId: 12721135,
     artist: "Radiohead",
     title: "Hail To The Thief",
     pressing: "Parlophone 584 5431 · 12\", 45 RPM, Reissue",
@@ -4278,6 +4631,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $84 for NM · lowest listing $49 · 21 for sale · release 35563786
   {
+    discogsReleaseId: 35563786,
     artist: "Radiohead",
     title: "Hail To The Thief (Live Recordings 2003-2009)",
     pressing: "2025 · XL Recordings XL1563LP · Limited Edition",
@@ -4290,6 +4644,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $32 for NM · lowest listing $25 · 27 for sale · release 21476440
   {
+    discogsReleaseId: 21476440,
     artist: "Radiohead",
     title: "In Rainbows",
     pressing: "2021 · XL Recordings XLLP 324 · Repress",
@@ -4302,6 +4657,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for NM · lowest listing $29 · 82 for sale · release 26373128
   {
+    discogsReleaseId: 26373128,
     artist: "Radiohead",
     title: "Kid A",
     pressing: "2022 · XL Recordings XLLP 782B · Reissue",
@@ -4314,6 +4670,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $50 for NM · lowest listing $30 · 38 for sale · release 10505306
   {
+    discogsReleaseId: 10505306,
     artist: "Radiohead",
     title: "OK Computer OKNOTOK 1997 2017",
     pressing: "2017 · XL Recordings XLLP868 · Reissue, Remastered",
@@ -4326,6 +4683,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for M · lowest listing $23 · 120 for sale · release 23449382
   {
+    discogsReleaseId: 23449382,
     artist: "Radiohead",
     title: "The Bends",
     pressing: "2022 · XL Recordings XLLP780 · Reissue",
@@ -4338,6 +4696,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $65 for M · lowest listing $35 · 27 for sale · release 28518340
   {
+    discogsReleaseId: 28518340,
     artist: "Ray Barretto",
     title: "Acid",
     pressing: "2023 · Fania Records CR00666 · Club Edition, Reissue, Remastered",
@@ -4350,6 +4709,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $109 for M · none for sale · 0 for sale · release 11996250
   {
+    discogsReleaseId: 11996250,
     artist: "Rebelution",
     title: "Free Rein",
     pressing: "2018 · Easy Star Records ES-1069V · Limited Edition",
@@ -4362,6 +4722,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for M · lowest listing $36 · 30 for sale · release 31323387
   {
+    discogsReleaseId: 31323387,
     artist: "Red Hot Chili Peppers",
     title: "Californication",
     pressing: "2024 · Warner Records 93624843276",
@@ -4374,6 +4735,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for NM · lowest listing $24 · 59 for sale · release 36893326
   {
+    discogsReleaseId: 36893326,
     artist: "Robyn",
     title: "Sexistential",
     pressing: "2026 · Young (5) YO467LP",
@@ -4386,6 +4748,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $65 for M · lowest listing $35 · 23 for sale · release 7307234
   {
+    discogsReleaseId: 7307234,
     artist: "Roger Waters",
     title: "Amused To Death",
     pressing: "2015 · Columbia 88765478842 · Hybrid, Multichannel, Reissue",
@@ -4398,6 +4761,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for M · lowest listing $18 · 102 for sale · release 28504483
   {
+    discogsReleaseId: 28504483,
     artist: "Roger Waters",
     title: "The Dark Side Of The Moon Redux",
     pressing: "2023 · Cooking Vinyl SGB50LP",
@@ -4410,6 +4774,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for VG+ · lowest listing $25 · 29 for sale · release 15995850
   {
+    discogsReleaseId: 15995850,
     artist: "Roger Waters",
     title: "Us + Them",
     pressing: "2020 · Columbia 19439707691",
@@ -4422,6 +4787,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $52 for VG+ · lowest listing $40 · 22 for sale · release 20098297
   {
+    discogsReleaseId: 20098297,
     artist: "Rory Gallagher",
     title: "Rory Gallagher (50th Anniversary Edition)",
     pressing: "2021 · Polydor 3544492 · Reissue",
@@ -4434,6 +4800,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for VG+ · lowest listing $57 · 1 for sale · release 6328310
   {
+    discogsReleaseId: 6328310,
     artist: "Roxy Music",
     title: "For Your Pleasure",
     pressing: "1979 · ATCO Records SD 36-134 · Reissue",
@@ -4446,6 +4813,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $8 for VG+ · lowest listing $18 · 9 for sale · release 6617729
   {
+    discogsReleaseId: 6617729,
     artist: "Roxy Music",
     title: "Stranded",
     pressing: "ATCO Records SD 7045 · Reissue",
@@ -4458,6 +4826,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for M · lowest listing $7 · 35 for sale · release 8927932
   {
+    discogsReleaseId: 8927932,
     artist: "Roy Orbison",
     title: "Memphis",
     pressing: "2015 · MGM Records SE-4867 · Reissue",
@@ -4470,6 +4839,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $29 for M · lowest listing $11 · 74 for sale · release 17874094
   {
+    discogsReleaseId: 17874094,
     artist: "Royal Blood",
     title: "Typhoons",
     pressing: "2021 · Warner Records 0190295089702 · Limited Edition",
@@ -4482,6 +4852,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $219 for M · lowest listing $125 · 3 for sale · release 27608496
   {
+    discogsReleaseId: 27608496,
     artist: "Rüfüs Du Sol",
     title: "Live From Joshua Tree",
     pressing: "2023 · Rose Avenue 093624870616",
@@ -4494,6 +4865,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $60 for NM · none for sale · 0 for sale · release 26135087
   {
+    discogsReleaseId: 26135087,
     artist: "Rüfüs",
     title: "Bloom",
     pressing: "2023 · Foreign Family Collective FFC007LP · Limited Edition, Repress",
@@ -4506,6 +4878,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $72 for NM · lowest listing $22 · 35 for sale · release 12904776
   {
+    discogsReleaseId: 12904776,
     artist: "Rüfüs",
     title: "Solace",
     pressing: "2018 · Rose Avenue 574498-1",
@@ -4518,6 +4891,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $48 for M · lowest listing $25 · 35 for sale · release 20635870
   {
+    discogsReleaseId: 20635870,
     artist: "Rush",
     title: "Moving Pictures",
     pressing: "2015 · Mercury 602547118080 · Reissue",
@@ -4530,6 +4904,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for NM · lowest listing $15 · 78 for sale · release 1201453
   {
+    discogsReleaseId: 1201453,
     artist: "Sade",
     title: "Diamond Life",
     pressing: "1985 · Portrait FR 39581",
@@ -4542,6 +4917,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $98 for M · lowest listing $95 · 3 for sale · release 7905682
   {
+    discogsReleaseId: 7905682,
     artist: "Saint Motel",
     title: "My Type EP",
     pressing: "2015 · Elektra 548249-1 · 10\", 45 RPM, EP, Limited Edition",
@@ -4554,6 +4930,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $55 for M · none for sale · 0 for sale · release 27640317
   {
+    discogsReleaseId: 27640317,
     artist: "Saint Motel",
     title: "Saintmotelevision",
     pressing: "2023 · Elektra 553796-1 · Limited Edition, Repress",
@@ -4566,6 +4943,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for VG+ · lowest listing $40 · 4 for sale · release 5948454
   {
+    discogsReleaseId: 5948454,
     artist: "Saint Motel",
     title: "Voyeur",
     pressing: "2012 · Not On Label (Saint Motel Self-released)",
@@ -4578,6 +4956,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $24 for NM · lowest listing $14 · 15 for sale · release 33679356
   {
+    discogsReleaseId: 33679356,
     artist: "Scott Weiland",
     title: "I Know It's Too Late",
     pressing: "2025 · Primary Wave Music 792755863268 · 7\", Record Store Day, Single",
@@ -4590,6 +4969,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $58 for M · lowest listing $29 · 30 for sale · release 24757490
   {
+    discogsReleaseId: 24757490,
     artist: "Shpongle",
     title: "Ineffable Mysteries From Shpongleland",
     pressing: "2022 · Twisted Records TWSLP36RM21 · Reissue, Remastered",
@@ -4602,6 +4982,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $9 for VG+ · lowest listing $2 · 12 for sale · release 8981086
   {
+    discogsReleaseId: 8981086,
     artist: "Simon & Garfunkel",
     title: "Sounds Of Silence",
     pressing: "Columbia CS 9269 · Repress",
@@ -4614,6 +4995,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for M · lowest listing $21 · 69 for sale · release 28085920
   {
+    discogsReleaseId: 28085920,
     artist: "Slowdive",
     title: "Everything Is Alive",
     pressing: "2023 · Dead Oceans DOC232",
@@ -4626,6 +5008,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for NM · lowest listing $29 · 127 for sale · release 28941259
   {
+    discogsReleaseId: 28941259,
     artist: "Snoop Dogg",
     title: "Doggystyle",
     pressing: "2023 · Death Row Records (2) DRR112330 · 45 RPM, Reissue",
@@ -4638,6 +5021,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $51 for NM · lowest listing $35 · 10 for sale · release 37285410
   {
+    discogsReleaseId: 37285410,
     artist: "Social Distortion",
     title: "Born To Kill",
     pressing: "2026 · Epitaph 87368-1",
@@ -4650,6 +5034,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $99 for VG+ · lowest listing $70 · 9 for sale · release 5783331
   {
+    discogsReleaseId: 5783331,
     artist: "Soundgarden",
     title: "Superunknown",
     pressing: "2014 · A&M Records B0020476-01 · Reissue, Remastered",
@@ -4662,6 +5047,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $88 for NM · lowest listing $25 · 53 for sale · release 30507823
   {
+    discogsReleaseId: 30507823,
     artist: "St. Vincent",
     title: "All Born Screaming",
     pressing: "2024 · Total Pleasure Records 00196922755491 · Limited Edition",
@@ -4674,6 +5060,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $20 for NM · lowest listing $7 · 58 for sale · release 18706864
   {
+    discogsReleaseId: 18706864,
     artist: "St. Vincent",
     title: "Daddy's Home",
     pressing: "2021 · Loma Vista LVR01794 · Limited Edition",
@@ -4686,6 +5073,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for NM · lowest listing $15 · 21 for sale · release 11001121
   {
+    discogsReleaseId: 11001121,
     artist: "St. Vincent",
     title: "Masseduction",
     pressing: "2017 · Loma Vista LVR00224",
@@ -4698,6 +5086,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for NM · lowest listing $18 · 11 for sale · release 25950586
   {
+    discogsReleaseId: 25950586,
     artist: "St. Vincent",
     title: "St. Vincent",
     pressing: "Loma Vista B0019906-01 · Reissue",
@@ -4710,6 +5099,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for M · lowest listing $25 · 5 for sale · release 19115101
   {
+    discogsReleaseId: 19115101,
     artist: "Starfucker",
     title: "Being No One, Going Nowhere",
     pressing: "2021 · Polyvinyl Record Company PRC-321 · Limited Edition, Reissue",
@@ -4722,6 +5112,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for M · lowest listing $49 · 2 for sale · release 20145316
   {
+    discogsReleaseId: 20145316,
     artist: "Starfucker",
     title: "Miracle Mile",
     pressing: "2021 · Polyvinyl Record Company PRC-248",
@@ -4734,6 +5125,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $32 for M · lowest listing $35 · 2 for sale · release 23550020
   {
+    discogsReleaseId: 23550020,
     artist: "Starfucker",
     title: "Reptilians",
     pressing: "2021 · Polyvinyl Record Company PRC-436 · Deluxe Edition, Limited Edition, Reissue, Remastered",
@@ -4746,6 +5138,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for VG+ · lowest listing $16 · 3 for sale · release 12049448
   {
+    discogsReleaseId: 12049448,
     artist: "Steely Dan",
     title: "Aja",
     pressing: "1980 · MCA Records AA-1006 · Club Edition, Reissue",
@@ -4758,6 +5151,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for VG+ · lowest listing $16 · 115 for sale · release 25006759
   {
+    discogsReleaseId: 25006759,
     artist: "Steely Dan",
     title: "Can't Buy A Thrill",
     pressing: "2022 · Geffen Records B0035111-01 · Reissue, Remastered",
@@ -4770,6 +5164,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $35 for M · lowest listing $11 · 54 for sale · release 20425156
   {
+    discogsReleaseId: 20425156,
     artist: "Steely Dan",
     title: "Northeast Corridor: Steely Dan Live!",
     pressing: "2021 · UMe B0033701-01",
@@ -4794,6 +5189,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for M · none for sale · 0 for sale · release 8103954
   {
+    discogsReleaseId: 8103954,
     artist: "Stick Figure",
     title: "Set In Stone",
     pressing: "2015 · Ruffwood Records RW1001 · 45 RPM",
@@ -4806,6 +5202,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for M · lowest listing $39 · 3 for sale · release 25472176
   {
+    discogsReleaseId: 25472176,
     artist: "Stick Figure",
     title: "Wisdom",
     pressing: "2022 · Ruffwood Records RW1006 · Limited Edition, Numbered",
@@ -4818,6 +5215,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for NM · lowest listing $27 · 9 for sale · release 14076882
   {
+    discogsReleaseId: 14076882,
     artist: "Stick Figure",
     title: "World On Fire",
     pressing: "2019 · Ruffwood Records RW1003",
@@ -4830,6 +5228,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $82 for M · lowest listing $60 · 35 for sale · release 30008902
   {
+    discogsReleaseId: 30008902,
     artist: "Stone Temple Pilots",
     title: "Core",
     pressing: "2024 · Analogue Productions APA 028-45 · 12\", 45 RPM, Limited Edition, Numbered, Reissue, Remastered",
@@ -4842,6 +5241,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for VG · lowest listing $60 · 45 for sale · release 33673521
   {
+    discogsReleaseId: 33673521,
     artist: "Stone Temple Pilots",
     title: "Live In New Haven, 1994",
     pressing: "2025 · Atlantic RCV1 727426 · Record Store Day, Limited Edition",
@@ -4854,6 +5254,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $70 for M · lowest listing $32 · 27 for sale · release 28906783
   {
+    discogsReleaseId: 28906783,
     artist: "Stone Temple Pilots",
     title: "Nº4",
     pressing: "2023 · Atlantic RCV1 725051 · Club Edition, Reissue",
@@ -4866,6 +5267,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $152 for M · lowest listing $60 · 29 for sale · release 31433117
   {
+    discogsReleaseId: 31433117,
     artist: "Stone Temple Pilots",
     title: "Purple",
     pressing: "2024 · Analogue Productions APA 029-45 · 12\", 45 RPM, Limited Edition, Numbered, Reissue, Remastered",
@@ -4878,6 +5280,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for M · lowest listing $26 · 31 for sale · release 26183306
   {
+    discogsReleaseId: 26183306,
     artist: "Stone Temple Pilots",
     title: "Purple",
     pressing: "2023 · Atlantic RCD1 82607 · Limited Edition, Reissue, Repress",
@@ -4890,6 +5293,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $62 for M · lowest listing $30 · 8 for sale · release 27352812
   {
+    discogsReleaseId: 27352812,
     artist: "Sturgill Simpson",
     title: "High Top Mountain",
     pressing: "2023 · High Top Mountain Records HTM-001 · Club Edition, Reissue",
@@ -4902,6 +5306,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $95 for M · lowest listing $59 · 23 for sale · release 26718818
   {
+    discogsReleaseId: 26718818,
     artist: "Sublime",
     title: "Sublime",
     pressing: "2023 · Gasoline Alley E1243 · Club Edition, Reissue, Remastered",
@@ -4914,6 +5319,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for VG · lowest listing $9 · 3 for sale · release 3668757
   {
+    discogsReleaseId: 3668757,
     artist: "Supertramp",
     title: "Breakfast In America",
     pressing: "1979 · A&M Records SP-3708 · Club Edition",
@@ -4926,6 +5332,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $56 for VG · lowest listing $9 · 17 for sale · release 3956215
   {
+    discogsReleaseId: 3956215,
     artist: "Supertramp",
     title: "Crime Of The Century",
     pressing: "1974 · A&M Records SP-3647 · Club Edition",
@@ -4938,6 +5345,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $11 for VG · lowest listing $1 · 16 for sale · release 4578661
   {
+    discogsReleaseId: 4578661,
     artist: "Supertramp",
     title: "Crime Of The Century",
     pressing: "A&M Records SP-3647",
@@ -4950,6 +5358,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for M · lowest listing $23 · 30 for sale · release 3616436
   {
+    discogsReleaseId: 3616436,
     artist: "Talk Talk",
     title: "The Colour Of Spring",
     pressing: "2012 · EMI EMCX 3506 · Reissue",
@@ -4962,6 +5371,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for VG+ · lowest listing $23 · 89 for sale · release 23826329
   {
+    discogsReleaseId: 23826329,
     artist: "Talk Talk",
     title: "The Party's Over",
     pressing: "2022 · Parlophone 0190296419638 · Reissue, Repress",
@@ -4974,6 +5384,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for NM · lowest listing $15 · 25 for sale · release 33650244
   {
+    discogsReleaseId: 33650244,
     artist: "Talking Heads",
     title: "Live On Tour '78",
     pressing: "2025 · Sire R1 727193 · 45 RPM, Record Store Day, Limited Edition, Reissue, Remastered",
@@ -4986,6 +5397,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $186 for M · lowest listing $64 · 27 for sale · release 28021260
   {
+    discogsReleaseId: 28021260,
     artist: "Talking Heads",
     title: "Stop Making Sense (Music From A Film By Jonathan Demme And Talking Heads)",
     pressing: "2023 · Sire R1 724897 · Limited Edition, Reissue, Remastered, Special Edition",
@@ -4998,6 +5410,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $55 for M · lowest listing $39 · 42 for sale · release 35382589
   {
+    discogsReleaseId: 35382589,
     artist: "Tame Impala",
     title: "Deadbeat",
     pressing: "2025 · Columbia C-370376",
@@ -5010,6 +5423,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for M · lowest listing $25 · 30 for sale · release 21303601
   {
+    discogsReleaseId: 21303601,
     artist: "Tame Impala",
     title: "Innerspeaker",
     pressing: "2021 · Modular Recordings MODVL128 · Reissue",
@@ -5022,6 +5436,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for VG+ · lowest listing $39 · 51 for sale · release 27194601
   {
+    discogsReleaseId: 27194601,
     artist: "Tame Impala",
     title: "Lonerism [10 Year Anniversary Edition]",
     pressing: "2023 · Island Records 244549392 · Reissue",
@@ -5034,6 +5449,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $5 for VG+ · lowest listing $3 · 22 for sale · release 6985326
   {
+    discogsReleaseId: 6985326,
     artist: "Tammy Wynette",
     title: "Even The Strong Get Lonely",
     pressing: "1983 · Epic FE 38744",
@@ -5046,6 +5462,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for M · lowest listing $18 · 49 for sale · release 28714936
   {
+    discogsReleaseId: 28714936,
     artist: "Taylor Swift",
     title: "1989 (Taylor's Version)",
     pressing: "2023 · Republic Records 0245554218 · Special Edition",
@@ -5058,6 +5475,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for M · lowest listing $28 · 133 for sale · release 18907846
   {
+    discogsReleaseId: 18907846,
     artist: "Taylor Swift",
     title: "Evermore",
     pressing: "2021 · Republic Records B0033410-01 · Deluxe Edition",
@@ -5070,6 +5488,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $71 for NM · lowest listing $20 · 96 for sale · release 20414812
   {
+    discogsReleaseId: 20414812,
     artist: "Taylor Swift",
     title: "Fearless (Taylor's Version)",
     pressing: "2021 · Republic Records B0033579-01",
@@ -5082,6 +5501,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $315 for M · lowest listing $203 · 100 for sale · release 26809709
   {
+    discogsReleaseId: 26809709,
     artist: "Taylor Swift",
     title: "Folklore: The Long Pond Studio Sessions",
     pressing: "2023 · Republic Records B0036425-01 · Record Store Day, Reissue",
@@ -5094,6 +5514,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $47 for NM · lowest listing $10 · 68 for sale · release 14401235
   {
+    discogsReleaseId: 14401235,
     artist: "Taylor Swift",
     title: "Lover",
     pressing: "2019 · Republic Records B0030972-01",
@@ -5106,6 +5527,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $20 for NM · lowest listing $7 · 35 for sale · release 24896921
   {
+    discogsReleaseId: 24896921,
     artist: "Taylor Swift",
     title: "Midnights",
     pressing: "2022 · Republic Records 2445790111 · Special Edition",
@@ -5118,6 +5540,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for NM · lowest listing $20 · 215 for sale · release 27597354
   {
+    discogsReleaseId: 27597354,
     artist: "Taylor Swift",
     title: "Speak Now (Taylor's Version)",
     pressing: "2023 · Republic Records 2448438034",
@@ -5130,6 +5553,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for NM · lowest listing $13 · 330 for sale · release 30435656
   {
+    discogsReleaseId: 30435656,
     artist: "Taylor Swift",
     title: "The Tortured Poets Department",
     pressing: "2024 · Republic Records 602458933314",
@@ -5142,6 +5566,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $69 for VG+ · lowest listing $17 · 26 for sale · release 5889179
   {
+    discogsReleaseId: 5889179,
     artist: "Tears For Fears",
     title: "Songs From The Big Chair",
     pressing: "1985 · Mercury 824 300-1",
@@ -5154,6 +5579,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for NM · lowest listing $24 · 102 for sale · release 27310812
   {
+    discogsReleaseId: 27310812,
     artist: "Tears For Fears",
     title: "The Hurting",
     pressing: "2023 · Mercury ARHSLP011 · Reissue, Remastered",
@@ -5166,6 +5592,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for M · lowest listing $22 · 37 for sale · release 12802829
   {
+    discogsReleaseId: 12802829,
     artist: "The 1975",
     title: "A Brief Inquiry Into Online Relationships",
     pressing: "2018 · Interscope Records B0029122-01",
@@ -5178,6 +5605,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $9 for NM · lowest listing $4 · 27 for sale · release 2281737
   {
+    discogsReleaseId: 2281737,
     artist: "The Beach Boys",
     title: "Spirit Of America",
     pressing: "1975 · Capitol Records SVBB-11384 · Compilation, Reissue, Repress",
@@ -5190,6 +5618,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for M · lowest listing $18 · 28 for sale · release 19718530
   {
+    discogsReleaseId: 19718530,
     artist: "The Beatles",
     title: "Abbey Road",
     pressing: "2021 · Apple Records B0030719-01 · Reissue, Remastered",
@@ -5202,6 +5631,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for M · lowest listing $18 · 16 for sale · release 14467889
   {
+    discogsReleaseId: 14467889,
     artist: "The Beatles",
     title: "Let It Be",
     pressing: "2019 · Apple Records 824721 · Reissue, Remastered",
@@ -5214,6 +5644,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for VG+ · none for sale · 0 for sale · release 12336085
   {
+    discogsReleaseId: 12336085,
     artist: "The Beatles",
     title: "Rarities",
     pressing: "Capitol Records SHAL-12060 · Compilation",
@@ -5226,6 +5657,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $53 for M · lowest listing $25 · 19 for sale · release 14505279
   {
+    discogsReleaseId: 14505279,
     artist: "The Beatles",
     title: "Revolver",
     pressing: "Parlophone PCS 7009 · Reissue, Remastered",
@@ -5238,6 +5670,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $31 for NM · lowest listing $18 · 59 for sale · release 14426802
   {
+    discogsReleaseId: 14426802,
     artist: "The Beatles",
     title: "Rubber Soul",
     pressing: "2018 · Parlophone 824181 · Reissue, Remastered",
@@ -5250,6 +5683,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $54 for M · lowest listing $22 · 17 for sale · release 18996610
   {
+    discogsReleaseId: 18996610,
     artist: "The Beatles",
     title: "Sgt. Pepper's Lonely Hearts Club Band",
     pressing: "2017 · Parlophone PCS 7027 · Reissue, Remastered",
@@ -5262,6 +5696,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for M · lowest listing $25 · 50 for sale · release 12771610
   {
+    discogsReleaseId: 12771610,
     artist: "The Beatles",
     title: "The Beatles",
     pressing: "2018 · Apple Records B0028831-01 · Reissue, Remastered",
@@ -5274,6 +5709,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for M · lowest listing $6 · 32 for sale · release 13765991
   {
+    discogsReleaseId: 13765991,
     artist: "The Beta Machine",
     title: "Intruder",
     pressing: "2019 · T-Boy Records B0029528-01 · Limited Edition",
@@ -5286,6 +5722,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $30 · 44 for sale · release 15834967
   {
+    discogsReleaseId: 15834967,
     artist: "The Black Keys",
     title: "Let's Rock",
     pressing: "2020 · Easy Eye Sound 075597923476 · 45 RPM, Record Store Day, Deluxe Edition, Limited Edition, Numbered, Reissue",
@@ -5298,6 +5735,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $95 for M · lowest listing $46 · 11 for sale · release 26815541
   {
+    discogsReleaseId: 26815541,
     artist: "The Black Keys",
     title: "Live At Beachland Tavern March 31, 2002",
     pressing: "2023 · Nonesuch 075597908695 · Record Store Day, Limited Edition, Reissue",
@@ -5310,6 +5748,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for M · lowest listing $25 · 22 for sale · release 24901355
   {
+    discogsReleaseId: 24901355,
     artist: "The Black Keys",
     title: "Turn Blue",
     pressing: "2022 · Nonesuch 542300-1",
@@ -5322,6 +5761,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $15 for VG+ · lowest listing $2 · 45 for sale · release 4072258
   {
+    discogsReleaseId: 4072258,
     artist: "The Cars",
     title: "Candy-O",
     pressing: "1979 · Elektra 5E-507",
@@ -5334,6 +5774,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $68 for NM · lowest listing $29 · 24 for sale · release 30109436
   {
+    discogsReleaseId: 30109436,
     artist: "The Cars",
     title: "Candy-O",
     pressing: "2024 · Rhino Records (2) RHF1 507 · Limited Edition, Numbered, Reissue",
@@ -5346,6 +5787,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for VG+ · lowest listing $6 · 35 for sale · release 3544136
   {
+    discogsReleaseId: 3544136,
     artist: "The Cars",
     title: "Heartbeat City",
     pressing: "1984 · Elektra 60296-1 · Club Edition",
@@ -5358,6 +5800,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $8 for VG+ · lowest listing $4 · 5 for sale · release 5450806
   {
+    discogsReleaseId: 5450806,
     artist: "The Cars",
     title: "Panorama",
     pressing: "1980 · Elektra 5E-514 · Club Edition",
@@ -5370,6 +5813,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for NM · lowest listing $4 · 10 for sale · release 3793104
   {
+    discogsReleaseId: 3793104,
     artist: "The Cars",
     title: "Shake It Up",
     pressing: "1981 · Elektra 5E-567 · Club Edition",
@@ -5382,6 +5826,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $132 for VG · lowest listing $4 · 59 for sale · release 190219
   {
+    discogsReleaseId: 190219,
     artist: "The Cars",
     title: "The Cars",
     pressing: "1978 · Elektra 6E-135",
@@ -5394,6 +5839,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $55 for NM · lowest listing $42 · 10 for sale · release 34474876
   {
+    discogsReleaseId: 34474876,
     artist: "The Cars",
     title: "The Cars",
     pressing: "2025 · Rhino Records (2) RHF 135 · Limited Edition, Reissue",
@@ -5406,6 +5852,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $57 for NM · lowest listing $40 · 49 for sale · release 37296282
   {
+    discogsReleaseId: 37296282,
     artist: "The Claypool Lennon Delirium",
     title: "The Great Parrot-Ox And The Golden Egg Of Empathy",
     pressing: "2026 · ATO Records ATO0710",
@@ -5418,6 +5865,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $14 for M · lowest listing $4 · 20 for sale · release 16280613
   {
+    discogsReleaseId: 16280613,
     artist: "The Comet Is Coming",
     title: "Imminent",
     pressing: "2020 · Impulse! B0031742-01 · 12\", 45 RPM, Record Store Day, Single",
@@ -5430,6 +5878,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $65 for M · lowest listing $34 · 23 for sale · release 13247155
   {
+    discogsReleaseId: 13247155,
     artist: "The Cure",
     title: "Disintegration",
     pressing: "2018 · Fiction Records 532 456-3 · Reissue, Remastered, Repress",
@@ -5442,6 +5891,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $43 for VG+ · lowest listing $36 · 35 for sale · release 29129806
   {
+    discogsReleaseId: 29129806,
     artist: "The Cure",
     title: "Greatest Hits",
     pressing: "2023 · Fiction Records 571 543-4 · Compilation, Reissue, Remastered",
@@ -5454,6 +5904,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $41 for VG+ · lowest listing $30 · 109 for sale · release 32165877
   {
+    discogsReleaseId: 32165877,
     artist: "The Cure",
     title: "Songs Of A Lost World",
     pressing: "2024 · Polydor 7503682",
@@ -5466,6 +5917,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $23 for VG+ · lowest listing $10 · 13 for sale · release 7653316
   {
+    discogsReleaseId: 7653316,
     artist: "The Dave Brubeck Quartet",
     title: "Time Out",
     pressing: "1967 · Columbia CS 8192 · Reissue",
@@ -5478,6 +5930,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $64 for NM · lowest listing $42 · 21 for sale · release 33014775
   {
+    discogsReleaseId: 33014775,
     artist: "The Doors",
     title: "Morrison Hotel",
     pressing: "2025 · Rhino Records (2) RHF1 75007 · Limited Edition, Reissue",
@@ -5490,6 +5943,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $93 for VG+ · lowest listing $60 · 42 for sale · release 26754977
   {
+    discogsReleaseId: 26754977,
     artist: "The Flaming Lips",
     title: "Yoshimi Battles The Pink Robots",
     pressing: "2023 · Warner Records 093624 873051 · Reissue",
@@ -5502,6 +5956,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for NM · lowest listing $18 · 34 for sale · release 25982887
   {
+    discogsReleaseId: 25982887,
     artist: "The Grateful Dead",
     title: "American Beauty",
     pressing: "2023 · Warner Records RCD1 1893 · Reissue, Remastered, Repress",
@@ -5514,6 +5969,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $30 for NM · lowest listing $18 · 27 for sale · release 32037752
   {
+    discogsReleaseId: 32037752,
     artist: "The Grateful Dead",
     title: "Aoxomoxoa",
     pressing: "2024 · Rhino Records (2) R1 591257 · Reissue, Remastered",
@@ -5526,6 +5982,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $27 for VG+ · lowest listing $19 · 14 for sale · release 10054848
   {
+    discogsReleaseId: 10054848,
     artist: "The Grateful Dead",
     title: "In The Dark",
     pressing: "1987 · Arista AL-8452",
@@ -5538,6 +5995,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $40 for VG · lowest listing $40 · 3 for sale · release 15358421
   {
+    discogsReleaseId: 15358421,
     artist: "The Grateful Dead",
     title: "Reckoning",
     pressing: "1981 · Arista Records, Inc. A2L 8604 · Club Edition",
@@ -5550,6 +6008,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $263 for M · lowest listing $75 · 21 for sale · release 34523455
   {
+    discogsReleaseId: 34523455,
     artist: "The Grateful Dead",
     title: "Road Trips Vol. 4 No. 3: Denver '73",
     pressing: "2025 · Rhino Records (2) R1 6020",
@@ -5562,6 +6021,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for G+ · lowest listing $17 · 45 for sale · release 654013
   {
+    discogsReleaseId: 654013,
     artist: "The Grateful Dead",
     title: "Terrapin Station",
     pressing: "1977 · Arista AL 7001",
@@ -5574,6 +6034,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for NM · lowest listing $33 · 6 for sale · release 31979735
   {
+    discogsReleaseId: 31979735,
     artist: "The Howl & The Hum",
     title: "Same Mistake Twice",
     pressing: "2024 · Miserable Disco",
@@ -5586,6 +6047,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $19 for VG+ · lowest listing $21 · 7 for sale · release 11809672
   {
+    discogsReleaseId: 11809672,
     artist: "The Moody Blues",
     title: "Days Of Future Passed Live",
     pressing: "2018 · Eagle Records ER204151",
@@ -5610,6 +6072,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for VG+ · lowest listing $68 · 5 for sale · release 14382386
   {
+    discogsReleaseId: 14382386,
     artist: "The Movement",
     title: "Ways Of The World",
     pressing: "2019 · Ineffable Music Group TM2019",
@@ -5622,6 +6085,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for M · lowest listing $24 · 12 for sale · release 28813087
   {
+    discogsReleaseId: 28813087,
     artist: "The Offline",
     title: "La Couleur De La Mer",
     pressing: "2023 · Root Records (7) RR01",
@@ -5634,6 +6098,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $45 for M · lowest listing $16 · 125 for sale · release 11217089
   {
+    discogsReleaseId: 11217089,
     artist: "The Rolling Stones",
     title: "The Rolling Stones On Air",
     pressing: "2017 · ABKCO 579 582-8",
@@ -5646,6 +6111,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $49 for M · lowest listing $5 · 129 for sale · release 16930995
   {
+    discogsReleaseId: 16930995,
     artist: "The Smashing Pumpkins",
     title: "Gish",
     pressing: "2021 · Virgin 5099990959615 · Reissue, Remastered",
@@ -5658,6 +6124,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $136 for NM · lowest listing $85 · 69 for sale · release 26149304
   {
+    discogsReleaseId: 26149304,
     artist: "The Smashing Pumpkins",
     title: "Mellon Collie And The Infinite Sadness",
     pressing: "2022 · Virgin 5099997855316 · Reissue, Remastered",
@@ -5670,6 +6137,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for VG+ · lowest listing $29 · 24 for sale · release 31441634
   {
+    discogsReleaseId: 31441634,
     artist: "The Smashing Pumpkins",
     title: "Pisces Iscariot",
     pressing: "2023 · Virgin 5099946425416 · Reissue, Remastered, Compilation",
@@ -5682,6 +6150,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $129 for M · lowest listing $59 · 20 for sale · release 31437518
   {
+    discogsReleaseId: 31437518,
     artist: "The Smashing Pumpkins",
     title: "Rotten Apples: Greatest Hits",
     pressing: "2024 · Virgin 602465608182 · Compilation, Limited Edition, Reissue",
@@ -5694,6 +6163,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $71 for M · lowest listing $10 · 98 for sale · release 3255473
   {
+    discogsReleaseId: 3255473,
     artist: "The Smashing Pumpkins",
     title: "Siamese Dream",
     pressing: "2011 · Virgin 50999 67928 9 10 · Reissue, Remastered",
@@ -5706,6 +6176,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $119 for M · lowest listing $120 · 11 for sale · release 27639909
   {
+    discogsReleaseId: 27639909,
     artist: "The Strokes",
     title: "Is This It",
     pressing: "2023 · RCA 19658745441 · Club Edition, Reissue, Remastered",
@@ -5718,6 +6189,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $197 for M · lowest listing $129 · 43 for sale · release 28423879
   {
+    discogsReleaseId: 28423879,
     artist: "The White Stripes",
     title: "Elephant",
     pressing: "2023 · Analogue Productions UHQR 0019-45 · 12\", 45 RPM, Numbered, Reissue, Remastered",
@@ -5730,6 +6202,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $44 for M · lowest listing $17 · 107 for sale · release 23141165
   {
+    discogsReleaseId: 23141165,
     artist: "The Who",
     title: "My Generation",
     pressing: "2022 · Brunswick ARHSLP015 · Limited Edition, Reissue, Remastered",
@@ -5742,6 +6215,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for NM · lowest listing $29 · 30 for sale · release 31893958
   {
+    discogsReleaseId: 31893958,
     artist: "Third Eye Blind",
     title: "Blue",
     pressing: "2024 · Elektra RCV1 62415 · Reissue, Remastered",
@@ -5754,6 +6228,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for M · lowest listing $19 · 13 for sale · release 27348429
   {
+    discogsReleaseId: 27348429,
     artist: "Third Eye Blind",
     title: "Ursa Major",
     pressing: "2023 · Mega Collider Records TEB01LP · Limited Edition, Reissue, Repress",
@@ -5766,6 +6241,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $67 for M · lowest listing $25 · 35 for sale · release 31719881
   {
+    discogsReleaseId: 31719881,
     artist: "Thug Life",
     title: "Volume 1",
     pressing: "2024 · Interscope Records 7783828 · Club Edition, Limited Edition, Numbered, Reissue, Repress",
@@ -5778,6 +6254,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $238 for M · lowest listing $139 · 9 for sale · release 31143989
   {
+    discogsReleaseId: 31143989,
     artist: "Tipper",
     title: "Forward Escape",
     pressing: "2024 · Tippermusic TIPP006V2 · Reissue",
@@ -5790,6 +6267,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $90 for NM · none for sale · 0 for sale · release 18378736
   {
+    discogsReleaseId: 18378736,
     artist: "Tool",
     title: "10,000 Days",
     pressing: "Volcano (2) 82876-81991-2 · Unofficial Release",
@@ -5802,6 +6280,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $66 for M · none for sale · 0 for sale · release 11981817
   {
+    discogsReleaseId: 11981817,
     artist: "Tool",
     title: "Ænima",
     pressing: "2009 · Zoo Entertainment (3) 72445 11087-1 · Unofficial Release",
@@ -5814,6 +6293,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $173 for NM · lowest listing $78 · 170 for sale · release 22253038
   {
+    discogsReleaseId: 22253038,
     artist: "Tool",
     title: "Fear Inoculum",
     pressing: "2022 · Tool Dissectional 19439-86879-1 · Deluxe Edition, Limited Edition, Reissue",
@@ -5826,6 +6306,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for M · lowest listing $25 · 34 for sale · release 8804850
   {
+    discogsReleaseId: 8804850,
     artist: "Tool",
     title: "Undertow",
     pressing: "2017 · Volcano (2) 61422-31052-1 · Reissue",
@@ -5838,6 +6319,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $48 for M · lowest listing $48 · 7 for sale · release 24402020
   {
+    discogsReleaseId: 24402020,
     artist: "Toro Y Moi",
     title: "Anything In Return",
     pressing: "2022 · Carpark Records CAK77 · Limited Edition, Reissue",
@@ -5850,6 +6332,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $66 for M · lowest listing $40 · 5 for sale · release 24401930
   {
+    discogsReleaseId: 24401930,
     artist: "Toro Y Moi",
     title: "Boo Boo",
     pressing: "2022 · Carpark Records CAK121 · Limited Edition, Reissue",
@@ -5862,6 +6345,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $28 for M · lowest listing $24 · 9 for sale · release 24401675
   {
+    discogsReleaseId: 24401675,
     artist: "Toro Y Moi",
     title: "What For?",
     pressing: "2022 · Carpark Records CAK102 · Limited Edition, Reissue",
@@ -5874,6 +6358,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for M · lowest listing $9 · 142 for sale · release 18721939
   {
+    discogsReleaseId: 18721939,
     artist: "Traffic",
     title: "When The Eagle Flies",
     pressing: "2021 · Island Records 775 125-9 · Reissue, Remastered",
@@ -5886,6 +6371,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $30 for VG+ · lowest listing $15 · 12 for sale · release 29258065
   {
+    discogsReleaseId: 29258065,
     artist: "Twenty One Pilots",
     title: "Blurryface",
     pressing: "2020 · Fueled By Ramen 7567-86696-3",
@@ -5898,6 +6384,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for VG+ · lowest listing $21 · 52 for sale · release 20930293
   {
+    discogsReleaseId: 20930293,
     artist: "Twenty One Pilots",
     title: "Vessel",
     pressing: "2022 · Fueled By Ramen 531792-1 · Limited Edition, Reissue, Repress",
@@ -5910,6 +6397,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $39 for M · lowest listing $19 · 22 for sale · release 20652763
   {
+    discogsReleaseId: 20652763,
     artist: "Tycho",
     title: "Awake",
     pressing: "2021 · Ghostly International GI 208 LP · Limited Edition, Reissue",
@@ -5922,6 +6410,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $42 for VG+ · lowest listing $32 · 130 for sale · release 12298689
   {
+    discogsReleaseId: 12298689,
     artist: "U2",
     title: "Achtung Baby",
     pressing: "2018 · Island Records 5797009 · Reissue, Remastered",
@@ -5934,6 +6423,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for VG+ · lowest listing $17 · 82 for sale · release 9927363
   {
+    discogsReleaseId: 9927363,
     artist: "U2",
     title: "How To Dismantle An Atomic Bomb",
     pressing: "2017 · Island Records U 214 · Reissue",
@@ -5946,6 +6436,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $34 for VG+ · lowest listing $15 · 62 for sale · release 13257335
   {
+    discogsReleaseId: 13257335,
     artist: "U2",
     title: "No Line On The Horizon",
     pressing: "2019 · Island Records 5797085 · Reissue, Remastered",
@@ -5958,6 +6449,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $46 for NM · lowest listing $30 · 24 for sale · release 26104882
   {
+    discogsReleaseId: 26104882,
     artist: "U2",
     title: "Songs Of Innocence",
     pressing: "2022 · Island Records 4704888 · Repress",
@@ -5970,6 +6462,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $175 for M · lowest listing $50 · 20 for sale · release 26543171
   {
+    discogsReleaseId: 26543171,
     artist: "U2",
     title: "Songs of Surrender",
     pressing: "2023 · Interscope Records 4899571",
@@ -5982,6 +6475,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $57 for M · lowest listing $11 · 27 for sale · release 15263166
   {
+    discogsReleaseId: 15263166,
     artist: "U2",
     title: "The Joshua Tree",
     pressing: "2019 · Interscope Records 5749844 · Reissue, Remastered",
@@ -5994,6 +6488,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $13 for VG · lowest listing $10 · 26 for sale · release 2771392
   {
+    discogsReleaseId: 2771392,
     artist: "U2",
     title: "The Unforgettable Fire",
     pressing: "1984 · Island Records 90231-1 · Club Edition",
@@ -6006,6 +6501,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $10 for VG+ · lowest listing $2 · 75 for sale · release 4747737
   {
+    discogsReleaseId: 4747737,
     artist: "U2",
     title: "War",
     pressing: "1983 · Island Records 90067-1",
@@ -6018,6 +6514,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $39 · 82 for sale · release 28649158
   {
+    discogsReleaseId: 28649158,
     artist: "U2",
     title: "Zooropa",
     pressing: "2023 · Universal Music Recordings 5599259 · Deluxe Edition, Limited Edition, Reissue, Remastered, Repress",
@@ -6030,6 +6527,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $52 for VG+ · lowest listing $1 · 57 for sale · release 635027
   {
+    discogsReleaseId: 635027,
     artist: "Uriah Heep",
     title: "The Best Of Uriah Heep",
     pressing: "1976 · Mercury SRM-1-1070 · Compilation",
@@ -6042,6 +6540,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $56 for M · lowest listing $15 · 42 for sale · release 20305660
   {
+    discogsReleaseId: 20305660,
     artist: "Various, Andrew Lloyd Webber And Tim Rice",
     title: "Jesus Christ Superstar (A Rock Opera)",
     pressing: "2021 · Geffen Records 0600753933312 · Reissue, Remastered",
@@ -6054,6 +6553,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $22 for M · lowest listing $9 · 35 for sale · release 20625325
   {
+    discogsReleaseId: 20625325,
     artist: "Various",
     title: "Disney Ultimate Hits Vol.1 & 2",
     pressing: "2021 · Walt Disney Records D003810101",
@@ -6066,6 +6566,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $23 for M · lowest listing $9 · 29 for sale · release 22816076
   {
+    discogsReleaseId: 22816076,
     artist: "Various",
     title: "Encanto",
     pressing: "2022 · Walt Disney Records D003886601 · Limited Edition",
@@ -6078,6 +6579,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $16 for M · lowest listing $6 · 57 for sale · release 14669522
   {
+    discogsReleaseId: 14669522,
     artist: "Various",
     title: "Ford v Ferrari (Original Motion Picture Soundtrack)",
     pressing: "2020 · Hollywood Records D003249201 · Compilation",
@@ -6090,6 +6592,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $33 for M · lowest listing $29 · 10 for sale · release 23213444
   {
+    discogsReleaseId: 23213444,
     artist: "Various",
     title: "Forrest Gump (The Soundtrack)",
     pressing: "2022 · Legacy 19439942491",
@@ -6102,6 +6605,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $48 for VG+ · lowest listing $35 · 30 for sale · release 14280762
   {
+    discogsReleaseId: 14280762,
     artist: "Various",
     title: "Love Actually (Original Motion Picture Soundtrack)",
     pressing: "2019 · Real Gone Music RGM-0835 · Compilation, Limited Edition, Reissue",
@@ -6114,6 +6618,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $28 for VG+ · lowest listing $21 · 9 for sale · release 23524427
   {
+    discogsReleaseId: 23524427,
     artist: "Various",
     title: "Now That’s What I Call Country Classics 80s",
     pressing: "2022 · Universal Music Group B0035449-01 · Compilation, Limited Edition",
@@ -6126,6 +6631,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $26 for M · lowest listing $8 · 24 for sale · release 29024986
   {
+    discogsReleaseId: 29024986,
     artist: "Various",
     title: "Quadrophenia (Music From The Soundtrack Of The Who Film)",
     pressing: "2019 · Polydor 7768750 · Compilation, Reissue",
@@ -6138,6 +6644,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $110 for M · lowest listing $70 · 9 for sale · release 31351783
   {
+    discogsReleaseId: 31351783,
     artist: "Ween",
     title: "Chocolate And Cheese",
     pressing: "2024 · Rhino Records (2) R1 726363 · Reissue, Remastered",
@@ -6150,6 +6657,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $59 for NM · lowest listing $45 · 108 for sale · release 37088430
   {
+    discogsReleaseId: 37088430,
     artist: "Ween",
     title: "Europe \"90\"",
     pressing: "2026 · Rhino Records (2) R1 728535 · 45 RPM, Record Store Day, Limited Edition",
@@ -6162,6 +6670,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $74 for VG+ · lowest listing $95 · 6 for sale · release 21388156
   {
+    discogsReleaseId: 21388156,
     artist: "Ween",
     title: "God Ween Satan: Live",
     pressing: "2021 · Chocodog Records CDR2016A",
@@ -6174,6 +6683,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $104 for VG+ · lowest listing $100 · 5 for sale · release 13308874
   {
+    discogsReleaseId: 13308874,
     artist: "Ween",
     title: "La Cucaracha",
     pressing: "2019 · Schnitzel Records srlp1255306 · Reissue, Repress",
@@ -6186,6 +6696,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $112 for NM · lowest listing $172 · 1 for sale · release 1184870
   {
+    discogsReleaseId: 1184870,
     artist: "Ween",
     title: "Live In Toronto Canada Featuring The Shit Creek Boys",
     pressing: "2006 · Schnitzel Records SRLP125525 · Reissue",
@@ -6198,6 +6709,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $53 for NM · lowest listing $60 · 10 for sale · release 25477183
   {
+    discogsReleaseId: 25477183,
     artist: "Ween",
     title: "Paintin' The Town Brown (Ween Live '90-'98)",
     pressing: "2022 · ATO Records ato0625 · Reissue",
@@ -6210,6 +6722,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $211 for VG+ · lowest listing $85 · 7 for sale · release 2715000
   {
+    discogsReleaseId: 2715000,
     artist: "Ween",
     title: "Quebec",
     pressing: "2010 · Schnitzel Records SRLP1255214 · Reissue",
@@ -6222,6 +6735,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $72 for NM · lowest listing $46 · 30 for sale · release 35719189
   {
+    discogsReleaseId: 35719189,
     artist: "Ween",
     title: "Shinola Vol.1",
     pressing: "2025 · Rhino Records (2) RCV1 728355 · Record Store Day, Limited Edition, Reissue",
@@ -6234,6 +6748,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $163 for VG+ · lowest listing $133 · 3 for sale · release 2159393
   {
+    discogsReleaseId: 2159393,
     artist: "Ween",
     title: "The Mollusk",
     pressing: "2010 · Plain Recordings PLAIN143 · Reissue",
@@ -6246,6 +6761,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $179 for VG+ · lowest listing $175 · 4 for sale · release 17722537
   {
+    discogsReleaseId: 17722537,
     artist: "Ween",
     title: "The Mollusk",
     pressing: "2021 · Plain Recordings PLAIN143 · Reissue",
@@ -6258,6 +6774,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $86 for M · none for sale · 0 for sale · release 28236445
   {
+    discogsReleaseId: 28236445,
     artist: "Ween",
     title: "White Pepper",
     pressing: "2023 · Plain Recordings (2) PLAIN144 · Reissue, Unofficial Release",
@@ -6270,6 +6787,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for VG+ · lowest listing $18 · 35 for sale · release 9258604
   {
+    discogsReleaseId: 9258604,
     artist: "Weezer",
     title: "Weezer",
     pressing: "2016 · DGC B0025157-01 · Reissue, Repress",
@@ -6282,6 +6800,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $38 for M · lowest listing $20 · 26 for sale · release 25678876
   {
+    discogsReleaseId: 25678876,
     artist: "Weezer",
     title: "Weezer",
     pressing: "2022 · Geffen Records B0025152-01 · Reissue, Remastered",
@@ -6294,6 +6813,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $124 for VG+ · lowest listing $56 · 13 for sale · release 4760354
   {
+    discogsReleaseId: 4760354,
     artist: "Weezer",
     title: "Weezer",
     pressing: "2013 · Mobile Fidelity Sound Lab MFSL 1-394 · Limited Edition, Numbered, Reissue, Remastered, Special Edition",
@@ -6306,6 +6826,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $36 for NM · lowest listing $32 · 10 for sale · release 35019737
   {
+    discogsReleaseId: 35019737,
     artist: "Weval",
     title: "CHOROPHOBIA",
     pressing: "2025 · Technicolour TCLR062",
@@ -6318,6 +6839,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $21 for VG+ · lowest listing $5 · 160 for sale · release 1847841
   {
+    discogsReleaseId: 1847841,
     artist: "Wham!, Wham!",
     title: "Make It Big = メイク・イット・ビッグ",
     pressing: "1984 · Epic 28·3P-555",
@@ -6330,6 +6852,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $76 for M · lowest listing $30 · 15 for sale · release 20510317
   {
+    discogsReleaseId: 20510317,
     artist: "Wilco",
     title: "A Ghost Is Born",
     pressing: "2021 · Nonesuch 081227649210 · Reissue, Repress",
@@ -6342,6 +6865,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $69 for NM · lowest listing $35 · 25 for sale · release 34186738
   {
+    discogsReleaseId: 34186738,
     artist: "Wilco",
     title: "A.M.",
     pressing: "2025 · Rhino Records (2) RHF1 45857 · Limited Edition, Numbered, Reissue",
@@ -6354,6 +6878,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $81 for M · lowest listing $30 · 38 for sale · release 26832629
   {
+    discogsReleaseId: 26832629,
     artist: "Wilco",
     title: "Crosseyed Strangers: An Alternate Yankee Hotel Foxtrot",
     pressing: "2023 · Nonesuch 075597907308 · Record Store Day, Compilation, Limited Edition",
@@ -6366,6 +6891,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $37 for M · lowest listing $31 · 68 for sale · release 24622829
   {
+    discogsReleaseId: 24622829,
     artist: "Wilco",
     title: "Yankee Hotel Foxtrot",
     pressing: "2022 · Nonesuch 075597910605 · Reissue, Remastered",
@@ -6378,6 +6904,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $94 for M · lowest listing $55 · 18 for sale · release 34570699
   {
+    discogsReleaseId: 34570699,
     artist: "Wolfmother",
     title: "Wolfmother",
     pressing: "2025 · Interscope Records 602475429159 · 45 RPM",
@@ -6390,6 +6917,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $25 for VG+ · lowest listing $6 · 32 for sale · release 2540503
   {
+    discogsReleaseId: 2540503,
     artist: "Yes",
     title: "Fragile",
     pressing: "1972 · Atlantic SD 7211 · Club Edition",
@@ -6402,6 +6930,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $55 for NM · lowest listing $40 · 9 for sale · release 30470147
   {
+    discogsReleaseId: 30470147,
     artist: "Yuji Toriyama",
     title: "Take A Break",
     pressing: "2024 · Ship To Shore Phonograph Co. STS-164 · Club Edition, Limited Edition, Numbered",
@@ -6414,6 +6943,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $32 for NM · lowest listing $20 · 17 for sale · release 31611769
   {
+    discogsReleaseId: 31611769,
     artist: "Zedd",
     title: "Telos",
     pressing: "2024 · Interscope Records 602465902679.1",
@@ -6426,6 +6956,7 @@ export const RECORDS: RecordListing[] = [
   },
   // Discogs suggests $85 for M · lowest listing $25 · 31 for sale · release 29166094
   {
+    discogsReleaseId: 29166094,
     artist: "ZZ Top",
     title: "Tres Hombres",
     pressing: "2023 · Warner Records RCV1 724982 · Club Edition, Reissue",
