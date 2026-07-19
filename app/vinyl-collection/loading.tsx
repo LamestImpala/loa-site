@@ -1,7 +1,6 @@
 export default function VinylCollectionLoading() {
   return (
-    <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-6xl px-4 py-12 md:px-8 md:py-16">
+    <section className="mx-auto max-w-6xl px-4 py-12 text-white md:px-8 md:py-16">
         <div className="h-10 w-64 animate-pulse rounded-xl bg-white/10" />
         <div className="mt-4 h-5 w-96 animate-pulse rounded-lg bg-white/10" />
         <div className="mt-8 h-12 w-80 animate-pulse rounded-xl bg-white/10" />
@@ -19,7 +18,6 @@ export default function VinylCollectionLoading() {
             </div>
           ))}
         </div>
-      </section>
-    </main>
+    </section>
   );
 }

@@ -39,6 +39,39 @@ export default function AboutPage() {
           late to hear what you&apos;ve been missing.
         </p>
       </div>
+
+      <div className="mt-12 grid gap-8 md:grid-cols-2">
+        <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-8">
+          <p className="text-sm uppercase tracking-[0.3em] text-orange-300">
+            The story
+          </p>
+          <h2 className="mt-4 text-2xl font-semibold md:text-3xl">
+            Late onset, not late to meaning.
+          </h2>
+          <p className="mt-5 leading-8 text-neutral-300">
+            LOA is for people who came to hi-fi later than others and still
+            found themselves fully pulled in. Not because they wanted to chase
+            specs, but because they started hearing more in the music and
+            wanted to understand why. It&apos;s about the moments that changed
+            everything: realizing amplification matters, understanding speaker
+            placement, hearing what a cartridge can do, and learning that
+            better sound can deepen emotional connection.
+          </p>
+        </div>
+
+        <div className="rounded-[1.75rem] border border-orange-400/20 bg-orange-500/10 p-8">
+          <p className="text-sm uppercase tracking-[0.3em] text-orange-200">
+            Where this is going
+          </p>
+          <p className="mt-5 leading-8 text-neutral-100">
+            The long-term goal is a premium podcast and YouTube brand rooted in
+            music first, gear second, and real human perspective throughout —
+            honest conversations about the turning points, the expensive
+            lessons, and the music that made the whole thing worth it. Built in
+            public, one piece at a time.
+          </p>
+        </div>
+      </div>
     </section>
   );
 }

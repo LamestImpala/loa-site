@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Image from "next/image";
 import Link from "next/link";
+import SiteNav from "./site-nav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -45,6 +45,16 @@ export const metadata: Metadata = {
   },
 };
 
+const FOOTER_LINKS = [
+  { href: "/records", label: "Records for Sale" },
+  { href: "/reviews", label: "Reviews" },
+  { href: "/vinyl-collection", label: "Vinyl Collection" },
+  { href: "/mysystem", label: "My System" },
+  { href: "/music", label: "Music" },
+  { href: "/about", label: "About" },
+  { href: "/contact", label: "Contact" },
+];
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -53,71 +63,95 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="bg-neutral-950 text-neutral-100 font-sans antialiased">
-        <nav className="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/80 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 md:px-10">
-            <Link
-              href="/"
-              className="flex shrink-0 items-center transition hover:opacity-90"
-              aria-label="Late Onset Audiophile home"
-            >
-              <Image
-                src="/images/loalogo.webp"
-                alt="Late Onset Audiophile logo"
-                width={1024}
-                height={1024}
-                className="h-12 w-12 object-contain md:h-[52px] md:w-[52px]"
-                priority
-              />
-            </Link>
-
-            <div className="min-w-0 flex-1 overflow-x-auto">
-              <div className="flex min-w-max items-center gap-6 whitespace-nowrap pr-2 text-sm text-neutral-300">
-                <Link href="/" className="transition hover:text-white">
-                  Home
-                </Link>
-                <Link href="/mysystem" className="transition hover:text-white">
-                  My System
-                </Link>
-                <Link href="/reviews" className="transition hover:text-white">
-                  Reviews
-                </Link>
-                <Link href="/music" className="transition hover:text-white">
-                  Music
-                </Link>
-                <Link
-                  href="/vinyl-collection"
-                  className="transition hover:text-white"
-                >
-                  Vinyl Collection
-                </Link>
-                <Link href="/records" className="transition hover:text-white">
-                  Records for Sale
-                </Link>
-                <Link href="/podcast" className="transition hover:text-white">
-                  Podcast
-                </Link>
-                <Link href="/about" className="transition hover:text-white">
-                  About
-                </Link>
-                <Link href="/contact" className="transition hover:text-white">
-                  Contact
-                </Link>
-                <a
-                  href="https://instagram.com/lateonsetaudiophile"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="transition hover:text-white"
-                >
-                  Instagram
-                </a>
-              </div>
-            </div>
-          </div>
-        </nav>
+        <SiteNav />
 
         <main className="min-h-screen bg-neutral-950 text-neutral-100">
           {children}
         </main>
+
+        <footer className="border-t border-white/10 bg-neutral-950">
+          <div className="mx-auto max-w-7xl px-6 py-14 md:px-10">
+            <div className="grid gap-10 md:grid-cols-3">
+              <div>
+                <p className="text-lg font-semibold text-white">
+                  Late Onset Audiophile
+                </p>
+                <p className="mt-3 max-w-xs text-sm leading-6 text-neutral-400">
+                  It&apos;s never too late to hear what you&apos;ve been
+                  missing. Honest hi-fi from a real living room.
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm uppercase tracking-[0.2em] text-neutral-500">
+                  Explore
+                </p>
+                <ul className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                  {FOOTER_LINKS.map((link) => (
+                    <li key={link.href}>
+                      <Link
+                        href={link.href}
+                        className="text-neutral-300 transition hover:text-white"
+                      >
+                        {link.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <p className="text-sm uppercase tracking-[0.2em] text-neutral-500">
+                  Get in touch
+                </p>
+                <ul className="mt-4 space-y-2 text-sm">
+                  <li>
+                    <a
+                      href="mailto:contact@lateonsetaudiophile.com"
+                      className="text-neutral-300 transition hover:text-white"
+                    >
+                      contact@lateonsetaudiophile.com
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://www.reddit.com/user/LateOnsetAudiophile"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-neutral-300 transition hover:text-white"
+                    >
+                      u/LateOnsetAudiophile on Reddit
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://instagram.com/lateonsetaudiophile"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-neutral-300 transition hover:text-white"
+                    >
+                      Instagram
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://x.com/lateonsetaudio"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-neutral-300 transition hover:text-white"
+                    >
+                      X
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <p className="mt-12 border-t border-white/10 pt-6 text-xs text-neutral-500">
+              © {new Date().getFullYear()} Late Onset Audiophile
+            </p>
+          </div>
+        </footer>
       </body>
     </html>
   );

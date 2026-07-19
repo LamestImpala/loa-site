@@ -15,8 +15,7 @@ export const metadata: Metadata = {
 
 export default function MarantzVsHegelReviewPage() {
   return (
-    <main className="min-h-screen bg-black text-white">
-      <article className="mx-auto max-w-7xl px-6 py-16 md:px-10 md:py-20">
+    <article className="mx-auto max-w-7xl px-6 py-16 text-white md:px-10 md:py-20">
         <div className="mb-8">
           <Link
             href="/reviews"
@@ -353,7 +352,6 @@ export default function MarantzVsHegelReviewPage() {
             </Link>
           </aside>
         </div>
-      </article>
-    </main>
+    </article>
   );
 }

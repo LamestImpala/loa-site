@@ -28,8 +28,7 @@ export default async function RecordsPage() {
   const redditPostUrl = settingsData?.value?.trim() ?? "";
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-6xl px-4 py-12 md:px-8 md:py-16">
+    <section className="mx-auto max-w-6xl px-4 py-12 text-white md:px-8 md:py-16">
         <h1 className="text-3xl font-semibold md:text-5xl">
           {SELLER_INFO.pageTitle}
         </h1>
@@ -85,7 +84,6 @@ export default async function RecordsPage() {
         ) : (
           <RecordsClient records={records} redditPostUrl={redditPostUrl} />
         )}
-      </section>
-    </main>
+    </section>
   );
 }

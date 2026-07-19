@@ -8,8 +8,7 @@ export const metadata: Metadata = {
 
 export default function ContactPage() {
   return (
-    <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-4xl px-4 py-12 md:px-8 md:py-16">
+    <section className="mx-auto max-w-4xl px-4 py-12 md:px-8 md:py-16">
         <h1 className="text-3xl font-semibold md:text-5xl">Contact</h1>
 
         <p className="mt-4 max-w-2xl text-base text-neutral-300 md:text-lg">
@@ -29,7 +28,6 @@ export default function ContactPage() {
             contact@lateonsetaudiophile.com
           </a>
         </div>
-      </section>
-    </main>
+    </section>
   );
 }

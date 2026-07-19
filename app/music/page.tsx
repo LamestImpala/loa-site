@@ -3,54 +3,36 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Music — Late Onset Audiophile",
   description:
-    "The albums and tracks that reshaped how I think about systems, rooms, and what 'better' actually sounds like.",
+    "How I listen: the qualities I test for, and the listening sessions that reshaped how I think about systems, rooms, and what 'better' actually sounds like.",
 };
 
 export default function MusicPage() {
-  const referenceGroups = [
+  const focusAreas = [
     {
       title: "Soundstage & imaging",
       description:
-        "Tracks that reveal width, depth, and placement – the moments where the speakers disappear.",
-      items: [
-        {
-          track: "Track / Album 1",
-          note: "Listen for how instruments occupy distinct spaces without blurring together.",
-        },
-        {
-          track: "Track / Album 2",
-          note: "Pay attention to center image focus and depth behind the speakers.",
-        },
+        "The moments where the speakers disappear — width, depth, and placement.",
+      notes: [
+        "Instruments occupying distinct spaces without blurring together",
+        "Center image focus and depth behind the speakers",
       ],
     },
     {
       title: "Tone, timbre & realism",
       description:
         "Natural vocals and instruments that tell you if the system sounds believable, not hi-fi for its own sake.",
-      items: [
-        {
-          track: "Track / Album 3",
-          note: "Notice the texture of the voice and how acoustic instruments decay.",
-        },
-        {
-          track: "Track / Album 4",
-          note: "Listen for body and weight without getting thick or muddy.",
-        },
+      notes: [
+        "The texture of a voice and how acoustic instruments decay",
+        "Body and weight without getting thick or muddy",
       ],
     },
     {
       title: "Dynamics & impact",
       description:
         "Songs that move from quiet to loud, soft to explosive, without turning into a wall of noise.",
-      items: [
-        {
-          track: "Track / Album 5",
-          note: "Focus on how clean the system stays when everything hits at once.",
-        },
-        {
-          track: "Track / Album 6",
-          note: "Microdynamics – the small shifts in intensity that make performances feel alive.",
-        },
+      notes: [
+        "How clean the system stays when everything hits at once",
+        "Microdynamics — the small shifts in intensity that make performances feel alive",
       ],
     },
   ];
@@ -126,40 +108,37 @@ export default function MusicPage() {
         </div>
       </section>
 
-      {/* Reference tracks */}
+      {/* What I test for */}
       <section className="mb-20">
         <div className="mb-8">
           <p className="text-sm uppercase tracking-[0.3em] text-orange-300">
-            Reference tracks
+            What I test for
           </p>
           <h2 className="mt-4 text-3xl md:text-4xl font-semibold">
-            Tracks I use to understand a system.
+            The three things a system has to get right.
           </h2>
           <p className="mt-4 max-w-3xl text-lg text-neutral-300">
-            These aren&apos;t just demo favorites – they&apos;re songs that
-            reveal something specific about how a system handles space, tone,
-            and energy. I&apos;ll keep expanding this list as LOA evolves.
+            Every song I reach for when evaluating a change reveals something
+            specific about how a system handles space, tone, and energy. These
+            are the qualities I&apos;m actually listening for.
           </p>
         </div>
 
         <div className="grid gap-8 md:grid-cols-3">
-          {referenceGroups.map((group) => (
+          {focusAreas.map((area) => (
             <div
-              key={group.title}
+              key={area.title}
               className="rounded-[1.5rem] border border-white/10 bg-neutral-900 p-6"
             >
               <h3 className="text-xl font-semibold text-neutral-50">
-                {group.title}
+                {area.title}
               </h3>
               <p className="mt-3 text-sm text-neutral-300">
-                {group.description}
+                {area.description}
               </p>
-              <ul className="mt-5 space-y-4 text-sm text-neutral-100">
-                {group.items.map((item) => (
-                  <li key={item.track}>
-                    <p className="font-medium">{item.track}</p>
-                    <p className="mt-1 text-neutral-300">{item.note}</p>
-                  </li>
+              <ul className="mt-5 space-y-3 text-sm text-neutral-100">
+                {area.notes.map((note) => (
+                  <li key={note}>• {note}</li>
                 ))}
               </ul>
             </div>

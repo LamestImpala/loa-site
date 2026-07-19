@@ -59,31 +59,22 @@ export default function MySystem() {
 
   return (
     <section className="mx-auto max-w-7xl px-6 py-16 md:px-10 md:py-20">
-      <div className="mb-8">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-sm text-neutral-300 transition-colors hover:text-white"
-        >
-          ← Back to Home
-        </Link>
-      </div>
-
-      <div className="mb-20 text-center">
-        <div className="mb-8 inline-flex items-center rounded-full border border-orange-400/30 bg-orange-500/10 px-6 py-3 text-sm text-orange-200">
+      <header className="mb-16">
+        <p className="text-sm uppercase tracking-[0.3em] text-orange-300">
           My Hi-Fi System
-        </div>
+        </p>
 
-        <h1 className="bg-gradient-to-r from-orange-400 via-orange-300 to-yellow-400 bg-clip-text text-5xl font-semibold tracking-tight text-transparent md:text-7xl">
+        <h1 className="mt-4 text-4xl font-semibold tracking-tight md:text-6xl">
           My System
         </h1>
 
-        <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-neutral-300">
+        <p className="mt-5 max-w-3xl text-lg leading-8 text-neutral-300">
           The system that shaped Late Onset Audiophile lives at the intersection
           of two-channel hi-fi, vinyl, digital streaming, and home theater.
           Every component here taught me something about synergy, tone, scale,
           and what kind of sound keeps me listening longer.
         </p>
-      </div>
+      </header>
 
       <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
         <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-8 lg:col-span-2">
@@ -221,10 +212,10 @@ export default function MySystem() {
             </Link>
 
             <Link
-              href="/podcast"
+              href="/records"
               className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
             >
-              Podcast Vision
+              Records for Sale
             </Link>
           </div>
         </div>

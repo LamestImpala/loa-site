@@ -27,8 +27,7 @@ const upcomingReviews = [
 
 export default function ReviewsPage() {
   return (
-    <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-7xl px-6 py-16 md:px-10 md:py-20">
+    <section className="mx-auto max-w-7xl px-6 py-16 text-white md:px-10 md:py-20">
         <div className="max-w-4xl">
           <div className="mb-6 inline-flex items-center rounded-full border border-orange-400/30 bg-orange-500/10 px-5 py-2 text-sm text-orange-200">
             Late Onset Audiophile Reviews
@@ -153,7 +152,6 @@ export default function ReviewsPage() {
             ))}
           </div>
         </div>
-      </section>
-    </main>
+    </section>
   );
 }

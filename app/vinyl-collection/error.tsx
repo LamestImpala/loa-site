@@ -7,8 +7,7 @@ export default function VinylCollectionError({
   reset: () => void;
 }) {
   return (
-    <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-6xl px-4 py-12 md:px-8 md:py-16">
+    <section className="mx-auto max-w-6xl px-4 py-12 text-white md:px-8 md:py-16">
         <h1 className="text-3xl font-semibold md:text-5xl">Vinyl Collection</h1>
 
         <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8">
@@ -36,7 +35,6 @@ export default function VinylCollectionError({
             Try again
           </button>
         </div>
-      </section>
-    </main>
+    </section>
   );
 }
