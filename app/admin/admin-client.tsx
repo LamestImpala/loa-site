@@ -1286,6 +1286,7 @@ export default function AdminClient() {
                   <span className="text-sm text-neutral-400">
                     {run.checked} checked · {run.auto_applied} auto-applied ·{" "}
                     {run.flagged} flagged
+                    {run.undercuts ? ` · ${run.undercuts} auto-undercut` : ""}
                     {run.above_lowest
                       ? ` · ${run.above_lowest} above lowest listing`
                       : ""}
@@ -1304,12 +1305,31 @@ export default function AdminClient() {
                           {s.action === "above-lowest" ? (
                             <>
                               {s.artist} — {s.title}: yours ${s.old_price},
-                              lowest listing ${s.new_price}{" "}
+                              suggested ${s.new_price}
+                              {s.lowest ? <> (lowest listing ${s.lowest})</> : null}{" "}
                               <span className="text-yellow-400">
                                 ({pct(s.pct)})
                               </span>{" "}
                               <span className="text-neutral-500">
-                                priced above cheapest Discogs listing
+                                above cheapest Discogs listing
+                                {s.for_sale != null
+                                  ? ` · ${s.for_sale} for sale`
+                                  : ""}{" "}
+                                — approve the cut under Pending price changes
+                              </span>
+                            </>
+                          ) : s.action === "undercut" ? (
+                            <>
+                              {s.artist} — {s.title}: ${s.old_price} → $
+                              {s.new_price}{" "}
+                              <span className="text-red-400">
+                                ({pct(s.pct)})
+                              </span>{" "}
+                              <span className="text-neutral-500">
+                                auto-undercut cheapest listing
+                                {s.for_sale != null
+                                  ? ` · ${s.for_sale} for sale`
+                                  : ""}
                               </span>
                             </>
                           ) : (

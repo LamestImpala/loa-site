@@ -48,6 +48,7 @@ export type PriceRun = {
   auto_applied: number;
   flagged: number;
   above_lowest?: number;
+  undercuts?: number;
   errors: number;
   summary: {
     record_id: number;
@@ -56,7 +57,9 @@ export type PriceRun = {
     old_price: number;
     new_price: number;
     pct: number;
-    action: "applied" | "flagged" | "above-lowest";
+    lowest?: number; // cheapest Discogs listing at run time
+    for_sale?: number | null; // copies listed on Discogs at run time
+    action: "applied" | "flagged" | "above-lowest" | "undercut";
   }[];
 };
 

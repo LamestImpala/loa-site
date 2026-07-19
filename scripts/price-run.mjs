@@ -17,6 +17,9 @@ const SUPABASE_URL = "https://spmbjuurarlpyqcqxyyz.supabase.co";
 const REPORT_EMAIL = "brandoncgillihan@gmail.com";
 const PRICE_FACTOR = 0.85; // ask 85% of the Discogs suggested price
 const THRESHOLD = 0.05; // auto-apply moves within ±5%
+const UNDERCUT_BY = 1; // competitive price = $1 below the cheapest listing
+const MAX_AUTO_CUT = 0.1; // auto-apply competitive cuts up to 10%
+const FLOOR_FACTOR = 0.7; // never auto-price below 70% of the grade suggestion
 
 const GRADE_KEY = {
   M: "Mint (M)",
@@ -125,6 +128,7 @@ async function main() {
   let autoApplied = 0;
   let flagged = 0;
   let aboveLowest = 0;
+  let undercuts = 0;
   let errors = 0;
 
   const { data: run, error: runErr } = await supabase
@@ -142,17 +146,19 @@ async function main() {
       const suggestion = suggestions?.[gradeKey]?.value;
       if (!suggestion) continue;
 
+      let price = r.price; // tracks changes made within this iteration
+
       const target = Math.round(suggestion * PRICE_FACTOR);
-      if (target >= 1 && target !== r.price) {
+      if (target >= 1 && target !== price) {
         const entry = {
           record_id: r.id,
           artist: r.artist,
           title: r.title,
-          old_price: r.price,
+          old_price: price,
           new_price: target,
         };
 
-        if (r.price === 0) {
+        if (price === 0) {
           // new record with no price yet — set it directly
           const { error: updErr } = await supabase
             .from("records")
@@ -160,9 +166,10 @@ async function main() {
             .eq("id", r.id);
           if (updErr) throw updErr;
           autoApplied++;
+          price = target;
           summary.push({ ...entry, pct: 0, action: "applied" });
         } else {
-          const pct = (target - r.price) / r.price;
+          const pct = (target - price) / price;
           if (Math.abs(pct) <= THRESHOLD) {
             const { error: updErr } = await supabase
               .from("records")
@@ -170,6 +177,7 @@ async function main() {
               .eq("id", r.id);
             if (updErr) throw updErr;
             autoApplied++;
+            price = target;
             summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "applied" });
           } else if (!hasPending.has(r.id)) {
             const { error: insErr } = await supabase
@@ -177,21 +185,24 @@ async function main() {
               .insert({
                 record_id: r.id,
                 run_id: run.id,
-                old_price: r.price,
+                old_price: price,
                 suggested_price: target,
                 pct_change: Number(pct.toFixed(4)),
               });
             if (insErr) throw insErr;
+            hasPending.add(r.id);
             flagged++;
             summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "flagged" });
           }
         }
       }
 
-      // Reality check: is our price above the cheapest Discogs listing?
-      // (Buyers see that number, so it's what we get negotiated against.)
+      // Competitive check: is our price above the cheapest Discogs listing?
+      // Buyers see that number, so undercut it by $1 — automatically when
+      // the cut is small (≤MAX_AUTO_CUT) and stays above the floor
+      // (FLOOR_FACTOR × grade suggestion); otherwise queue it for approval.
       await sleep(1100);
-      if (r.price > 0) {
+      if (price > 0) {
         const statsRes = await fetch(
           `https://api.discogs.com/marketplace/stats/${r.discogs_release_id}?curr_abbr=USD`,
           {
@@ -204,17 +215,50 @@ async function main() {
         if (statsRes.ok) {
           const stats = await statsRes.json();
           const lowest = stats?.lowest_price?.value;
-          if (lowest && r.price > lowest) {
+          const forSale = stats?.num_for_sale ?? null;
+          const competitive = lowest
+            ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
+            : null;
+          if (lowest && price > lowest && competitive < price) {
             aboveLowest++;
-            summary.push({
+            const floor = Math.round(suggestion * FLOOR_FACTOR);
+            const cutPct = Number(((competitive - price) / price).toFixed(4));
+            const entry = {
               record_id: r.id,
               artist: r.artist,
               title: r.title,
-              old_price: r.price,
-              new_price: Math.round(lowest),
-              pct: Number(((lowest - r.price) / r.price).toFixed(4)),
-              action: "above-lowest",
-            });
+              old_price: price,
+              new_price: competitive,
+              pct: cutPct,
+              lowest: Math.round(lowest),
+              for_sale: forSale,
+            };
+            if (Math.abs(cutPct) <= MAX_AUTO_CUT && competitive >= floor) {
+              const { error: updErr } = await supabase
+                .from("records")
+                .update({
+                  price: competitive,
+                  prev_price: price,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", r.id);
+              if (updErr) throw updErr;
+              undercuts++;
+              summary.push({ ...entry, action: "undercut" });
+            } else if (!hasPending.has(r.id)) {
+              const { error: insErr } = await supabase
+                .from("pending_price_changes")
+                .insert({
+                  record_id: r.id,
+                  run_id: run.id,
+                  old_price: price,
+                  suggested_price: competitive,
+                  pct_change: cutPct,
+                });
+              if (insErr) throw insErr;
+              hasPending.add(r.id);
+              summary.push({ ...entry, action: "above-lowest" });
+            }
           }
         }
       }
@@ -232,17 +276,22 @@ async function main() {
       auto_applied: autoApplied,
       flagged,
       above_lowest: aboveLowest,
+      undercuts,
       errors,
       summary,
     })
     .eq("id", run.id);
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied, ${flagged} flagged, ${aboveLowest} above lowest listing, ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied, ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above lowest listing, ${errors} errors`
   );
 
-  if ((flagged > 0 || aboveLowest > 0) && process.env.RESEND_API_KEY) {
-    const rows = (action) =>
+  const pendingCuts = summary.filter((s) => s.action === "above-lowest");
+  if (
+    (flagged > 0 || undercuts > 0 || pendingCuts.length > 0) &&
+    process.env.RESEND_API_KEY
+  ) {
+    const suggestionRows = (action) =>
       summary
         .filter((s) => s.action === action)
         .map(
@@ -250,24 +299,56 @@ async function main() {
             `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td></tr>`
         )
         .join("");
+    const cutRow = (s) =>
+      `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.lowest}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${s.for_sale ?? "?"}</td></tr>`;
+    const cutHeader = `<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Suggested</th><th>Cut</th><th>Copies for sale</th></tr>`;
+
     const flaggedSection =
       flagged > 0
-        ? `<p>These moved more than ±5% and are waiting for your approval at
+        ? `<p>These moved more than ±5% on the Discogs suggestion and are waiting for your approval at
 <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th></tr>
-${rows("flagged")}
+${suggestionRows("flagged")}
 </table>`
         : "";
-    const lowestSection =
-      aboveLowest > 0
-        ? `<p>These are priced <strong>above the cheapest current Discogs listing</strong> —
-buyers will see the lower number, so consider adjusting:</p>
-<table border="1" cellpadding="6" cellspacing="0">
-<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Gap</th></tr>
-${rows("above-lowest")}
-</table>`
+
+    // Sort pending cuts biggest-gap-first, then split into ones worth
+    // acting on vs. likely condition noise (big gap or scarce copies).
+    const sortedCuts = [...pendingCuts].sort((a, b) => a.pct - b.pct);
+    const actionable = sortedCuts.filter(
+      (s) => Math.abs(s.pct) <= 0.3 && (s.for_sale ?? 0) >= 3
+    );
+    const noise = sortedCuts.filter((s) => !actionable.includes(s));
+    const cutsSection =
+      sortedCuts.length > 0
+        ? `<p>These are priced <strong>above the cheapest current Discogs listing</strong>.
+One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>
+sets the suggested price ($1 under the lowest listing).</p>
+${
+  actionable.length > 0
+    ? `<p><strong>Worth acting on</strong> (modest gap, several copies competing):</p>
+<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${actionable.map(cutRow).join("")}</table>`
+    : ""
+}
+${
+  noise.length > 0
+    ? `<p><strong>Probably condition noise or scarce</strong> (big gap — often a low-grade copy anchoring the price — or few copies for sale; check the listing before cutting):</p>
+<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${noise.map(cutRow).join("")}</table>`
+    : ""
+}`
         : "";
+
+    const undercutSection =
+      undercuts > 0
+        ? `<p>Auto-undercut to $1 below the cheapest listing (cut ≤10% and above the
+${FLOOR_FACTOR * 100}% floor of the grade suggestion):</p>
+<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${summary
+            .filter((s) => s.action === "undercut")
+            .map(cutRow)
+            .join("")}</table>`
+        : "";
+
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -277,10 +358,11 @@ ${rows("above-lowest")}
       body: JSON.stringify({
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
-        subject: `Price run: ${flagged} flagged, ${aboveLowest} above lowest listing`,
-        html: `<p>${checked} records checked, ${autoApplied} small changes auto-applied.</p>
+        subject: `Price run: ${undercuts} auto-undercut, ${flagged + pendingCuts.length} awaiting approval`,
+        html: `<p>${checked} records checked, ${autoApplied} suggestion changes auto-applied, ${undercuts} competitive undercuts applied.</p>
 ${flaggedSection}
-${lowestSection}`,
+${cutsSection}
+${undercutSection}`,
       }),
     });
     if (!res.ok) {
