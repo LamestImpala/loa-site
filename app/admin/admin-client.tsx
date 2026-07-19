@@ -128,6 +128,7 @@ export default function AdminClient() {
   const [soldPriceEdits, setSoldPriceEdits] = useState<Record<number, string>>({});
   const [genreRowEdits, setGenreRowEdits] = useState<Record<number, string>>({});
   const [collectionRowEdits, setCollectionRowEdits] = useState<Record<number, string>>({});
+  const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
   const [genreFilter, setGenreFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
@@ -325,6 +326,14 @@ export default function AdminClient() {
     const value = raw.trim() || null;
     if (value === (r.collection ?? null)) return;
     await updateRecord(r.id, { collection: value });
+  }
+
+  async function saveNotes(r: DbRecord) {
+    const raw = notesEdits[r.id];
+    if (raw === undefined) return;
+    const value = raw.trim();
+    if (value === (r.notes ?? "")) return;
+    await updateRecord(r.id, { notes: value });
   }
 
   async function removeFromDiscogs(r: DbRecord) {
@@ -1223,7 +1232,51 @@ export default function AdminClient() {
                           title="Collection tag like VMP or IVC — saves when you click away"
                           className={`w-28 ${inputClass}`}
                         />
+                        <label className="flex items-center gap-1 text-xs text-neutral-500">
+                          Media
+                          <select
+                            value={r.media}
+                            disabled={savingId === r.id}
+                            onChange={(e) =>
+                              updateRecord(r.id, { media: e.target.value })
+                            }
+                            className={`${inputClass} [&>option]:bg-neutral-900`}
+                          >
+                            {GRADES.map((g) => (
+                              <option key={g}>{g}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex items-center gap-1 text-xs text-neutral-500">
+                          Sleeve
+                          <select
+                            value={r.sleeve}
+                            disabled={savingId === r.id}
+                            onChange={(e) =>
+                              updateRecord(r.id, { sleeve: e.target.value })
+                            }
+                            className={`${inputClass} [&>option]:bg-neutral-900`}
+                          >
+                            {GRADES.map((g) => (
+                              <option key={g}>{g}</option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
+                      <textarea
+                        value={notesEdits[r.id] ?? (r.notes ?? "")}
+                        onChange={(e) =>
+                          setNotesEdits((prev) => ({
+                            ...prev,
+                            [r.id]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => saveNotes(r)}
+                        placeholder="Notes shown to buyers (e.g. “Signed by Maynard — cover has a bent corner”)"
+                        title="Shown on the public record card and in the Reddit table — saves when you click away"
+                        rows={1}
+                        className={`mt-2 w-full max-w-md resize-y ${inputClass}`}
+                      />
                       <p className="mt-1 flex gap-3 text-xs">
                         {r.discogs_release_id ? (
                           <a
