@@ -124,6 +124,28 @@ async function main() {
   if (pendingErr) throw pendingErr;
   const hasPending = new Set(pendingRows.map((p) => p.record_id));
 
+  // Rejections should stick: don't re-flag a record when a suggestion
+  // within 5% of the same price was rejected in the last 14 days.
+  const { data: rejectedRows, error: rejectedErr } = await supabase
+    .from("pending_price_changes")
+    .select("record_id, suggested_price")
+    .eq("status", "rejected")
+    .gte(
+      "resolved_at",
+      new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString()
+    );
+  if (rejectedErr) throw rejectedErr;
+  const recentlyRejected = new Map();
+  for (const p of rejectedRows) {
+    const list = recentlyRejected.get(p.record_id) ?? [];
+    list.push(Number(p.suggested_price));
+    recentlyRejected.set(p.record_id, list);
+  }
+  const wasRejected = (recordId, suggested) =>
+    (recentlyRejected.get(recordId) ?? []).some(
+      (prev) => Math.abs(prev - suggested) / Math.max(prev, 1) <= 0.05
+    );
+
   const summary = [];
   let checked = 0;
   let autoApplied = 0;
@@ -147,9 +169,33 @@ async function main() {
       const suggestion = suggestions?.[gradeKey]?.value;
       if (!suggestion) continue;
 
+      // Market stats up front so competitive positioning can cap the
+      // suggestion target — never suggest raising above lowest − $1.
+      await sleep(1100);
+      let lowest = null;
+      let forSale = null;
+      const statsRes = await fetch(
+        `https://api.discogs.com/marketplace/stats/${r.discogs_release_id}?curr_abbr=USD`,
+        {
+          headers: {
+            Authorization: `Discogs token=${discogsToken}`,
+            "User-Agent": "LateOnsetAudiophileRecords/1.0",
+          },
+        }
+      );
+      if (statsRes.ok) {
+        const stats = await statsRes.json();
+        lowest = stats?.lowest_price?.value ?? null;
+        forSale = stats?.num_for_sale ?? null;
+      }
+      const competitive = lowest
+        ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
+        : null;
+
       let price = r.price; // tracks changes made within this iteration
 
-      const target = Math.round(suggestion * PRICE_FACTOR);
+      let target = Math.round(suggestion * PRICE_FACTOR);
+      if (competitive !== null) target = Math.min(target, competitive);
       if (target >= 1 && target !== price) {
         const entry = {
           record_id: r.id,
@@ -180,7 +226,7 @@ async function main() {
             autoApplied++;
             price = target;
             summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "applied" });
-          } else if (!hasPending.has(r.id)) {
+          } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
             const { error: insErr } = await supabase
               .from("pending_price_changes")
               .insert({
@@ -202,65 +248,48 @@ async function main() {
       // Buyers see that number, so undercut it by $1 — automatically when
       // the cut is small (≤MAX_AUTO_CUT) and stays above the floor
       // (FLOOR_FACTOR × grade suggestion); otherwise queue it for approval.
-      await sleep(1100);
-      if (price > 0) {
-        const statsRes = await fetch(
-          `https://api.discogs.com/marketplace/stats/${r.discogs_release_id}?curr_abbr=USD`,
-          {
-            headers: {
-              Authorization: `Discogs token=${discogsToken}`,
-              "User-Agent": "LateOnsetAudiophileRecords/1.0",
-            },
-          }
-        );
-        if (statsRes.ok) {
-          const stats = await statsRes.json();
-          const lowest = stats?.lowest_price?.value;
-          const forSale = stats?.num_for_sale ?? null;
-          const competitive = lowest
-            ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
-            : null;
-          if (lowest && price > lowest && competitive < price) {
-            aboveLowest++;
-            const floor = Math.round(suggestion * FLOOR_FACTOR);
-            const cutPct = Number(((competitive - price) / price).toFixed(4));
-            const entry = {
+      if (price > 0 && lowest && price > lowest && competitive < price) {
+        aboveLowest++;
+        const floor = Math.round(suggestion * FLOOR_FACTOR);
+        const cutPct = Number(((competitive - price) / price).toFixed(4));
+        const entry = {
+          record_id: r.id,
+          artist: r.artist,
+          title: r.title,
+          old_price: price,
+          new_price: competitive,
+          pct: cutPct,
+          lowest: Math.round(lowest),
+          for_sale: forSale,
+        };
+        if (Math.abs(cutPct) <= MAX_AUTO_CUT && competitive >= floor) {
+          const { error: updErr } = await supabase
+            .from("records")
+            .update({
+              price: competitive,
+              prev_price: price,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", r.id);
+          if (updErr) throw updErr;
+          undercuts++;
+          summary.push({ ...entry, action: "undercut" });
+        } else if (
+          !hasPending.has(r.id) &&
+          !wasRejected(r.id, competitive)
+        ) {
+          const { error: insErr } = await supabase
+            .from("pending_price_changes")
+            .insert({
               record_id: r.id,
-              artist: r.artist,
-              title: r.title,
+              run_id: run.id,
               old_price: price,
-              new_price: competitive,
-              pct: cutPct,
-              lowest: Math.round(lowest),
-              for_sale: forSale,
-            };
-            if (Math.abs(cutPct) <= MAX_AUTO_CUT && competitive >= floor) {
-              const { error: updErr } = await supabase
-                .from("records")
-                .update({
-                  price: competitive,
-                  prev_price: price,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", r.id);
-              if (updErr) throw updErr;
-              undercuts++;
-              summary.push({ ...entry, action: "undercut" });
-            } else if (!hasPending.has(r.id)) {
-              const { error: insErr } = await supabase
-                .from("pending_price_changes")
-                .insert({
-                  record_id: r.id,
-                  run_id: run.id,
-                  old_price: price,
-                  suggested_price: competitive,
-                  pct_change: cutPct,
-                });
-              if (insErr) throw insErr;
-              hasPending.add(r.id);
-              summary.push({ ...entry, action: "above-lowest" });
-            }
-          }
+              suggested_price: competitive,
+              pct_change: cutPct,
+            });
+          if (insErr) throw insErr;
+          hasPending.add(r.id);
+          summary.push({ ...entry, action: "above-lowest" });
         }
       }
     } catch (e) {
