@@ -15,14 +15,6 @@ function artistLetter(artist: string) {
   return first >= "A" && first <= "Z" ? first : "#";
 }
 
-// Reddit markdown pipes inside a cell break the table — escape them.
-function cell(s: string | undefined) {
-  return String(s || "")
-    .replace(/\|/g, "\\|")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
   const commentLine = hasPost
@@ -30,31 +22,6 @@ function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
     : "";
   const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n${commentLine}\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
-}
-
-function redditMarkdown(records: DbRecord[]) {
-  const list = records
-    .filter((r) => !r.sold)
-    .sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title));
-  const rows = list.map((r) => {
-    const title = r.photos
-      ? `[${cell(r.title)}](${r.photos.trim()})`
-      : cell(r.title);
-    return `| ${cell(r.artist)} | ${title} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | $${r.price} | ${cell(r.notes)} |`;
-  });
-  return [
-    `**${SELLER_INFO.pageTitle}** — full list with photos: ${window.location.href.split("#")[0]}`,
-    "",
-    `**Payment:** ${SELLER_INFO.payment}`,
-    "",
-    `**Shipping:** ${SELLER_INFO.shipping}`,
-    "",
-    "| Artist | Title | Pressing | Media | Sleeve | Price | Notes |",
-    "|---|---|---|---|---|---|---|",
-    ...rows,
-    "",
-    SELLER_INFO.contact,
-  ].join("\n");
 }
 
 export default function RecordsClient({
@@ -68,7 +35,6 @@ export default function RecordsClient({
   const [sort, setSort] = useState<SortOption>("artist");
   const [filter, setFilter] = useState<FilterOption>("all");
   const [letter, setLetter] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [commentCopiedId, setCommentCopiedId] = useState<number | null>(null);
 
   async function copyCommentAndOpenPost(r: DbRecord) {
@@ -109,18 +75,6 @@ export default function RecordsClient({
 
   const available = records.filter((r) => !r.sold).length;
 
-  async function copyRedditTable() {
-    const md = redditMarkdown(records);
-    try {
-      await navigator.clipboard.writeText(md);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // Clipboard API needs HTTPS/localhost; fall back to showing the text.
-      window.prompt("Copy the table below:", md);
-    }
-  }
-
   return (
     <>
       <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -149,14 +103,6 @@ export default function RecordsClient({
           <option value="available">Available only</option>
           <option value="sold">Sold only</option>
         </select>
-        <button
-          type="button"
-          onClick={copyRedditTable}
-          title="Copies a ready-to-paste Reddit markdown table of available records"
-          className="rounded-xl border border-white/15 bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-neutral-200"
-        >
-          {copied ? "Copied!" : "Copy Reddit table"}
-        </button>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-1.5">

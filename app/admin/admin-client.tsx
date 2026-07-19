@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { SELLER_INFO } from "@/lib/records";
 import {
   ADMIN_EMAIL,
   getBrowserSupabase,
@@ -9,6 +10,39 @@ import {
   type PendingPriceChange,
   type PriceRun,
 } from "@/lib/supabase";
+
+// Reddit markdown pipes inside a cell break the table — escape them.
+function cell(s: string | undefined) {
+  return String(s || "")
+    .replace(/\|/g, "\\|")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function redditMarkdown(records: DbRecord[]) {
+  const list = records
+    .filter((r) => r.listed && !r.sold)
+    .sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title));
+  const rows = list.map((r) => {
+    const title = r.photos
+      ? `[${cell(r.title)}](${r.photos.trim()})`
+      : cell(r.title);
+    return `| ${cell(r.artist)} | ${title} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | $${r.price} | ${cell(r.notes)} |`;
+  });
+  return [
+    `**${SELLER_INFO.pageTitle}** — full list with photos: https://lateonsetaudiophile.com/records`,
+    "",
+    `**Payment:** ${SELLER_INFO.payment}`,
+    "",
+    `**Shipping:** ${SELLER_INFO.shipping}`,
+    "",
+    "| Artist | Title | Pressing | Media | Sleeve | Price | Notes |",
+    "|---|---|---|---|---|---|---|",
+    ...rows,
+    "",
+    SELLER_INFO.contact,
+  ].join("\n");
+}
 
 const inputClass =
   "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none";
@@ -40,6 +74,18 @@ export default function AdminClient() {
   const [postUrl, setPostUrl] = useState("");
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
   const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
+  const [tableCopied, setTableCopied] = useState(false);
+
+  async function copyRedditTable() {
+    const md = redditMarkdown(records);
+    try {
+      await navigator.clipboard.writeText(md);
+      setTableCopied(true);
+      setTimeout(() => setTableCopied(false), 1600);
+    } catch {
+      window.prompt("Copy the table below:", md);
+    }
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -282,8 +328,21 @@ export default function AdminClient() {
           </p>
         ) : null}
 
-        {/* Reddit post URL */}
-        <h2 className="mt-10 text-xl font-medium">Active Reddit post</h2>
+        {/* Reddit tools */}
+        <h2 className="mt-10 text-xl font-medium">Reddit tools</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          Copies a ready-to-paste markdown table of every shown, unsold record
+          for a new sale post.
+        </p>
+        <button
+          type="button"
+          onClick={copyRedditTable}
+          className={`mt-3 ${buttonClass}`}
+        >
+          {tableCopied ? "Copied!" : "Copy Reddit table"}
+        </button>
+
+        <h3 className="mt-8 text-lg font-medium">Active Reddit post</h3>
         <p className="mt-1 text-sm text-neutral-400">
           Paste the URL of your current sale post. Buyers then get a
           &ldquo;Comment on the post&rdquo; button that copies a &ldquo;Sent
