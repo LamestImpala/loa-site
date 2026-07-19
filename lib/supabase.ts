@@ -43,6 +43,7 @@ export type PriceRun = {
   checked: number;
   auto_applied: number;
   flagged: number;
+  above_lowest?: number;
   errors: number;
   summary: {
     record_id: number;
@@ -51,7 +52,7 @@ export type PriceRun = {
     old_price: number;
     new_price: number;
     pct: number;
-    action: "applied" | "flagged";
+    action: "applied" | "flagged" | "above-lowest";
   }[];
 };
 

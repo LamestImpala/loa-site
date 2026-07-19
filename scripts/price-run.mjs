@@ -124,6 +124,7 @@ async function main() {
   let checked = 0;
   let autoApplied = 0;
   let flagged = 0;
+  let aboveLowest = 0;
   let errors = 0;
 
   const { data: run, error: runErr } = await supabase
@@ -142,39 +143,80 @@ async function main() {
       if (!suggestion) continue;
 
       const target = Math.round(suggestion * PRICE_FACTOR);
-      if (target < 1 || target === r.price || r.price === 0) continue;
+      if (target >= 1 && target !== r.price) {
+        const entry = {
+          record_id: r.id,
+          artist: r.artist,
+          title: r.title,
+          old_price: r.price,
+          new_price: target,
+        };
 
-      const pct = (target - r.price) / r.price;
-      const entry = {
-        record_id: r.id,
-        artist: r.artist,
-        title: r.title,
-        old_price: r.price,
-        new_price: target,
-        pct: Number(pct.toFixed(4)),
-      };
+        if (r.price === 0) {
+          // new record with no price yet — set it directly
+          const { error: updErr } = await supabase
+            .from("records")
+            .update({ price: target, updated_at: new Date().toISOString() })
+            .eq("id", r.id);
+          if (updErr) throw updErr;
+          autoApplied++;
+          summary.push({ ...entry, pct: 0, action: "applied" });
+        } else {
+          const pct = (target - r.price) / r.price;
+          if (Math.abs(pct) <= THRESHOLD) {
+            const { error: updErr } = await supabase
+              .from("records")
+              .update({ price: target, updated_at: new Date().toISOString() })
+              .eq("id", r.id);
+            if (updErr) throw updErr;
+            autoApplied++;
+            summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "applied" });
+          } else if (!hasPending.has(r.id)) {
+            const { error: insErr } = await supabase
+              .from("pending_price_changes")
+              .insert({
+                record_id: r.id,
+                run_id: run.id,
+                old_price: r.price,
+                suggested_price: target,
+                pct_change: Number(pct.toFixed(4)),
+              });
+            if (insErr) throw insErr;
+            flagged++;
+            summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "flagged" });
+          }
+        }
+      }
 
-      if (Math.abs(pct) <= THRESHOLD) {
-        const { error: updErr } = await supabase
-          .from("records")
-          .update({ price: target, updated_at: new Date().toISOString() })
-          .eq("id", r.id);
-        if (updErr) throw updErr;
-        autoApplied++;
-        summary.push({ ...entry, action: "applied" });
-      } else if (!hasPending.has(r.id)) {
-        const { error: insErr } = await supabase
-          .from("pending_price_changes")
-          .insert({
-            record_id: r.id,
-            run_id: run.id,
-            old_price: r.price,
-            suggested_price: target,
-            pct_change: Number(pct.toFixed(4)),
-          });
-        if (insErr) throw insErr;
-        flagged++;
-        summary.push({ ...entry, action: "flagged" });
+      // Reality check: is our price above the cheapest Discogs listing?
+      // (Buyers see that number, so it's what we get negotiated against.)
+      await sleep(1100);
+      if (r.price > 0) {
+        const statsRes = await fetch(
+          `https://api.discogs.com/marketplace/stats/${r.discogs_release_id}?curr_abbr=USD`,
+          {
+            headers: {
+              Authorization: `Discogs token=${discogsToken}`,
+              "User-Agent": "LateOnsetAudiophileRecords/1.0",
+            },
+          }
+        );
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          const lowest = stats?.lowest_price?.value;
+          if (lowest && r.price > lowest) {
+            aboveLowest++;
+            summary.push({
+              record_id: r.id,
+              artist: r.artist,
+              title: r.title,
+              old_price: r.price,
+              new_price: Math.round(lowest),
+              pct: Number(((lowest - r.price) / r.price).toFixed(4)),
+              action: "above-lowest",
+            });
+          }
+        }
       }
     } catch (e) {
       errors++;
@@ -185,21 +227,47 @@ async function main() {
 
   await supabase
     .from("price_runs")
-    .update({ checked, auto_applied: autoApplied, flagged, errors, summary })
+    .update({
+      checked,
+      auto_applied: autoApplied,
+      flagged,
+      above_lowest: aboveLowest,
+      errors,
+      summary,
+    })
     .eq("id", run.id);
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied, ${flagged} flagged, ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied, ${flagged} flagged, ${aboveLowest} above lowest listing, ${errors} errors`
   );
 
-  if (flagged > 0 && process.env.RESEND_API_KEY) {
-    const flaggedRows = summary
-      .filter((s) => s.action === "flagged")
-      .map(
-        (s) =>
-          `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td></tr>`
-      )
-      .join("");
+  if ((flagged > 0 || aboveLowest > 0) && process.env.RESEND_API_KEY) {
+    const rows = (action) =>
+      summary
+        .filter((s) => s.action === action)
+        .map(
+          (s) =>
+            `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td></tr>`
+        )
+        .join("");
+    const flaggedSection =
+      flagged > 0
+        ? `<p>These moved more than ±5% and are waiting for your approval at
+<a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th></tr>
+${rows("flagged")}
+</table>`
+        : "";
+    const lowestSection =
+      aboveLowest > 0
+        ? `<p>These are priced <strong>above the cheapest current Discogs listing</strong> —
+buyers will see the lower number, so consider adjusting:</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Gap</th></tr>
+${rows("above-lowest")}
+</table>`
+        : "";
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -209,14 +277,10 @@ async function main() {
       body: JSON.stringify({
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
-        subject: `Price run: ${flagged} record${flagged === 1 ? "" : "s"} moved more than ±5%`,
+        subject: `Price run: ${flagged} flagged, ${aboveLowest} above lowest listing`,
         html: `<p>${checked} records checked, ${autoApplied} small changes auto-applied.</p>
-<p>These moved more than ±5% and are waiting for your approval at
-<a href="https://lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
-<table border="1" cellpadding="6" cellspacing="0">
-<tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th></tr>
-${flaggedRows}
-</table>`,
+${flaggedSection}
+${lowestSection}`,
       }),
     });
     if (!res.ok) {

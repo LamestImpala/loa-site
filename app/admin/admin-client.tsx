@@ -44,6 +44,19 @@ function redditMarkdown(records: DbRecord[]) {
   ].join("\n");
 }
 
+const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
+
+type NewRecordDraft = {
+  discogs_release_id: number;
+  artist: string;
+  title: string;
+  pressing: string;
+  media: string;
+  sleeve: string;
+  price: string;
+  cover_image: string;
+};
+
 const inputClass =
   "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none";
 const buttonClass =
@@ -243,6 +256,94 @@ export default function AdminClient() {
 
   const [bulkSaving, setBulkSaving] = useState(false);
 
+  // --- Add record ---
+  const [newRelInput, setNewRelInput] = useState("");
+  const [fetchingRelease, setFetchingRelease] = useState(false);
+  const [draft, setDraft] = useState<NewRecordDraft | null>(null);
+  const [addError, setAddError] = useState("");
+  const [addingRecord, setAddingRecord] = useState(false);
+
+  async function fetchReleaseDetails() {
+    setAddError("");
+    // accept a bare ID or a pasted Discogs URL
+    const match = newRelInput.match(/release\/(\d+)/) ?? newRelInput.match(/(\d+)/);
+    if (!match) {
+      setAddError("Paste a Discogs release URL or ID.");
+      return;
+    }
+    const releaseId = Number(match[1]);
+    setFetchingRelease(true);
+    try {
+      const res = await fetch(`https://api.discogs.com/releases/${releaseId}`);
+      if (!res.ok) throw new Error(`Discogs returned ${res.status}`);
+      const rel = await res.json();
+      const label = rel.labels?.[0];
+      const descriptions = (rel.formats ?? [])
+        .flatMap((f: { descriptions?: string[] }) => f.descriptions ?? [])
+        .join(", ");
+      const pressing = [
+        rel.year ? String(rel.year) : null,
+        [label?.name, label?.catno].filter(Boolean).join(" ") || null,
+        descriptions || null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const primary =
+        rel.images?.find((im: { type: string }) => im.type === "primary") ??
+        rel.images?.[0];
+      setDraft({
+        discogs_release_id: releaseId,
+        artist: rel.artists?.map((a: { name: string }) => a.name).join(", ") ?? "",
+        title: rel.title ?? "",
+        pressing,
+        media: "NM",
+        sleeve: "NM",
+        price: "0",
+        cover_image: primary?.uri ?? rel.thumb ?? "",
+      });
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : "Failed to fetch release");
+    } finally {
+      setFetchingRelease(false);
+    }
+  }
+
+  async function addRecord() {
+    if (!draft) return;
+    const price = Number(draft.price);
+    if (!draft.artist.trim() || !draft.title.trim() || !Number.isFinite(price) || price < 0) {
+      setAddError("Artist, title, and a valid price (0 is fine) are required.");
+      return;
+    }
+    setAddingRecord(true);
+    const { data, error } = await supabase
+      .from("records")
+      .insert({
+        artist: draft.artist.trim(),
+        title: draft.title.trim(),
+        pressing: draft.pressing.trim(),
+        media: draft.media,
+        sleeve: draft.sleeve,
+        price,
+        cover_image: draft.cover_image,
+        discogs_release_id: draft.discogs_release_id,
+      })
+      .select()
+      .single();
+    setAddingRecord(false);
+    if (error) {
+      setAddError(error.message);
+      return;
+    }
+    setRecords((prev) =>
+      [...prev, data as DbRecord].sort((a, b) =>
+        (a.artist + a.title).localeCompare(b.artist + b.title)
+      )
+    );
+    setDraft(null);
+    setNewRelInput("");
+  }
+
   // Toggle listed/sold for every record currently shown by the search filter.
   async function toggleAllFiltered(field: "listed" | "sold", value: boolean) {
     const ids = filteredRecords.map((r) => r.id);
@@ -437,6 +538,126 @@ export default function AdminClient() {
             ))}
           </div>
         )}
+
+        {/* Add record */}
+        <h2 className="mt-12 text-xl font-medium">Add a record</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          Paste a Discogs release URL or ID and Fetch fills in the details and
+          cover art. Leave the price at 0 and tonight&apos;s run will set it to
+          85% of the Discogs suggested price for its grade.
+        </p>
+        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
+          <input
+            type="text"
+            value={newRelInput}
+            onChange={(e) => setNewRelInput(e.target.value)}
+            placeholder="https://www.discogs.com/release/16426854-…  or  16426854"
+            className={`flex-1 ${inputClass}`}
+          />
+          <button
+            type="button"
+            onClick={fetchReleaseDetails}
+            disabled={fetchingRelease}
+            className={buttonClass}
+          >
+            {fetchingRelease ? "Fetching…" : "Fetch"}
+          </button>
+        </div>
+        {addError ? (
+          <p className="mt-2 text-sm text-red-400">{addError}</p>
+        ) : null}
+        {draft ? (
+          <div className="mt-4 flex max-w-2xl flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex gap-4">
+              {draft.cover_image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={draft.cover_image}
+                  alt="Cover"
+                  className="h-24 w-24 rounded-lg object-cover"
+                />
+              ) : null}
+              <div className="flex flex-1 flex-col gap-2">
+                <input
+                  type="text"
+                  value={draft.artist}
+                  onChange={(e) => setDraft({ ...draft, artist: e.target.value })}
+                  placeholder="Artist"
+                  className={inputClass}
+                />
+                <input
+                  type="text"
+                  value={draft.title}
+                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                  placeholder="Title"
+                  className={inputClass}
+                />
+                <input
+                  type="text"
+                  value={draft.pressing}
+                  onChange={(e) =>
+                    setDraft({ ...draft, pressing: e.target.value })
+                  }
+                  placeholder="Pressing"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-neutral-400">
+                Media
+                <select
+                  value={draft.media}
+                  onChange={(e) => setDraft({ ...draft, media: e.target.value })}
+                  className={`${inputClass} [&>option]:bg-neutral-900`}
+                >
+                  {GRADES.map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-400">
+                Sleeve
+                <select
+                  value={draft.sleeve}
+                  onChange={(e) =>
+                    setDraft({ ...draft, sleeve: e.target.value })
+                  }
+                  className={`${inputClass} [&>option]:bg-neutral-900`}
+                >
+                  {GRADES.map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-400">
+                $
+                <input
+                  type="number"
+                  min="0"
+                  value={draft.price}
+                  onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+                  className={`w-24 ${inputClass}`}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={addRecord}
+                disabled={addingRecord}
+                className={buttonClass}
+              >
+                {addingRecord ? "Adding…" : "Add record"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft(null)}
+                className="text-sm text-neutral-500 transition hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Records editor */}
         <h2 className="mt-12 text-xl font-medium">Listings</h2>
@@ -675,6 +896,9 @@ export default function AdminClient() {
                   <span className="text-sm text-neutral-400">
                     {run.checked} checked · {run.auto_applied} auto-applied ·{" "}
                     {run.flagged} flagged
+                    {run.above_lowest
+                      ? ` · ${run.above_lowest} above lowest listing`
+                      : ""}
                     {run.errors ? ` · ${run.errors} errors` : ""}
                   </span>
                 </button>
@@ -687,20 +911,35 @@ export default function AdminClient() {
                     <ul className="mt-3 flex flex-col gap-1 text-sm text-neutral-300">
                       {run.summary.map((s, i) => (
                         <li key={i}>
-                          {s.artist} — {s.title}: ${s.old_price} → $
-                          {s.new_price}{" "}
-                          <span
-                            className={
-                              s.pct > 0 ? "text-green-400" : "text-red-400"
-                            }
-                          >
-                            ({pct(s.pct)})
-                          </span>{" "}
-                          <span className="text-neutral-500">
-                            {s.action === "applied"
-                              ? "auto-applied"
-                              : "flagged for approval"}
-                          </span>
+                          {s.action === "above-lowest" ? (
+                            <>
+                              {s.artist} — {s.title}: yours ${s.old_price},
+                              lowest listing ${s.new_price}{" "}
+                              <span className="text-yellow-400">
+                                ({pct(s.pct)})
+                              </span>{" "}
+                              <span className="text-neutral-500">
+                                priced above cheapest Discogs listing
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {s.artist} — {s.title}: ${s.old_price} → $
+                              {s.new_price}{" "}
+                              <span
+                                className={
+                                  s.pct > 0 ? "text-green-400" : "text-red-400"
+                                }
+                              >
+                                ({pct(s.pct)})
+                              </span>{" "}
+                              <span className="text-neutral-500">
+                                {s.action === "applied"
+                                  ? "auto-applied"
+                                  : "flagged for approval"}
+                              </span>
+                            </>
+                          )}
                         </li>
                       ))}
                     </ul>
