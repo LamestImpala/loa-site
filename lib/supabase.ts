@@ -20,6 +20,8 @@ export type DbRecord = {
   photos: string;
   discogs_release_id: number | null;
   cover_image: string;
+  genres: string[]; // from Discogs release data, e.g. ["Rock", "Jazz"]
+  collection: string | null; // curated series like "VMP" or "IVC"
   sold: boolean;
   listed: boolean;
   buyer_username?: string; // admin-only; not selected on the public page

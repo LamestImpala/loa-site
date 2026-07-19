@@ -55,7 +55,31 @@ type NewRecordDraft = {
   sleeve: string;
   price: string;
   cover_image: string;
+  genres: string; // comma-separated in the form; stored as text[]
+  collection: string;
 };
+
+// Known curated series, matched against Discogs label/series/company names.
+const COLLECTION_PATTERNS: [RegExp, string][] = [
+  [/vinyl me,? please/i, "VMP"],
+  [/interscope vinyl collective/i, "IVC"],
+];
+
+function detectCollection(rel: {
+  labels?: { name?: string }[];
+  series?: { name?: string }[];
+  companies?: { name?: string }[];
+}): string {
+  const names = [
+    ...(rel.labels ?? []),
+    ...(rel.series ?? []),
+    ...(rel.companies ?? []),
+  ].map((x) => x.name ?? "");
+  for (const [re, tag] of COLLECTION_PATTERNS) {
+    if (names.some((n) => re.test(n))) return tag;
+  }
+  return "";
+}
 
 const inputClass =
   "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none";
@@ -84,6 +108,10 @@ export default function AdminClient() {
   const [buyerEdits, setBuyerEdits] = useState<Record<number, string>>({});
   const [trackingEdits, setTrackingEdits] = useState<Record<number, string>>({});
   const [soldPriceEdits, setSoldPriceEdits] = useState<Record<number, string>>({});
+  const [genreRowEdits, setGenreRowEdits] = useState<Record<number, string>>({});
+  const [collectionRowEdits, setCollectionRowEdits] = useState<Record<number, string>>({});
+  const [genreFilter, setGenreFilter] = useState("all");
+  const [collectionFilter, setCollectionFilter] = useState("all");
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
@@ -229,6 +257,25 @@ export default function AdminClient() {
     await updateRecord(r.id, { sold_price: value });
   }
 
+  async function saveGenres(r: DbRecord) {
+    const raw = genreRowEdits[r.id];
+    if (raw === undefined) return;
+    const value = raw
+      .split(",")
+      .map((g) => g.trim())
+      .filter(Boolean);
+    if (value.join(", ") === (r.genres ?? []).join(", ")) return;
+    await updateRecord(r.id, { genres: value });
+  }
+
+  async function saveCollection(r: DbRecord) {
+    const raw = collectionRowEdits[r.id];
+    if (raw === undefined) return;
+    const value = raw.trim() || null;
+    if (value === (r.collection ?? null)) return;
+    await updateRecord(r.id, { collection: value });
+  }
+
   async function removeFromDiscogs(r: DbRecord) {
     if (!r.discogs_release_id) return;
     setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
@@ -302,11 +349,35 @@ export default function AdminClient() {
 
   const filteredRecords = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return records;
-    return records.filter((r) =>
-      `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q)
-    );
-  }, [records, search]);
+    return records.filter((r) => {
+      if (genreFilter !== "all" && !(r.genres ?? []).includes(genreFilter))
+        return false;
+      if (collectionFilter === "none" && r.collection) return false;
+      if (
+        collectionFilter !== "all" &&
+        collectionFilter !== "none" &&
+        r.collection !== collectionFilter
+      )
+        return false;
+      if (!q) return true;
+      return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""}`
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [records, search, genreFilter, collectionFilter]);
+
+  const allGenres = useMemo(
+    () =>
+      [...new Set(records.flatMap((r) => r.genres ?? []))].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [records]
+  );
+  const allCollections = useMemo(
+    () =>
+      [...new Set(records.map((r) => r.collection).filter(Boolean))].sort() as string[],
+    [records]
+  );
 
   // Live collection value — recomputed from local state, so it updates the
   // moment a price is edited, a change is approved, or a record is sold.
@@ -372,6 +443,8 @@ export default function AdminClient() {
         sleeve: "NM",
         price: "0",
         cover_image: primary?.uri ?? rel.thumb ?? "",
+        genres: (rel.genres ?? []).join(", "),
+        collection: detectCollection(rel),
       });
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to fetch release");
@@ -399,6 +472,11 @@ export default function AdminClient() {
         price,
         cover_image: draft.cover_image,
         discogs_release_id: draft.discogs_release_id,
+        genres: draft.genres
+          .split(",")
+          .map((g) => g.trim())
+          .filter(Boolean),
+        collection: draft.collection.trim() || null,
       })
       .select()
       .single();
@@ -704,6 +782,26 @@ export default function AdminClient() {
                   placeholder="Pressing"
                   className={inputClass}
                 />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={draft.genres}
+                    onChange={(e) =>
+                      setDraft({ ...draft, genres: e.target.value })
+                    }
+                    placeholder="Genres (comma-separated)"
+                    className={`flex-1 ${inputClass}`}
+                  />
+                  <input
+                    type="text"
+                    value={draft.collection}
+                    onChange={(e) =>
+                      setDraft({ ...draft, collection: e.target.value })
+                    }
+                    placeholder="Collection (VMP…)"
+                    className={`w-36 ${inputClass}`}
+                  />
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -768,13 +866,40 @@ export default function AdminClient() {
           Shown controls whether a record appears on /records at all; Sold
           keeps it visible with a SOLD badge.
         </p>
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search artist, title, label…"
-          className={`mt-4 w-full max-w-md ${inputClass}`}
-        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search artist, title, label, genre…"
+            className={`w-full max-w-md ${inputClass}`}
+          />
+          <select
+            value={genreFilter}
+            onChange={(e) => setGenreFilter(e.target.value)}
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="all">Genre: All</option>
+            {allGenres.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
+          <select
+            value={collectionFilter}
+            onChange={(e) => setCollectionFilter(e.target.value)}
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="all">Collection: All</option>
+            {allCollections.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            <option value="none">No collection</option>
+          </select>
+        </div>
         <p className="mt-2 text-sm text-neutral-500">
           {filteredRecords.length} of {records.length} records
         </p>
@@ -838,6 +963,36 @@ export default function AdminClient() {
                         {r.artist} — {r.title}
                       </p>
                       <p className="text-xs text-neutral-500">{r.pressing}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          value={genreRowEdits[r.id] ?? (r.genres ?? []).join(", ")}
+                          onChange={(e) =>
+                            setGenreRowEdits((prev) => ({
+                              ...prev,
+                              [r.id]: e.target.value,
+                            }))
+                          }
+                          onBlur={() => saveGenres(r)}
+                          placeholder="Genres"
+                          title="Comma-separated genres — saves when you click away"
+                          className={`w-44 ${inputClass}`}
+                        />
+                        <input
+                          type="text"
+                          value={collectionRowEdits[r.id] ?? (r.collection ?? "")}
+                          onChange={(e) =>
+                            setCollectionRowEdits((prev) => ({
+                              ...prev,
+                              [r.id]: e.target.value,
+                            }))
+                          }
+                          onBlur={() => saveCollection(r)}
+                          placeholder="Collection"
+                          title="Collection tag like VMP or IVC — saves when you click away"
+                          className={`w-28 ${inputClass}`}
+                        />
+                      </div>
                       <p className="mt-1 flex gap-3 text-xs">
                         {r.discogs_release_id ? (
                           <a
