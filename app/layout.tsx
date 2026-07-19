@@ -90,6 +90,9 @@ export default function RootLayout({
                 >
                   Vinyl Collection
                 </Link>
+                <Link href="/records" className="transition hover:text-white">
+                  Records for Sale
+                </Link>
                 <Link href="/podcast" className="transition hover:text-white">
                   Podcast
                 </Link>
