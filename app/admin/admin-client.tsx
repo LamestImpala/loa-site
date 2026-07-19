@@ -111,8 +111,11 @@ export default function AdminClient() {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [linkSent, setLinkSent] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [pwStatus, setPwStatus] = useState("");
 
   const [records, setRecords] = useState<DbRecord[]>([]);
   const [pending, setPending] = useState<PendingPriceChange[]>([]);
@@ -198,8 +201,7 @@ export default function AdminClient() {
     if (isAdmin) loadData();
   }, [isAdmin, loadData]);
 
-  async function sendMagicLink(e: React.FormEvent) {
-    e.preventDefault();
+  async function sendMagicLink() {
     setAuthError("");
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
@@ -207,6 +209,40 @@ export default function AdminClient() {
     });
     if (error) setAuthError(error.message);
     else setLinkSent(true);
+  }
+
+  async function signInWithPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthError("");
+    if (!password) {
+      setAuthError("Enter your password, or use the magic-link button.");
+      return;
+    }
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (error)
+      setAuthError(
+        error.message === "Invalid login credentials"
+          ? "Invalid login — if you haven't set a password yet, sign in with a magic link once and set one in the Account section."
+          : error.message
+      );
+  }
+
+  async function savePassword() {
+    setPwStatus("");
+    if (newPassword.length < 8) {
+      setPwStatus("Password must be at least 8 characters.");
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPwStatus(
+      error
+        ? error.message
+        : "Password saved — next time you can sign in with it directly."
+    );
+    if (!error) setNewPassword("");
   }
 
   async function updateRecord(id: number, patch: Partial<DbRecord>) {
@@ -543,7 +579,7 @@ export default function AdminClient() {
         <section className="mx-auto max-w-md px-4 py-24">
           <h1 className="text-3xl font-semibold">Admin</h1>
           <p className="mt-3 text-sm text-neutral-400">
-            Enter your email and we&apos;ll send you a sign-in link.
+            Sign in with your password, or request a magic link.
           </p>
           {linkSent ? (
             <p className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-neutral-300">
@@ -551,17 +587,36 @@ export default function AdminClient() {
               this tab.
             </p>
           ) : (
-            <form onSubmit={sendMagicLink} className="mt-6 flex flex-col gap-3">
+            <form
+              onSubmit={signInWithPassword}
+              className="mt-6 flex flex-col gap-3"
+            >
               <input
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 className={inputClass}
               />
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                className={inputClass}
+              />
               <button type="submit" className={buttonClass}>
-                Send magic link
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={sendMagicLink}
+                className="text-sm text-neutral-500 transition hover:text-white"
+              >
+                Email me a magic link instead
               </button>
               {authError ? (
                 <p className="text-sm text-red-400">{authError}</p>
@@ -1284,6 +1339,37 @@ export default function AdminClient() {
             ))}
           </div>
         )}
+
+        {/* Account */}
+        <h2 className="mt-12 text-xl font-medium">Account</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          Set a password to sign in directly — magic-link emails are
+          rate-limited by Supabase.
+        </p>
+        <div className="mt-3 flex max-w-md flex-col gap-2 sm:flex-row">
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="New password (8+ characters)"
+            className={`flex-1 ${inputClass}`}
+          />
+          <button type="button" onClick={savePassword} className={buttonClass}>
+            Save password
+          </button>
+        </div>
+        {pwStatus ? (
+          <p
+            className={`mt-2 text-sm ${
+              pwStatus.startsWith("Password saved")
+                ? "text-green-400"
+                : "text-red-400"
+            }`}
+          >
+            {pwStatus}
+          </p>
+        ) : null}
       </section>
     </main>
   );
