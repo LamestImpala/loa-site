@@ -11,6 +11,21 @@ type GroupOption = "none" | "collection" | "genre";
 
 const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 
+// Format attributes derived from the pressing text — orthogonal to the
+// curated collection tag (a MoFi pressing can also be a 45 RPM cut).
+const FORMAT_FILTERS: {
+  key: string;
+  label: string;
+  test: (r: DbRecord) => boolean;
+}[] = [
+  { key: "45rpm", label: "45 RPM", test: (r) => /\b45\s*rpm\b/i.test(r.pressing) },
+  {
+    key: "half-speed",
+    label: "Half-speed",
+    test: (r) => /half[- ]?speed/i.test(r.pressing),
+  },
+];
+
 function artistLetter(artist: string) {
   const first = artist.trim().charAt(0).toUpperCase();
   return first >= "A" && first <= "Z" ? first : "#";
@@ -38,6 +53,7 @@ export default function RecordsClient({
   const [filter, setFilter] = useState<FilterOption>("all");
   const [genre, setGenre] = useState<string>("all");
   const [collection, setCollection] = useState<string | null>(null);
+  const [format, setFormat] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupOption>("none");
   const [letter, setLetter] = useState<string | null>(null);
   const [commentCopiedId, setCommentCopiedId] = useState<number | null>(null);
@@ -61,6 +77,8 @@ export default function RecordsClient({
       if (filter === "sold" && !r.sold) return false;
       if (genre !== "all" && !(r.genres ?? []).includes(genre)) return false;
       if (collection && r.collection !== collection) return false;
+      if (format && !FORMAT_FILTERS.find((f) => f.key === format)?.test(r))
+        return false;
       if (letter && artistLetter(r.artist) !== letter) return false;
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q);
@@ -73,7 +91,7 @@ export default function RecordsClient({
           : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
-  }, [records, query, sort, filter, genre, collection, letter]);
+  }, [records, query, sort, filter, genre, collection, format, letter]);
 
   const genres = useMemo(
     () =>
@@ -86,6 +104,11 @@ export default function RecordsClient({
   const collections = useMemo(
     () =>
       [...new Set(records.map((r) => r.collection).filter(Boolean))].sort() as string[],
+    [records]
+  );
+
+  const formats = useMemo(
+    () => FORMAT_FILTERS.filter((f) => records.some(f.test)),
     [records]
   );
 
@@ -121,6 +144,7 @@ export default function RecordsClient({
     filter === "available" ? "available" : filter === "sold" ? "sold" : null,
     genre !== "all" ? genre : null,
     collection,
+    format ? FORMAT_FILTERS.find((f) => f.key === format)?.label : null,
     letter ? `artists “${letter}”` : null,
   ].filter(Boolean) as string[];
 
@@ -278,20 +302,26 @@ export default function RecordsClient({
         </select>
       </div>
 
-      {collections.length > 0 ? (
+      {collections.length > 0 || formats.length > 0 ? (
         <div className="mt-5 flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs text-neutral-500">Collections:</span>
-          <button
-            type="button"
-            onClick={() => setCollection(null)}
-            className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-              collection === null
-                ? "border-white bg-white text-black"
-                : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
-            }`}
-          >
-            All
-          </button>
+          {collections.length > 0 ? (
+            <>
+              <span className="mr-1 text-xs text-neutral-500">
+                Collections:
+              </span>
+              <button
+                type="button"
+                onClick={() => setCollection(null)}
+                className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                  collection === null
+                    ? "border-white bg-white text-black"
+                    : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                }`}
+              >
+                All
+              </button>
+            </>
+          ) : null}
           {collections.map((c) => (
             <button
               key={c}
@@ -306,6 +336,27 @@ export default function RecordsClient({
               {c}
             </button>
           ))}
+          {formats.length > 0 ? (
+            <>
+              <span className="ml-3 mr-1 text-xs text-neutral-500">
+                Formats:
+              </span>
+              {formats.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFormat(format === f.key ? null : f.key)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                    format === f.key
+                      ? "border-white bg-white text-black"
+                      : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -358,6 +409,7 @@ export default function RecordsClient({
                 setFilter("all");
                 setGenre("all");
                 setCollection(null);
+                setFormat(null);
                 setLetter(null);
               }}
               className="ml-1 rounded-md border border-white/15 px-2 py-0.5 text-xs text-neutral-300 transition hover:bg-white hover:text-black"
