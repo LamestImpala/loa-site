@@ -749,7 +749,7 @@ export default function AdminClient() {
                       onChange={(e) =>
                         toggleAllFiltered("listed", e.target.checked)
                       }
-                      className="h-4 w-4 accent-white"
+                      className="admin-checkbox"
                     />
                   </div>
                 </th>
@@ -767,7 +767,7 @@ export default function AdminClient() {
                       onChange={(e) =>
                         toggleAllFiltered("sold", e.target.checked)
                       }
-                      className="h-4 w-4 accent-white"
+                      className="admin-checkbox"
                     />
                   </div>
                 </th>
@@ -871,7 +871,7 @@ export default function AdminClient() {
                         onChange={(e) =>
                           updateRecord(r.id, { listed: e.target.checked })
                         }
-                        className="h-4 w-4 accent-white"
+                        className="admin-checkbox"
                       />
                     </td>
                     <td className="px-3 py-3 text-center">
@@ -880,7 +880,7 @@ export default function AdminClient() {
                         checked={r.sold}
                         disabled={savingId === r.id}
                         onChange={(e) => markSold(r, e.target.checked)}
-                        className="h-4 w-4 accent-white"
+                        className="admin-checkbox"
                       />
                     </td>
                     <td className="px-3 py-3">
