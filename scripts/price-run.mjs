@@ -65,7 +65,46 @@ async function fetchSuggestion(releaseId) {
   throw new Error(`Rate limited three times for ${releaseId}`);
 }
 
+// Fill in cover art for records that don't have it yet (new listings).
+async function backfillCoverImages() {
+  const { data: missing, error } = await supabase
+    .from("records")
+    .select("id, discogs_release_id")
+    .eq("cover_image", "")
+    .not("discogs_release_id", "is", null);
+  if (error) throw error;
+  for (const r of missing) {
+    try {
+      const res = await fetch(
+        `https://api.discogs.com/releases/${r.discogs_release_id}`,
+        {
+          headers: {
+            Authorization: `Discogs token=${discogsToken}`,
+            "User-Agent": "LateOnsetAudiophileRecords/1.0",
+          },
+        }
+      );
+      if (!res.ok) continue;
+      const rel = await res.json();
+      const primary =
+        rel?.images?.find((im) => im.type === "primary") ?? rel?.images?.[0];
+      const uri = primary?.uri || rel?.thumb || "";
+      if (uri) {
+        await supabase
+          .from("records")
+          .update({ cover_image: uri })
+          .eq("id", r.id);
+      }
+    } catch (e) {
+      console.error(`cover image for record ${r.id}:`, e.message);
+    }
+    await sleep(1100);
+  }
+}
+
 async function main() {
+  await backfillCoverImages();
+
   const { data: records, error } = await supabase
     .from("records")
     .select("id, artist, title, media, price, discogs_release_id")

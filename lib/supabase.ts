@@ -18,6 +18,7 @@ export type DbRecord = {
   notes: string;
   photos: string;
   discogs_release_id: number | null;
+  cover_image: string;
   sold: boolean;
   listed: boolean;
   updated_at: string;

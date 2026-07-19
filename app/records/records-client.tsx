@@ -1,11 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import { SELLER_INFO } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc";
 type FilterOption = "all" | "available" | "sold";
+
+const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+
+function artistLetter(artist: string) {
+  const first = artist.trim().charAt(0).toUpperCase();
+  return first >= "A" && first <= "Z" ? first : "#";
+}
 
 // Reddit markdown pipes inside a cell break the table — escape them.
 function cell(s: string | undefined) {
@@ -17,7 +25,7 @@ function cell(s: string | undefined) {
 
 function requestToBuyUrl(r: DbRecord) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
-  const message = `Hi! I'd like to buy this record from your list:\n\n${r.artist} — ${r.title}\n${r.pressing}\n$${r.price}\n\nhttps://lateonsetaudiophile.com/records`;
+  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 
@@ -50,6 +58,7 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("artist");
   const [filter, setFilter] = useState<FilterOption>("all");
+  const [letter, setLetter] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const visible = useMemo(() => {
@@ -57,6 +66,7 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
     const list = records.filter((r) => {
       if (filter === "available" && r.sold) return false;
       if (filter === "sold" && !r.sold) return false;
+      if (letter && artistLetter(r.artist) !== letter) return false;
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q);
     });
@@ -68,7 +78,12 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
           : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
-  }, [records, query, sort, filter]);
+  }, [records, query, sort, filter, letter]);
+
+  const activeLetters = useMemo(
+    () => new Set(records.map((r) => artistLetter(r.artist))),
+    [records]
+  );
 
   const available = records.filter((r) => !r.sold).length;
 
@@ -122,6 +137,40 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
         </button>
       </div>
 
+      <div className="mt-5 flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => setLetter(null)}
+          className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+            letter === null
+              ? "border-white bg-white text-black"
+              : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+          }`}
+        >
+          All
+        </button>
+        {LETTERS.map((l) => {
+          const hasRecords = activeLetters.has(l);
+          return (
+            <button
+              key={l}
+              type="button"
+              disabled={!hasRecords}
+              onClick={() => setLetter(letter === l ? null : l)}
+              className={`w-8 rounded-lg border px-0 py-1.5 text-center text-xs transition ${
+                letter === l
+                  ? "border-white bg-white text-black"
+                  : hasRecords
+                    ? "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                    : "cursor-default border-white/5 text-neutral-700"
+              }`}
+            >
+              {l}
+            </button>
+          );
+        })}
+      </div>
+
       <p className="mt-4 text-sm text-neutral-400">
         {visible.length} shown · {available} available of {records.length}{" "}
         listed
@@ -141,9 +190,18 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
               }`}
             >
               {r.sold ? (
-                <span className="absolute right-4 top-4 rounded-full bg-red-800 px-2.5 py-0.5 text-xs font-semibold tracking-wider text-white">
+                <span className="absolute right-4 top-4 z-10 rounded-full bg-red-800 px-2.5 py-0.5 text-xs font-semibold tracking-wider text-white">
                   SOLD
                 </span>
+              ) : null}
+              {r.cover_image ? (
+                <Image
+                  src={r.cover_image}
+                  alt={`${r.artist} — ${r.title}`}
+                  width={600}
+                  height={600}
+                  className="mb-4 aspect-square w-full rounded-xl object-cover"
+                />
               ) : null}
               <h2 className={`text-lg font-medium ${r.sold ? "pr-14" : ""}`}>
                 {r.artist} — {r.title}
@@ -188,14 +246,20 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
                 </p>
               ) : null}
               {!r.sold && SELLER_INFO.redditUsername ? (
-                <a
-                  href={requestToBuyUrl(r)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-block rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
-                >
-                  Request to buy
-                </a>
+                <>
+                  <a
+                    href={requestToBuyUrl(r)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-block rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
+                  >
+                    Request to buy
+                  </a>
+                  <p className="mt-2 text-xs text-neutral-500">
+                    Opens a pre-filled Reddit message you can edit before
+                    sending.
+                  </p>
+                </>
               ) : null}
             </div>
           ))}

@@ -16,7 +16,7 @@ export default async function RecordsPage() {
   const { data, error } = await supabase
     .from("records")
     .select(
-      "id, artist, title, pressing, media, sleeve, price, notes, photos, discogs_release_id, sold, listed, updated_at"
+      "id, artist, title, pressing, media, sleeve, price, notes, photos, discogs_release_id, cover_image, sold, listed, updated_at"
     )
     .eq("listed", true)
     .order("artist");
