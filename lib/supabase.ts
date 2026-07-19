@@ -23,6 +23,8 @@ export type DbRecord = {
   sold: boolean;
   listed: boolean;
   buyer_username?: string; // admin-only; not selected on the public page
+  tracking_number?: string; // admin-only
+  sold_price?: number | null; // admin-only; final price the record sold for
   updated_at: string;
 };
 

@@ -82,6 +82,9 @@ export default function AdminClient() {
   const [search, setSearch] = useState("");
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
   const [buyerEdits, setBuyerEdits] = useState<Record<number, string>>({});
+  const [trackingEdits, setTrackingEdits] = useState<Record<number, string>>({});
+  const [soldPriceEdits, setSoldPriceEdits] = useState<Record<number, string>>({});
+  const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
   const [postUrl, setPostUrl] = useState("");
@@ -210,6 +213,57 @@ export default function AdminClient() {
     const value = (buyerEdits[r.id] ?? "").trim().replace(/^u\//, "");
     if (value === (r.buyer_username ?? "")) return;
     await updateRecord(r.id, { buyer_username: value });
+  }
+
+  async function saveTracking(r: DbRecord) {
+    const value = (trackingEdits[r.id] ?? "").trim();
+    if (value === (r.tracking_number ?? "")) return;
+    await updateRecord(r.id, { tracking_number: value });
+  }
+
+  async function saveSoldPrice(r: DbRecord) {
+    const raw = (soldPriceEdits[r.id] ?? "").trim();
+    const value = raw === "" ? null : Number(raw);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) return;
+    if (value === (r.sold_price ?? null)) return;
+    await updateRecord(r.id, { sold_price: value });
+  }
+
+  async function removeFromDiscogs(r: DbRecord) {
+    if (!r.discogs_release_id) return;
+    setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/discogs-remove", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ releaseId: r.discogs_release_id }),
+      });
+      const body = await res.json();
+      setDiscogsStatus((prev) => ({
+        ...prev,
+        [r.id]: res.ok ? "Removed from Discogs ✓" : body.error || "Failed",
+      }));
+    } catch {
+      setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Request failed" }));
+    }
+  }
+
+  async function markSold(r: DbRecord, sold: boolean) {
+    const ok = await updateRecord(r.id, { sold });
+    if (!ok || !sold || !r.discogs_release_id) return;
+    if (
+      window.confirm(
+        `Also remove "${r.artist} — ${r.title}" from your Discogs collection?`
+      )
+    ) {
+      await removeFromDiscogs(r);
+    }
   }
 
   async function copyConfirmation(r: DbRecord) {
@@ -717,7 +771,7 @@ export default function AdminClient() {
                     />
                   </div>
                 </th>
-                <th className="px-3 py-3 font-medium">Buyer</th>
+                <th className="px-3 py-3 font-medium">Sale details</th>
               </tr>
             </thead>
             <tbody>
@@ -825,40 +879,102 @@ export default function AdminClient() {
                         type="checkbox"
                         checked={r.sold}
                         disabled={savingId === r.id}
-                        onChange={(e) =>
-                          updateRecord(r.id, { sold: e.target.checked })
-                        }
+                        onChange={(e) => markSold(r, e.target.checked)}
                         className="h-4 w-4 accent-white"
                       />
                     </td>
                     <td className="px-3 py-3">
                       {r.sold ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-neutral-500">u/</span>
-                          <input
-                            type="text"
-                            value={buyerEdits[r.id] ?? r.buyer_username ?? ""}
-                            onChange={(e) =>
-                              setBuyerEdits((prev) => ({
-                                ...prev,
-                                [r.id]: e.target.value,
-                              }))
-                            }
-                            onBlur={() => saveBuyer(r)}
-                            placeholder="buyer"
-                            className={`w-28 ${inputClass}`}
-                          />
-                          {(r.buyer_username ?? "").trim() ? (
-                            <button
-                              type="button"
-                              onClick={() => copyConfirmation(r)}
-                              title="Copy a confirmation-thread comment for this sale"
-                              className={`whitespace-nowrap ${buttonClass}`}
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-neutral-500">u/</span>
+                            <input
+                              type="text"
+                              value={buyerEdits[r.id] ?? r.buyer_username ?? ""}
+                              onChange={(e) =>
+                                setBuyerEdits((prev) => ({
+                                  ...prev,
+                                  [r.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={() => saveBuyer(r)}
+                              placeholder="buyer"
+                              className={`w-28 ${inputClass}`}
+                            />
+                            {(r.buyer_username ?? "").trim() ? (
+                              <button
+                                type="button"
+                                onClick={() => copyConfirmation(r)}
+                                title="Copy a confirmation-thread comment for this sale"
+                                className={`whitespace-nowrap ${buttonClass}`}
+                              >
+                                {confirmCopiedId === r.id
+                                  ? "Copied!"
+                                  : "Copy confirm"}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="text-neutral-500"
+                              title="Final sold price"
                             >
-                              {confirmCopiedId === r.id
-                                ? "Copied!"
-                                : "Copy confirm"}
-                            </button>
+                              $
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={
+                                soldPriceEdits[r.id] ??
+                                (r.sold_price != null ? String(r.sold_price) : "")
+                              }
+                              onChange={(e) =>
+                                setSoldPriceEdits((prev) => ({
+                                  ...prev,
+                                  [r.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={() => saveSoldPrice(r)}
+                              placeholder="sold for"
+                              className={`w-24 ${inputClass}`}
+                            />
+                            <input
+                              type="text"
+                              value={
+                                trackingEdits[r.id] ?? r.tracking_number ?? ""
+                              }
+                              onChange={(e) =>
+                                setTrackingEdits((prev) => ({
+                                  ...prev,
+                                  [r.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={() => saveTracking(r)}
+                              placeholder="tracking #"
+                              className={`w-40 ${inputClass}`}
+                            />
+                          </div>
+                          {r.discogs_release_id ? (
+                            <div className="flex items-center gap-2 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => removeFromDiscogs(r)}
+                                className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                              >
+                                Remove from Discogs collection
+                              </button>
+                              {discogsStatus[r.id] ? (
+                                <span
+                                  className={
+                                    discogsStatus[r.id].includes("✓")
+                                      ? "text-green-400"
+                                      : "text-yellow-400"
+                                  }
+                                >
+                                  {discogsStatus[r.id]}
+                                </span>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                       ) : (
