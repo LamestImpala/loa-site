@@ -21,6 +21,7 @@ export type DbRecord = {
   cover_image: string;
   sold: boolean;
   listed: boolean;
+  buyer_username?: string; // admin-only; not selected on the public page
   updated_at: string;
 };
 

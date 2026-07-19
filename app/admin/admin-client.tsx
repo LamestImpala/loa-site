@@ -34,8 +34,12 @@ export default function AdminClient() {
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
+  const [buyerEdits, setBuyerEdits] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
+  const [postUrl, setPostUrl] = useState("");
+  const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
+  const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -52,7 +56,7 @@ export default function AdminClient() {
 
   const loadData = useCallback(async () => {
     setLoadError("");
-    const [recordsRes, pendingRes, runsRes] = await Promise.all([
+    const [recordsRes, pendingRes, runsRes, settingsRes] = await Promise.all([
       supabase.from("records").select("*").order("artist").order("title"),
       supabase
         .from("pending_price_changes")
@@ -64,6 +68,11 @@ export default function AdminClient() {
         .select("*")
         .order("ran_at", { ascending: false })
         .limit(14),
+      supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "reddit_post_url")
+        .single(),
     ]);
     if (recordsRes.error || pendingRes.error || runsRes.error) {
       setLoadError(
@@ -77,6 +86,7 @@ export default function AdminClient() {
     setRecords((recordsRes.data ?? []) as DbRecord[]);
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
     setRuns((runsRes.data ?? []) as PriceRun[]);
+    setPostUrl(settingsRes.data?.value ?? "");
   }, [supabase]);
 
   useEffect(() => {
@@ -121,6 +131,37 @@ export default function AdminClient() {
         delete next[r.id];
         return next;
       });
+    }
+  }
+
+  async function savePostUrl() {
+    const { error } = await supabase
+      .from("settings")
+      .update({ value: postUrl.trim() })
+      .eq("key", "reddit_post_url");
+    if (error) {
+      setLoadError(error.message);
+      return;
+    }
+    setPostUrlStatus("saved");
+    setTimeout(() => setPostUrlStatus("idle"), 2000);
+  }
+
+  async function saveBuyer(r: DbRecord) {
+    const value = (buyerEdits[r.id] ?? "").trim().replace(/^u\//, "");
+    if (value === (r.buyer_username ?? "")) return;
+    await updateRecord(r.id, { buyer_username: value });
+  }
+
+  async function copyConfirmation(r: DbRecord) {
+    const buyer = (r.buyer_username ?? "").trim();
+    const text = `Confirming my sale of ${r.artist} — ${r.title} to u/${buyer}. Thanks!`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setConfirmCopiedId(r.id);
+      setTimeout(() => setConfirmCopiedId(null), 2000);
+    } catch {
+      window.prompt("Copy this confirmation comment:", text);
     }
   }
 
@@ -241,6 +282,26 @@ export default function AdminClient() {
           </p>
         ) : null}
 
+        {/* Reddit post URL */}
+        <h2 className="mt-10 text-xl font-medium">Active Reddit post</h2>
+        <p className="mt-1 text-sm text-neutral-400">
+          Paste the URL of your current sale post. Buyers then get a
+          &ldquo;Comment on the post&rdquo; button that copies a &ldquo;Sent
+          you a DM&rdquo; comment and opens the post.
+        </p>
+        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
+          <input
+            type="url"
+            value={postUrl}
+            onChange={(e) => setPostUrl(e.target.value)}
+            placeholder="https://www.reddit.com/r/VinylCollectors/comments/…"
+            className={`flex-1 ${inputClass}`}
+          />
+          <button type="button" onClick={savePostUrl} className={buttonClass}>
+            {postUrlStatus === "saved" ? "Saved!" : "Save"}
+          </button>
+        </div>
+
         {/* Pending price approvals */}
         <h2 className="mt-10 text-xl font-medium">
           Pending price changes{" "}
@@ -319,6 +380,7 @@ export default function AdminClient() {
                 <th className="px-3 py-3 font-medium">Price</th>
                 <th className="px-3 py-3 text-center font-medium">Shown</th>
                 <th className="px-3 py-3 text-center font-medium">Sold</th>
+                <th className="px-3 py-3 font-medium">Buyer</th>
               </tr>
             </thead>
             <tbody>
@@ -385,6 +447,40 @@ export default function AdminClient() {
                         }
                         className="h-4 w-4 accent-white"
                       />
+                    </td>
+                    <td className="px-3 py-3">
+                      {r.sold ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-neutral-500">u/</span>
+                          <input
+                            type="text"
+                            value={buyerEdits[r.id] ?? r.buyer_username ?? ""}
+                            onChange={(e) =>
+                              setBuyerEdits((prev) => ({
+                                ...prev,
+                                [r.id]: e.target.value,
+                              }))
+                            }
+                            onBlur={() => saveBuyer(r)}
+                            placeholder="buyer"
+                            className={`w-28 ${inputClass}`}
+                          />
+                          {(r.buyer_username ?? "").trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => copyConfirmation(r)}
+                              title="Copy a confirmation-thread comment for this sale"
+                              className={`whitespace-nowrap ${buttonClass}`}
+                            >
+                              {confirmCopiedId === r.id
+                                ? "Copied!"
+                                : "Copy confirm"}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-neutral-600">—</span>
+                      )}
                     </td>
                   </tr>
                 );

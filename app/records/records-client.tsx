@@ -23,9 +23,12 @@ function cell(s: string | undefined) {
     .trim();
 }
 
-function requestToBuyUrl(r: DbRecord) {
+function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
+  const commentLine = hasPost
+    ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
+    : "";
+  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n${commentLine}\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 
@@ -54,12 +57,31 @@ function redditMarkdown(records: DbRecord[]) {
   ].join("\n");
 }
 
-export default function RecordsClient({ records }: { records: DbRecord[] }) {
+export default function RecordsClient({
+  records,
+  redditPostUrl,
+}: {
+  records: DbRecord[];
+  redditPostUrl: string;
+}) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("artist");
   const [filter, setFilter] = useState<FilterOption>("all");
   const [letter, setLetter] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [commentCopiedId, setCommentCopiedId] = useState<number | null>(null);
+
+  async function copyCommentAndOpenPost(r: DbRecord) {
+    const comment = `Sent you a DM about ${r.artist} — ${r.title}!`;
+    try {
+      await navigator.clipboard.writeText(comment);
+      setCommentCopiedId(r.id);
+      setTimeout(() => setCommentCopiedId(null), 2500);
+    } catch {
+      window.prompt("Copy this comment, then paste it on the post:", comment);
+    }
+    window.open(redditPostUrl, "_blank", "noopener");
+  }
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -247,17 +269,31 @@ export default function RecordsClient({ records }: { records: DbRecord[] }) {
               ) : null}
               {!r.sold && SELLER_INFO.redditUsername ? (
                 <>
-                  <a
-                    href={requestToBuyUrl(r)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-block rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
-                  >
-                    Request to buy
-                  </a>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <a
+                      href={requestToBuyUrl(r, Boolean(redditPostUrl))}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
+                    >
+                      1. Request to buy
+                    </a>
+                    {redditPostUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => copyCommentAndOpenPost(r)}
+                        className="rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
+                      >
+                        {commentCopiedId === r.id
+                          ? "Comment copied!"
+                          : "2. Comment on the post"}
+                      </button>
+                    ) : null}
+                  </div>
                   <p className="mt-2 text-xs text-neutral-500">
-                    Opens a pre-filled Reddit message you can edit before
-                    sending.
+                    {redditPostUrl
+                      ? "Step 1 opens a pre-filled DM you can edit before sending. Step 2 copies a “Sent you a DM” comment and opens the Reddit post — paste it there per sub rules."
+                      : "Opens a pre-filled Reddit message you can edit before sending."}
                   </p>
                 </>
               ) : null}

@@ -13,15 +13,19 @@ export const revalidate = 60;
 
 export default async function RecordsPage() {
   const supabase = createServerSupabase();
-  const { data, error } = await supabase
-    .from("records")
-    .select(
-      "id, artist, title, pressing, media, sleeve, price, notes, photos, discogs_release_id, cover_image, sold, listed, updated_at"
-    )
-    .eq("listed", true)
-    .order("artist");
+  const [{ data, error }, { data: settingsData }] = await Promise.all([
+    supabase
+      .from("records")
+      .select(
+        "id, artist, title, pressing, media, sleeve, price, notes, photos, discogs_release_id, cover_image, sold, listed, updated_at"
+      )
+      .eq("listed", true)
+      .order("artist"),
+    supabase.from("settings").select("value").eq("key", "reddit_post_url").single(),
+  ]);
 
   const records = (data ?? []) as DbRecord[];
+  const redditPostUrl = settingsData?.value?.trim() ?? "";
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -79,7 +83,7 @@ export default async function RecordsPage() {
             minute.
           </div>
         ) : (
-          <RecordsClient records={records} />
+          <RecordsClient records={records} redditPostUrl={redditPostUrl} />
         )}
       </section>
     </main>
