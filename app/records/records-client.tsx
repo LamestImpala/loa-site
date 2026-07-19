@@ -74,9 +74,6 @@ export default function RecordsClient({
   );
 
   const available = records.filter((r) => !r.sold).length;
-  const totalValue = records
-    .filter((r) => !r.sold)
-    .reduce((sum, r) => sum + Number(r.price), 0);
 
   return (
     <>
@@ -144,7 +141,7 @@ export default function RecordsClient({
 
       <p className="mt-4 text-sm text-neutral-400">
         {visible.length} shown · {available} available of {records.length}{" "}
-        listed · ${totalValue.toLocaleString()} in vinyl looking for a new home
+        listed
       </p>
 
       {visible.length === 0 ? (
