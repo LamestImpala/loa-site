@@ -15,6 +15,7 @@ export type DbRecord = {
   media: string;
   sleeve: string;
   price: number;
+  prev_price?: number | null; // price before the most recent change
   notes: string;
   photos: string;
   discogs_release_id: number | null;

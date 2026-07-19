@@ -171,7 +171,7 @@ export default function AdminClient() {
     const raw = priceEdits[r.id];
     const value = Number(raw);
     if (!raw || !Number.isFinite(value) || value < 0) return;
-    if (await updateRecord(r.id, { price: value })) {
+    if (await updateRecord(r.id, { price: value, prev_price: r.price })) {
       setPriceEdits((prev) => {
         const next = { ...prev };
         delete next[r.id];
@@ -215,6 +215,7 @@ export default function AdminClient() {
     if (approve) {
       const ok = await updateRecord(p.record_id, {
         price: p.suggested_price,
+        prev_price: p.old_price,
       });
       if (!ok) return;
     }
@@ -239,6 +240,28 @@ export default function AdminClient() {
       `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q)
     );
   }, [records, search]);
+
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  // Toggle listed/sold for every record currently shown by the search filter.
+  async function toggleAllFiltered(field: "listed" | "sold", value: boolean) {
+    const ids = filteredRecords.map((r) => r.id);
+    if (ids.length === 0) return;
+    setBulkSaving(true);
+    const { error } = await supabase
+      .from("records")
+      .update({ [field]: value, updated_at: new Date().toISOString() })
+      .in("id", ids);
+    setBulkSaving(false);
+    if (error) {
+      setLoadError(error.message);
+      return;
+    }
+    const idSet = new Set(ids);
+    setRecords((prev) =>
+      prev.map((r) => (idSet.has(r.id) ? { ...r, [field]: value } : r))
+    );
+  }
 
   if (!authReady) {
     return (
@@ -437,8 +460,42 @@ export default function AdminClient() {
               <tr className="border-b border-white/10 bg-white/5 text-left text-neutral-400">
                 <th className="px-4 py-3 font-medium">Record</th>
                 <th className="px-3 py-3 font-medium">Price</th>
-                <th className="px-3 py-3 text-center font-medium">Shown</th>
-                <th className="px-3 py-3 text-center font-medium">Sold</th>
+                <th className="px-3 py-3 text-center font-medium">
+                  <div className="flex flex-col items-center gap-1">
+                    Shown
+                    <input
+                      type="checkbox"
+                      title="Select/deselect Shown for all records in the current search"
+                      checked={
+                        filteredRecords.length > 0 &&
+                        filteredRecords.every((r) => r.listed)
+                      }
+                      disabled={bulkSaving}
+                      onChange={(e) =>
+                        toggleAllFiltered("listed", e.target.checked)
+                      }
+                      className="h-4 w-4 accent-white"
+                    />
+                  </div>
+                </th>
+                <th className="px-3 py-3 text-center font-medium">
+                  <div className="flex flex-col items-center gap-1">
+                    Sold
+                    <input
+                      type="checkbox"
+                      title="Select/deselect Sold for all records in the current search"
+                      checked={
+                        filteredRecords.length > 0 &&
+                        filteredRecords.every((r) => r.sold)
+                      }
+                      disabled={bulkSaving}
+                      onChange={(e) =>
+                        toggleAllFiltered("sold", e.target.checked)
+                      }
+                      className="h-4 w-4 accent-white"
+                    />
+                  </div>
+                </th>
                 <th className="px-3 py-3 font-medium">Buyer</th>
               </tr>
             </thead>
@@ -457,6 +514,34 @@ export default function AdminClient() {
                         {r.artist} — {r.title}
                       </p>
                       <p className="text-xs text-neutral-500">{r.pressing}</p>
+                      <p className="mt-1 flex gap-3 text-xs">
+                        {r.discogs_release_id ? (
+                          <a
+                            href={`https://www.discogs.com/release/${r.discogs_release_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                          >
+                            Discogs
+                          </a>
+                        ) : null}
+                        <a
+                          href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${r.artist} ${r.title} vinyl`)}&LH_Sold=1&LH_Complete=1`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                        >
+                          eBay solds
+                        </a>
+                        <a
+                          href={`https://www.popsike.com/php/quicksearch.php?searchtext=${encodeURIComponent(`${r.artist} ${r.title}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                        >
+                          Popsike
+                        </a>
+                      </p>
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
@@ -484,6 +569,24 @@ export default function AdminClient() {
                           </button>
                         ) : null}
                       </div>
+                      {r.prev_price != null &&
+                      Number(r.prev_price) > 0 &&
+                      Number(r.prev_price) !== r.price ? (
+                        <p
+                          className={`mt-1 text-xs ${
+                            r.price > Number(r.prev_price)
+                              ? "text-green-400"
+                              : "text-red-400"
+                          }`}
+                          title={`Was $${r.prev_price} before the last change`}
+                        >
+                          {pct(
+                            (r.price - Number(r.prev_price)) /
+                              Number(r.prev_price)
+                          )}{" "}
+                          vs last
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <input
