@@ -1332,6 +1332,23 @@ export default function AdminClient() {
                           </button>
                         ) : null}
                       </div>
+                      <label
+                        className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"
+                        title="Manual price: the daily Discogs run won't reprice, undercut, or flag this record"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!r.manual_price}
+                          disabled={savingId === r.id}
+                          onChange={(e) =>
+                            updateRecord(r.id, {
+                              manual_price: e.target.checked,
+                            })
+                          }
+                          className="admin-checkbox"
+                        />
+                        manual
+                      </label>
                       {r.prev_price != null &&
                       Number(r.prev_price) > 0 &&
                       Number(r.prev_price) !== r.price ? (

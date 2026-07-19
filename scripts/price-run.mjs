@@ -113,6 +113,7 @@ async function main() {
     .select("id, artist, title, media, price, discogs_release_id")
     .eq("listed", true)
     .eq("sold", false)
+    .eq("manual_price", false) // admin-locked prices are left alone
     .not("discogs_release_id", "is", null);
   if (error) throw error;
 

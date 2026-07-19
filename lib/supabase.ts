@@ -22,6 +22,7 @@ export type DbRecord = {
   cover_image: string;
   genres: string[]; // from Discogs release data, e.g. ["Rock", "Jazz"]
   collection: string | null; // curated series like "VMP" or "IVC"
+  manual_price?: boolean; // true = daily price run leaves this record alone
   sold: boolean;
   listed: boolean;
   buyer_username?: string; // admin-only; not selected on the public page
