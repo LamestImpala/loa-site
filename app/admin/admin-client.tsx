@@ -376,6 +376,110 @@ export default function AdminClient() {
     }
   }
 
+  const [pendingFilter, setPendingFilter] = useState<"all" | "act" | "other">(
+    "all"
+  );
+  const [bulkPendingBusy, setBulkPendingBusy] = useState(false);
+
+  // copies-for-sale per record, from the most recent run summaries — used
+  // to split pending cuts the same way the email report does.
+  const forSaleById = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const run of runs) {
+      for (const s of run.summary ?? []) {
+        if (s.for_sale != null && !m.has(s.record_id)) {
+          m.set(s.record_id, s.for_sale);
+        }
+      }
+    }
+    return m;
+  }, [runs]);
+
+  // Same heuristic as the email: a cut worth acting on is modest (≤30%)
+  // with several copies competing; everything else is likely condition
+  // noise, a scarce copy, or a suggestion-based increase.
+  const isActionable = useCallback(
+    (p: PendingPriceChange) =>
+      p.pct_change < 0 &&
+      Math.abs(p.pct_change) <= 0.3 &&
+      (forSaleById.get(p.record_id) ?? 0) >= 3,
+    [forSaleById]
+  );
+
+  const visiblePending = useMemo(
+    () =>
+      pending.filter((p) =>
+        pendingFilter === "all"
+          ? true
+          : pendingFilter === "act"
+            ? isActionable(p)
+            : !isActionable(p)
+      ),
+    [pending, pendingFilter, isActionable]
+  );
+
+  async function bulkResolvePending(
+    list: PendingPriceChange[],
+    approve: boolean
+  ) {
+    if (list.length === 0 || bulkPendingBusy) return;
+    const ok = window.confirm(
+      `${approve ? "Approve" : "Reject"} ${list.length} pending price change${
+        list.length > 1 ? "s" : ""
+      }?${approve ? " This updates the listed prices immediately." : ""}`
+    );
+    if (!ok) return;
+    setBulkPendingBusy(true);
+    try {
+      if (approve) {
+        const chunk = 10;
+        for (let i = 0; i < list.length; i += chunk) {
+          const results = await Promise.all(
+            list.slice(i, i + chunk).map((p) =>
+              supabase
+                .from("records")
+                .update({
+                  price: p.suggested_price,
+                  prev_price: p.old_price,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", p.record_id)
+            )
+          );
+          const failed = results.find((r) => r.error);
+          if (failed?.error) throw new Error(failed.error.message);
+        }
+      }
+      const ids = list.map((p) => p.id);
+      for (let i = 0; i < ids.length; i += 200) {
+        const { error } = await supabase
+          .from("pending_price_changes")
+          .update({
+            status: approve ? "approved" : "rejected",
+            resolved_at: new Date().toISOString(),
+          })
+          .in("id", ids.slice(i, i + 200));
+        if (error) throw new Error(error.message);
+      }
+      const idSet = new Set(ids);
+      setPending((prev) => prev.filter((x) => !idSet.has(x.id)));
+      if (approve) {
+        const byRecord = new Map(list.map((p) => [p.record_id, p]));
+        setRecords((prev) =>
+          prev.map((r) => {
+            const p = byRecord.get(r.id);
+            return p
+              ? { ...r, price: p.suggested_price, prev_price: p.old_price }
+              : r;
+          })
+        );
+      }
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Bulk update failed");
+    }
+    setBulkPendingBusy(false);
+  }
+
   async function resolvePending(p: PendingPriceChange, approve: boolean) {
     if (approve) {
       const ok = await updateRecord(p.record_id, {
@@ -748,46 +852,103 @@ export default function AdminClient() {
             Nothing waiting for approval.
           </p>
         ) : (
-          <div className="mt-4 flex flex-col gap-3">
-            {pending.map((p) => (
-              <div
-                key={p.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
+          <>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  ["all", `All (${pending.length})`],
+                  [
+                    "act",
+                    `Worth acting on (${pending.filter(isActionable).length})`,
+                  ],
+                  [
+                    "other",
+                    `Noise / scarce / raises (${pending.filter((p) => !isActionable(p)).length})`,
+                  ],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setPendingFilter(key)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                    pendingFilter === key
+                      ? "border-white bg-white text-black"
+                      : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="mx-2 text-neutral-700">|</span>
+              <button
+                type="button"
+                disabled={bulkPendingBusy || visiblePending.length === 0}
+                onClick={() => bulkResolvePending(visiblePending, true)}
+                className={`rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-neutral-300 transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-300`}
               >
-                <div>
-                  <p className="font-medium">
-                    {p.records?.artist} — {p.records?.title}
-                  </p>
-                  <p className="mt-1 text-sm text-neutral-400">
-                    ${p.old_price} → ${p.suggested_price}{" "}
-                    <span
-                      className={
-                        p.pct_change > 0 ? "text-green-400" : "text-red-400"
-                      }
+                {bulkPendingBusy
+                  ? "Working…"
+                  : `Approve all shown (${visiblePending.length})`}
+              </button>
+              <button
+                type="button"
+                disabled={bulkPendingBusy || visiblePending.length === 0}
+                onClick={() => bulkResolvePending(visiblePending, false)}
+                className={`rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-neutral-300 transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-300`}
+              >
+                {bulkPendingBusy
+                  ? "Working…"
+                  : `Reject all shown (${visiblePending.length})`}
+              </button>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              {visiblePending.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {p.records?.artist} — {p.records?.title}
+                    </p>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      ${p.old_price} → ${p.suggested_price}{" "}
+                      <span
+                        className={
+                          p.pct_change > 0 ? "text-green-400" : "text-red-400"
+                        }
+                      >
+                        ({pct(p.pct_change)})
+                      </span>
+                      {forSaleById.has(p.record_id) ? (
+                        <span className="text-neutral-500">
+                          {" "}
+                          · {forSaleById.get(p.record_id)} for sale
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => resolvePending(p, true)}
+                      className={buttonClass}
                     >
-                      ({pct(p.pct_change)})
-                    </span>
-                  </p>
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => resolvePending(p, false)}
+                      className={buttonClass}
+                    >
+                      Reject
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => resolvePending(p, true)}
-                    className={buttonClass}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => resolvePending(p, false)}
-                    className={buttonClass}
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
 
         {/* Add record */}
