@@ -20,7 +20,8 @@ function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n${commentLine}\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
+  const shipping = SELLER_INFO.shippingCost;
+  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 

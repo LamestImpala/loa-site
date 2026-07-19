@@ -14,6 +14,7 @@ export type SellerInfo = {
   contact: string;
   payment: string;
   shipping: string;
+  shippingCost: number; // flat USA shipping, added to the price in "Request to buy" messages
 };
 
 export const SELLER_INFO: SellerInfo = {
@@ -22,4 +23,5 @@ export const SELLER_INFO: SellerInfo = {
   contact: "PM me on Reddit to claim. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim).",
   shipping: "$6 media mail (USA), records shipped outside the jacket in a proper LP mailer. Combined shipping on multiple records.",
+  shippingCost: 6,
 };
