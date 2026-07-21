@@ -62,6 +62,7 @@ export type PriceRun = {
     for_sale?: number | null; // copies listed on Discogs at run time
     have?: number | null; // Discogs community have count at run time
     want?: number | null; // Discogs community want count at run time
+    ebay_median?: number | null; // median used asking price on eBay US
     action: "applied" | "flagged" | "above-lowest" | "undercut";
   }[];
 };

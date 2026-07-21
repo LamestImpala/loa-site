@@ -45,6 +45,86 @@ const supabase = createClient(SUPABASE_URL, serviceKey, {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// --- eBay Browse API (optional second market signal) ---
+// Set EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (production keyset from
+// developer.ebay.com) to enable; the run works fine without them.
+const ebayId = process.env.EBAY_CLIENT_ID;
+const ebaySecret = process.env.EBAY_CLIENT_SECRET;
+let ebayToken = null;
+
+async function getEbayToken() {
+  const res = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization:
+        "Basic " + Buffer.from(`${ebayId}:${ebaySecret}`).toString("base64"),
+    },
+    body:
+      "grant_type=client_credentials&scope=" +
+      encodeURIComponent("https://api.ebay.com/oauth/api_scope"),
+  });
+  if (!res.ok) throw new Error(`eBay token request failed: ${res.status}`);
+  return (await res.json()).access_token;
+}
+
+const searchTokens = (s) =>
+  s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2);
+
+// Lowest/median asking price of used copies on eBay US. Keyword matching
+// is fuzzy (eBay has no notion of a Discogs pressing), so results are
+// sanity-filtered against artist/title tokens and the median is the
+// number to trust; the count says how thick the market is.
+async function fetchEbayPrices(artist, title) {
+  const q = `${artist} ${title} vinyl`;
+  const url =
+    `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}` +
+    `&category_ids=176985` + // Music > Records
+    `&filter=${encodeURIComponent("conditions:{USED},priceCurrency:USD")}&limit=50`;
+  let res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${ebayToken}`,
+      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+    },
+  });
+  if (res.status === 401) {
+    ebayToken = await getEbayToken(); // expired mid-run — refresh and retry
+    res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${ebayToken}`,
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      },
+    });
+  }
+  if (!res.ok) return null;
+  const data = await res.json();
+  const aTok = searchTokens(artist);
+  const tTok = searchTokens(title);
+  const prices = (data.itemSummaries ?? [])
+    .filter((it) => {
+      const t = (it.title ?? "").toLowerCase();
+      return (
+        (aTok.length === 0 || aTok.some((w) => t.includes(w))) &&
+        (tTok.length === 0 || tTok.some((w) => t.includes(w)))
+      );
+    })
+    .map((it) => Number(it.price?.value))
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+  if (prices.length === 0) return { lowest: null, median: null, count: 0 };
+  const mid = Math.floor(prices.length / 2);
+  const median =
+    prices.length % 2 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+  return {
+    lowest: prices[0],
+    median: Number(median.toFixed(2)),
+    count: prices.length,
+  };
+}
+
 async function fetchSuggestion(releaseId) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(
@@ -106,6 +186,17 @@ async function backfillCoverImages() {
 }
 
 async function main() {
+  if (ebayId && ebaySecret) {
+    try {
+      ebayToken = await getEbayToken();
+      console.log("eBay pricing enabled");
+    } catch (e) {
+      console.error("eBay disabled:", e.message);
+    }
+  } else {
+    console.log("eBay credentials not set — skipping eBay pricing");
+  }
+
   await backfillCoverImages();
 
   const { data: records, error } = await supabase
@@ -196,6 +287,15 @@ async function main() {
         rating = rel?.community?.rating?.average ?? null;
       }
 
+      let ebay = null;
+      if (ebayToken) {
+        try {
+          ebay = await fetchEbayPrices(r.artist, r.title);
+        } catch (e) {
+          console.error(`eBay for ${r.artist} — ${r.title}:`, e.message);
+        }
+      }
+
       // Daily market snapshot — our own time series of data Discogs
       // doesn't expose historically (rerunning the same day overwrites).
       const { error: snapErr } = await supabase.from("market_snapshots").upsert(
@@ -208,6 +308,9 @@ async function main() {
           have,
           want,
           rating,
+          ebay_lowest: ebay?.lowest ?? null,
+          ebay_median: ebay?.median ?? null,
+          ebay_count: ebay?.count ?? null,
         },
         { onConflict: "record_id,snapped_on" }
       );
@@ -290,6 +393,7 @@ async function main() {
           for_sale: forSale,
           have,
           want,
+          ebay_median: ebay?.median ?? null,
         };
         if (Math.abs(cutPct) <= MAX_AUTO_CUT && competitive >= floor) {
           const { error: updErr } = await supabase
@@ -363,8 +467,8 @@ async function main() {
         ? `${(s.want / Math.max(s.have, 1)).toFixed(2)}`
         : "?";
     const cutRow = (s) =>
-      `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.lowest}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${s.for_sale ?? "?"}</td><td>${demand(s)}</td></tr>`;
-    const cutHeader = `<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Suggested</th><th>Cut</th><th>Copies for sale</th><th>Demand (want÷have)</th></tr>`;
+      `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.lowest}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${s.for_sale ?? "?"}</td><td>${demand(s)}</td><td>${s.ebay_median != null ? `$${s.ebay_median}` : "—"}</td></tr>`;
+    const cutHeader = `<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Suggested</th><th>Cut</th><th>Copies for sale</th><th>Demand (want÷have)</th><th>eBay median (used)</th></tr>`;
 
     const flaggedSection =
       flagged > 0
