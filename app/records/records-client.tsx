@@ -5,9 +5,33 @@ import Image from "next/image";
 import { LETTERS, SELLER_INFO, artistLetter } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 
-type SortOption = "artist" | "price-asc" | "price-desc";
-type FilterOption = "all" | "available" | "sold";
+type SortOption = "artist" | "price-asc" | "price-desc" | "newest";
+type FilterOption = "all" | "available" | "sold" | "new" | "reduced";
 type GroupOption = "none" | "collection" | "genre";
+
+const NEW_WINDOW_DAYS = 14;
+
+function isNew(r: DbRecord) {
+  return (
+    !!r.created_at &&
+    Date.now() - new Date(r.created_at).getTime() <
+      NEW_WINDOW_DAYS * 24 * 3600 * 1000
+  );
+}
+
+// Reduced = price dropped and the change is recent enough to still matter.
+function isReduced(r: DbRecord) {
+  return (
+    r.prev_price != null &&
+    Number(r.prev_price) > r.price &&
+    Date.now() - new Date(r.updated_at).getTime() <
+      NEW_WINDOW_DAYS * 24 * 3600 * 1000
+  );
+}
+
+function isOnHold(r: DbRecord) {
+  return !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
+}
 
 // Format attributes derived from the pressing text — orthogonal to the
 // curated collection tag (a MoFi pressing can also be a 45 RPM cut).
@@ -68,6 +92,8 @@ export default function RecordsClient({
     const list = records.filter((r) => {
       if (filter === "available" && r.sold) return false;
       if (filter === "sold" && !r.sold) return false;
+      if (filter === "new" && (!isNew(r) || r.sold)) return false;
+      if (filter === "reduced" && (!isReduced(r) || r.sold)) return false;
       if (genre !== "all" && !(r.genres ?? []).includes(genre)) return false;
       if (collection && r.collection !== collection) return false;
       if (format && !FORMAT_FILTERS.find((f) => f.key === format)?.test(r))
@@ -81,7 +107,10 @@ export default function RecordsClient({
         ? a.price - b.price
         : sort === "price-desc"
           ? b.price - a.price
-          : (a.artist + a.title).localeCompare(b.artist + b.title)
+          : sort === "newest"
+            ? new Date(b.created_at ?? 0).getTime() -
+              new Date(a.created_at ?? 0).getTime()
+            : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
   }, [records, query, sort, filter, genre, collection, format, letter]);
@@ -134,7 +163,15 @@ export default function RecordsClient({
   // why fewer records are visible (stacked filters confused people).
   const activeFilters = [
     query.trim() ? `“${query.trim()}”` : null,
-    filter === "available" ? "available" : filter === "sold" ? "sold" : null,
+    filter === "available"
+      ? "available"
+      : filter === "sold"
+        ? "sold"
+        : filter === "new"
+          ? "new this week"
+          : filter === "reduced"
+            ? "price drops"
+            : null,
     genre !== "all" ? genre : null,
     collection,
     format ? FORMAT_FILTERS.find((f) => f.key === format)?.label : null,
@@ -142,6 +179,9 @@ export default function RecordsClient({
   ].filter(Boolean) as string[];
 
   function recordCard(r: DbRecord) {
+    const cover = r.photo_urls?.[0] || r.cover_image;
+    const held = isOnHold(r) && !r.sold;
+    const reduced = isReduced(r) && !r.sold;
     return (
       <div
         key={r.id}
@@ -153,15 +193,52 @@ export default function RecordsClient({
           <span className="absolute right-4 top-4 z-10 rounded-full bg-red-800 px-2.5 py-0.5 text-xs font-semibold tracking-wider text-white">
             SOLD
           </span>
+        ) : held ? (
+          <span className="absolute right-4 top-4 z-10 rounded-full bg-amber-700 px-2.5 py-0.5 text-xs font-semibold tracking-wider text-white">
+            ON HOLD
+          </span>
         ) : null}
-        {r.cover_image ? (
-          <Image
-            src={r.cover_image}
-            alt={`${r.artist} — ${r.title}`}
-            width={600}
-            height={600}
-            className="mb-4 aspect-square w-full rounded-xl object-cover"
-          />
+        {cover ? (
+          r.photo_urls?.length ? (
+            <a href={r.photo_urls[0]} target="_blank" rel="noopener noreferrer">
+              <Image
+                src={cover}
+                alt={`${r.artist} — ${r.title}`}
+                width={600}
+                height={600}
+                className="mb-4 aspect-square w-full rounded-xl object-cover"
+              />
+            </a>
+          ) : (
+            <Image
+              src={cover}
+              alt={`${r.artist} — ${r.title}`}
+              width={600}
+              height={600}
+              className="mb-4 aspect-square w-full rounded-xl object-cover"
+            />
+          )
+        ) : null}
+        {r.photo_urls?.length > 1 ? (
+          <div className="mb-4 flex gap-2">
+            {r.photo_urls.slice(1, 5).map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-1/4"
+              >
+                <Image
+                  src={url}
+                  alt={`${r.artist} — ${r.title} photo`}
+                  width={150}
+                  height={150}
+                  className="aspect-square w-full rounded-lg object-cover"
+                />
+              </a>
+            ))}
+          </div>
         ) : null}
         <h2 className={`text-lg font-medium ${r.sold ? "pr-14" : ""}`}>
           {r.artist} — {r.title}
@@ -179,8 +256,30 @@ export default function RecordsClient({
               {r.collection}
             </span>
           ) : null}
+          {r.photo_urls?.length ? (
+            <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-xs text-sky-300">
+              Actual copy pictured
+            </span>
+          ) : null}
+          {isNew(r) && !r.sold ? (
+            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-xs text-emerald-300">
+              New
+            </span>
+          ) : null}
+          {reduced ? (
+            <span className="rounded-full border border-green-500/40 bg-green-500/10 px-2.5 py-0.5 text-xs text-green-300">
+              ↓ {Math.round((1 - r.price / Number(r.prev_price)) * 100)}% off
+            </span>
+          ) : null}
         </div>
-        <p className="mt-3 text-xl font-semibold text-white">${r.price}</p>
+        <p className="mt-3 text-xl font-semibold text-white">
+          {reduced ? (
+            <span className="mr-2 text-base font-normal text-neutral-500 line-through">
+              ${r.prev_price}
+            </span>
+          ) : null}
+          ${r.price}
+        </p>
         {r.notes ? (
           <p className="mt-2 text-sm text-neutral-300">{r.notes}</p>
         ) : null}
@@ -208,7 +307,12 @@ export default function RecordsClient({
             ) : null}
           </p>
         ) : null}
-        {!r.sold && SELLER_INFO.redditUsername ? (
+        {held ? (
+          <p className="mt-4 text-sm text-amber-300/90">
+            On hold for a buyer — check back in case it falls through.
+          </p>
+        ) : null}
+        {!r.sold && !held && SELLER_INFO.redditUsername ? (
           <>
             <div className="mt-4 flex flex-wrap gap-2">
               <a
@@ -260,6 +364,7 @@ export default function RecordsClient({
           <option value="artist">Sort: Artist A–Z</option>
           <option value="price-asc">Sort: Price low → high</option>
           <option value="price-desc">Sort: Price high → low</option>
+          <option value="newest">Sort: Newest first</option>
         </select>
         <select
           value={filter}
@@ -269,6 +374,8 @@ export default function RecordsClient({
           <option value="all">Show all</option>
           <option value="available">Available only</option>
           <option value="sold">Sold only</option>
+          <option value="new">New this week</option>
+          <option value="reduced">Price drops</option>
         </select>
         {genres.length > 0 ? (
           <select

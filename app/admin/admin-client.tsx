@@ -44,6 +44,50 @@ function redditMarkdown(records: DbRecord[]) {
   ].join("\n");
 }
 
+function redditWeeklyMarkdown(records: DbRecord[]) {
+  const now = Date.now();
+  const daysAgo = (s?: string | null) =>
+    s ? (now - new Date(s).getTime()) / 86400000 : Infinity;
+  const live = records.filter((r) => r.listed && !r.sold);
+  const fresh = live.filter((r) => daysAgo(r.created_at) <= 7);
+  const drops = live.filter(
+    (r) =>
+      r.prev_price != null &&
+      Number(r.prev_price) > r.price &&
+      daysAgo(r.updated_at) <= 7
+  );
+  const row = (r: DbRecord) =>
+    `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | $${r.price} |`;
+  const dropRow = (r: DbRecord) =>
+    `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.media)}/${cell(r.sleeve)} | ~~$${r.prev_price}~~ | $${r.price} |`;
+  const parts = [
+    "**Weekly update** — full list with photos: https://lateonsetaudiophile.com/records",
+    "",
+  ];
+  if (fresh.length) {
+    parts.push(
+      "**New this week**",
+      "",
+      "| Artist | Title | Pressing | Grade (M/S) | Price |",
+      "|---|---|---|---|---|",
+      ...fresh.map(row),
+      ""
+    );
+  }
+  if (drops.length) {
+    parts.push(
+      "**Price drops**",
+      "",
+      "| Artist | Title | Grade (M/S) | Was | Now |",
+      "|---|---|---|---|---|",
+      ...drops.map(dropRow),
+      ""
+    );
+  }
+  parts.push(`**Shipping:** ${SELLER_INFO.shipping}`, "", SELLER_INFO.contact);
+  return parts.join("\n");
+}
+
 const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
 
 type NewRecordDraft = {
@@ -149,6 +193,57 @@ export default function AdminClient() {
     } catch {
       window.prompt("Copy the table below:", md);
     }
+  }
+
+  const [weeklyCopied, setWeeklyCopied] = useState(false);
+  async function copyWeeklyPost() {
+    const md = redditWeeklyMarkdown(records);
+    try {
+      await navigator.clipboard.writeText(md);
+      setWeeklyCopied(true);
+      setTimeout(() => setWeeklyCopied(false), 1600);
+    } catch {
+      window.prompt("Copy the post below:", md);
+    }
+  }
+
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
+
+  async function uploadPhotos(r: DbRecord, files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadingId(r.id);
+    try {
+      const urls: string[] = [];
+      for (const file of Array.from(files)) {
+        const path = `${r.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]+/g, "_")}`;
+        const { error } = await supabase.storage
+          .from("record-photos")
+          .upload(path, file);
+        if (error) throw new Error(error.message);
+        const { data } = supabase.storage
+          .from("record-photos")
+          .getPublicUrl(path);
+        urls.push(data.publicUrl);
+      }
+      await updateRecord(r.id, {
+        photo_urls: [...(r.photo_urls ?? []), ...urls],
+      });
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Photo upload failed");
+    }
+    setUploadingId(null);
+  }
+
+  async function removePhoto(r: DbRecord, url: string) {
+    const path = url.split("/record-photos/")[1];
+    if (path) {
+      await supabase.storage
+        .from("record-photos")
+        .remove([decodeURIComponent(path)]);
+    }
+    await updateRecord(r.id, {
+      photo_urls: (r.photo_urls ?? []).filter((u) => u !== url),
+    });
   }
 
   useEffect(() => {
@@ -362,8 +457,36 @@ export default function AdminClient() {
     }
   }
 
+  const holdActive = (r: DbRecord) =>
+    !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
+
+  async function startHold(r: DbRecord) {
+    const buyer = window
+      .prompt(`Hold "${r.artist} — ${r.title}" for which Reddit user?`, r.hold_buyer ?? "")
+      ?.trim()
+      .replace(/^u\//, "");
+    if (!buyer) return;
+    await updateRecord(r.id, {
+      hold_buyer: buyer,
+      hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+    });
+  }
+
+  async function releaseHold(r: DbRecord) {
+    await updateRecord(r.id, { hold_buyer: null, hold_until: null });
+  }
+
   async function markSold(r: DbRecord, sold: boolean) {
-    const ok = await updateRecord(r.id, { sold });
+    // Selling a held record carries the hold's buyer over and clears the hold
+    const patch: Partial<DbRecord> = { sold };
+    if (sold && r.hold_buyer && !(r.buyer_username ?? "").trim()) {
+      patch.buyer_username = r.hold_buyer;
+    }
+    if (sold) {
+      patch.hold_buyer = null;
+      patch.hold_until = null;
+    }
+    const ok = await updateRecord(r.id, patch);
     if (!ok || !sold || !r.discogs_release_id) return;
     if (
       window.confirm(
@@ -829,13 +952,19 @@ export default function AdminClient() {
           Copies a ready-to-paste markdown table of every shown, unsold record
           for a new sale post.
         </p>
-        <button
-          type="button"
-          onClick={copyRedditTable}
-          className={`mt-3 ${buttonClass}`}
-        >
-          {tableCopied ? "Copied!" : "Copy Reddit table"}
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={copyRedditTable} className={buttonClass}>
+            {tableCopied ? "Copied!" : "Copy Reddit table"}
+          </button>
+          <button
+            type="button"
+            onClick={copyWeeklyPost}
+            className={buttonClass}
+            title="New arrivals and price drops from the last 7 days, ready to post"
+          >
+            {weeklyCopied ? "Copied!" : "Copy weekly update post"}
+          </button>
+        </div>
 
         <h3 className="mt-8 text-lg font-medium">Active Reddit post</h3>
         <p className="mt-1 text-sm text-neutral-400">
@@ -1317,6 +1446,43 @@ export default function AdminClient() {
                         rows={1}
                         className={`mt-2 w-full max-w-md resize-y ${inputClass}`}
                       />
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {(r.photo_urls ?? []).map((url) => (
+                          <span key={url} className="relative">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt=""
+                              className="h-12 w-12 rounded-lg object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removePhoto(r, url)}
+                              title="Remove photo"
+                              className="absolute -right-1.5 -top-1.5 h-4 w-4 rounded-full bg-red-800 text-center text-[10px] leading-4 text-white"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <label
+                          className="cursor-pointer rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-neutral-300 transition hover:bg-white hover:text-black"
+                          title="Photos of the actual copy — shown on the public card with an “Actual copy pictured” badge"
+                        >
+                          {uploadingId === r.id ? "Uploading…" : "+ Photos"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            disabled={uploadingId === r.id}
+                            onChange={(e) => {
+                              uploadPhotos(r, e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      </div>
                       <p className="mt-1 flex gap-3 text-xs">
                         {r.discogs_release_id ? (
                           <a
@@ -1522,8 +1688,29 @@ export default function AdminClient() {
                             </div>
                           ) : null}
                         </div>
+                      ) : holdActive(r) ? (
+                        <div className="flex flex-col gap-1 text-xs">
+                          <span className="text-amber-300">
+                            Held for u/{r.hold_buyer} until{" "}
+                            {new Date(r.hold_until as string).toLocaleString()}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => releaseHold(r)}
+                            className="self-start text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                          >
+                            Release hold
+                          </button>
+                        </div>
                       ) : (
-                        <span className="text-neutral-600">—</span>
+                        <button
+                          type="button"
+                          onClick={() => startHold(r)}
+                          title="Reserve for a buyer for 48 hours — the public card shows On hold"
+                          className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                        >
+                          Hold…
+                        </button>
                       )}
                     </td>
                   </tr>

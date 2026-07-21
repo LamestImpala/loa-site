@@ -23,6 +23,10 @@ export type DbRecord = {
   genres: string[]; // from Discogs release data, e.g. ["Rock", "Jazz"]
   collection: string | null; // curated series like "VMP" or "IVC"
   manual_price?: boolean; // true = daily price run leaves this record alone
+  photo_urls: string[]; // uploaded photos of the actual copy (Supabase Storage)
+  hold_buyer?: string | null; // admin-only; who claimed it
+  hold_until: string | null; // public; active hold when in the future
+  created_at?: string; // used for "new this week" merchandising
   sold: boolean;
   listed: boolean;
   buyer_username?: string; // admin-only; not selected on the public page

@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "*.discogs.com",
       },
+      {
+        protocol: "https",
+        hostname: "spmbjuurarlpyqcqxyyz.supabase.co",
+      },
     ],
   },
 };

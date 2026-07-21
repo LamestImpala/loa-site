@@ -17,7 +17,7 @@ export default async function RecordsPage() {
     supabase
       .from("records")
       .select(
-        "id, artist, title, pressing, media, sleeve, price, notes, photos, discogs_release_id, cover_image, genres, collection, sold, listed, updated_at"
+        "id, artist, title, pressing, media, sleeve, price, prev_price, notes, photos, photo_urls, discogs_release_id, cover_image, genres, collection, sold, listed, hold_until, created_at, updated_at"
       )
       .eq("listed", true)
       .order("artist"),
