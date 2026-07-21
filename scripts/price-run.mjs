@@ -166,16 +166,20 @@ async function main() {
       const suggestions = await fetchSuggestion(r.discogs_release_id);
       checked++;
       const gradeKey = GRADE_KEY[r.media];
-      const suggestion = suggestions?.[gradeKey]?.value;
-      if (!suggestion) continue;
+      const suggestion = suggestions?.[gradeKey]?.value ?? null;
 
-      // Market stats up front so competitive positioning can cap the
-      // suggestion target — never suggest raising above lowest − $1.
+      // Full release data up front: same request budget as the old
+      // marketplace/stats call but also returns community have/want and
+      // rating — our demand signals. The lowest listing caps the
+      // suggestion target: never suggest raising above lowest − $1.
       await sleep(1100);
       let lowest = null;
       let forSale = null;
-      const statsRes = await fetch(
-        `https://api.discogs.com/marketplace/stats/${r.discogs_release_id}?curr_abbr=USD`,
+      let have = null;
+      let want = null;
+      let rating = null;
+      const relRes = await fetch(
+        `https://api.discogs.com/releases/${r.discogs_release_id}?curr_abbr=USD`,
         {
           headers: {
             Authorization: `Discogs token=${discogsToken}`,
@@ -183,11 +187,34 @@ async function main() {
           },
         }
       );
-      if (statsRes.ok) {
-        const stats = await statsRes.json();
-        lowest = stats?.lowest_price?.value ?? null;
-        forSale = stats?.num_for_sale ?? null;
+      if (relRes.ok) {
+        const rel = await relRes.json();
+        lowest = rel?.lowest_price ?? null;
+        forSale = rel?.num_for_sale ?? null;
+        have = rel?.community?.have ?? null;
+        want = rel?.community?.want ?? null;
+        rating = rel?.community?.rating?.average ?? null;
       }
+
+      // Daily market snapshot — our own time series of data Discogs
+      // doesn't expose historically (rerunning the same day overwrites).
+      const { error: snapErr } = await supabase.from("market_snapshots").upsert(
+        {
+          record_id: r.id,
+          snapped_on: new Date().toISOString().slice(0, 10),
+          suggested: suggestion,
+          lowest,
+          for_sale: forSale,
+          have,
+          want,
+          rating,
+        },
+        { onConflict: "record_id,snapped_on" }
+      );
+      if (snapErr) console.error(`snapshot for record ${r.id}:`, snapErr.message);
+
+      if (!suggestion) continue; // pricing logic needs a suggestion
+
       const competitive = lowest
         ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
         : null;
@@ -261,6 +288,8 @@ async function main() {
           pct: cutPct,
           lowest: Math.round(lowest),
           for_sale: forSale,
+          have,
+          want,
         };
         if (Math.abs(cutPct) <= MAX_AUTO_CUT && competitive >= floor) {
           const { error: updErr } = await supabase
@@ -329,9 +358,13 @@ async function main() {
             `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td></tr>`
         )
         .join("");
+    const demand = (s) =>
+      s.want != null && s.have != null
+        ? `${(s.want / Math.max(s.have, 1)).toFixed(2)}`
+        : "?";
     const cutRow = (s) =>
-      `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.lowest}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${s.for_sale ?? "?"}</td></tr>`;
-    const cutHeader = `<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Suggested</th><th>Cut</th><th>Copies for sale</th></tr>`;
+      `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.lowest}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${s.for_sale ?? "?"}</td><td>${demand(s)}</td></tr>`;
+    const cutHeader = `<tr><th>Record</th><th>Your price</th><th>Lowest listing</th><th>Suggested</th><th>Cut</th><th>Copies for sale</th><th>Demand (want÷have)</th></tr>`;
 
     const flaggedSection =
       flagged > 0

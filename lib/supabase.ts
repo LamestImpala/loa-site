@@ -60,6 +60,8 @@ export type PriceRun = {
     pct: number;
     lowest?: number; // cheapest Discogs listing at run time
     for_sale?: number | null; // copies listed on Discogs at run time
+    have?: number | null; // Discogs community have count at run time
+    want?: number | null; // Discogs community want count at run time
     action: "applied" | "flagged" | "above-lowest" | "undercut";
   }[];
 };
