@@ -76,7 +76,7 @@ export default function Home() {
 
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
-                href="/records"
+                href="https://thebeeskneesrecords.com"
                 className="rounded-2xl bg-orange-500 px-6 py-3 font-medium text-white transition hover:scale-[1.02]"
               >
                 Browse records for sale
@@ -139,7 +139,7 @@ export default function Home() {
               first served.
             </p>
             <Link
-              href="/records"
+              href="https://thebeeskneesrecords.com"
               className="mt-6 inline-block rounded-2xl bg-orange-500 px-5 py-3 text-sm font-medium text-white transition hover:scale-[1.02]"
             >
               See what&apos;s available

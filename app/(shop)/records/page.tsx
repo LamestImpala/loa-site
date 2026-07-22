@@ -4,7 +4,7 @@ import { createServerSupabase, type DbRecord } from "@/lib/supabase";
 import RecordsClient from "./records-client";
 
 export const metadata: Metadata = {
-  title: "Records for Sale — Late Onset Audiophile",
+  title: "Records for Sale — The Bee's Knees Records",
   description:
     "Vinyl records for sale from my personal collection. Graded to the Goldmine standard, shipped in proper LP mailers.",
 };

@@ -212,7 +212,7 @@ export default function MySystem() {
             </Link>
 
             <Link
-              href="/records"
+              href="https://thebeeskneesrecords.com"
               className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-neutral-100 transition hover:bg-white/10"
             >
               Records for Sale

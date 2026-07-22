@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
-  { href: "/records", label: "Records for Sale" },
+  { href: "https://thebeeskneesrecords.com", label: "Records for Sale" },
   { href: "/reviews", label: "Reviews" },
   { href: "/vinyl-collection", label: "Vinyl Collection" },
   { href: "/mysystem", label: "My System" },
