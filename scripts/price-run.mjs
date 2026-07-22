@@ -74,14 +74,9 @@ const searchTokens = (s) =>
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length > 2);
 
-// Lowest/median asking price of used copies on eBay US. Keyword matching
-// is fuzzy (eBay has no notion of a Discogs pressing), so results are
-// sanity-filtered against artist/title tokens and the median is the
-// number to trust; the count says how thick the market is.
-async function fetchEbayPrices(artist, title) {
-  const q = `${artist} ${title} vinyl`;
+async function ebaySearch(params) {
   const url =
-    `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}` +
+    `https://api.ebay.com/buy/browse/v1/item_summary/search?${params}` +
     `&category_ids=176985` + // Music > Records
     `&filter=${encodeURIComponent("conditions:{USED},priceCurrency:USD")}&limit=50`;
   let res = await fetch(url, {
@@ -100,28 +95,57 @@ async function fetchEbayPrices(artist, title) {
     });
   }
   if (!res.ok) return null;
-  const data = await res.json();
-  const aTok = searchTokens(artist);
-  const tTok = searchTokens(title);
-  const prices = (data.itemSummaries ?? [])
-    .filter((it) => {
+  return (await res.json()).itemSummaries ?? [];
+}
+
+// Asking-price stats for used copies on eBay US. When Discogs gives us
+// the pressing's barcode we search by UPC (gtin) first — those matches
+// are the exact pressing, from sellers who filled in the UPC item
+// specific. Otherwise fall back to fuzzy keyword search sanity-filtered
+// against artist/title tokens, where the median is the number to trust.
+async function fetchEbayPrices(artist, title, barcode) {
+  let items = null;
+  let exact = false;
+  if (barcode) {
+    const byUpc = await ebaySearch(`gtin=${encodeURIComponent(barcode)}`);
+    if (byUpc && byUpc.length >= 2) {
+      items = byUpc;
+      exact = true;
+    }
+  }
+  if (!items) {
+    const found = await ebaySearch(
+      `q=${encodeURIComponent(`${artist} ${title} vinyl`)}`
+    );
+    if (!found) return null;
+    const aTok = searchTokens(artist);
+    const tTok = searchTokens(title);
+    items = found.filter((it) => {
       const t = (it.title ?? "").toLowerCase();
       return (
         (aTok.length === 0 || aTok.some((w) => t.includes(w))) &&
         (tTok.length === 0 || tTok.some((w) => t.includes(w)))
       );
-    })
+    });
+  }
+  const prices = items
     .map((it) => Number(it.price?.value))
     .filter((v) => Number.isFinite(v) && v > 0)
     .sort((a, b) => a - b);
-  if (prices.length === 0) return { lowest: null, median: null, count: 0 };
+  if (prices.length === 0) {
+    return { lowest: null, median: null, avg: null, max: null, count: 0, exact: false };
+  }
   const mid = Math.floor(prices.length / 2);
   const median =
     prices.length % 2 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+  const avg = prices.reduce((s, v) => s + v, 0) / prices.length;
   return {
     lowest: prices[0],
     median: Number(median.toFixed(2)),
+    avg: Number(avg.toFixed(2)),
+    max: prices[prices.length - 1],
     count: prices.length,
+    exact,
   };
 }
 
@@ -269,6 +293,7 @@ async function main() {
       let have = null;
       let want = null;
       let rating = null;
+      let barcode = null;
       const relRes = await fetch(
         `https://api.discogs.com/releases/${r.discogs_release_id}?curr_abbr=USD`,
         {
@@ -285,12 +310,18 @@ async function main() {
         have = rel?.community?.have ?? null;
         want = rel?.community?.want ?? null;
         rating = rel?.community?.rating?.average ?? null;
+        // The pressing's UPC, when Discogs has it — lets eBay match exactly
+        const raw = (rel?.identifiers ?? []).find(
+          (i) => i.type === "Barcode"
+        )?.value;
+        const digits = raw?.replace(/\D/g, "") ?? "";
+        if (digits.length >= 8 && digits.length <= 14) barcode = digits;
       }
 
       let ebay = null;
       if (ebayToken) {
         try {
-          ebay = await fetchEbayPrices(r.artist, r.title);
+          ebay = await fetchEbayPrices(r.artist, r.title, barcode);
         } catch (e) {
           console.error(`eBay for ${r.artist} — ${r.title}:`, e.message);
         }
@@ -310,7 +341,10 @@ async function main() {
           rating,
           ebay_lowest: ebay?.lowest ?? null,
           ebay_median: ebay?.median ?? null,
+          ebay_avg: ebay?.avg ?? null,
+          ebay_max: ebay?.max ?? null,
           ebay_count: ebay?.count ?? null,
+          ebay_exact: ebay?.exact ?? false,
         },
         { onConflict: "record_id,snapped_on" }
       );
