@@ -5,9 +5,8 @@ import Image from "next/image";
 import { LETTERS, SELLER_INFO, artistLetter } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 
-type SortOption = "artist" | "price-asc" | "price-desc" | "newest";
-type FilterOption = "all" | "available" | "sold" | "new" | "reduced";
-type GroupOption = "none" | "collection" | "genre";
+type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
+type AvailOption = "all" | "open" | "sold";
 
 const NEW_WINDOW_DAYS = 14;
 
@@ -33,20 +32,40 @@ function isOnHold(r: DbRecord) {
   return !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
 }
 
-// Format attributes derived from the pressing text — orthogonal to the
-// curated collection tag (a MoFi pressing can also be a 45 RPM cut).
-const FORMAT_FILTERS: {
-  key: string;
-  label: string;
-  test: (r: DbRecord) => boolean;
-}[] = [
-  { key: "45rpm", label: "45 RPM", test: (r) => /\b45\s*rpm\b/i.test(r.pressing) },
-  {
-    key: "half-speed",
-    label: "Half-speed",
-    test: (r) => /half[- ]?speed/i.test(r.pressing),
-  },
+function dropPct(r: DbRecord) {
+  return Math.round((1 - r.price / Number(r.prev_price)) * 100);
+}
+
+function initials(artist: string) {
+  return artist
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+}
+
+// Deterministic accent tint per artist so placeholder covers vary like the mockup.
+const TINTS = [
+  { bg: "var(--color-accent-200)", text: "var(--color-accent-800)" },
+  { bg: "var(--color-accent-2-200)", text: "var(--color-accent-2-800)" },
+  { bg: "var(--color-neutral-200)", text: "var(--color-neutral-800)" },
+  { bg: "var(--color-accent-300)", text: "var(--color-accent-900)" },
+  { bg: "var(--color-accent-2-300)", text: "var(--color-accent-2-900)" },
+  { bg: "var(--color-neutral-300)", text: "var(--color-neutral-900)" },
 ];
+
+function tintFor(artist: string) {
+  let h = 0;
+  for (const ch of artist) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return TINTS[h % TINTS.length];
+}
+
+function discogsUrl(r: DbRecord) {
+  return r.discogs_release_id
+    ? `https://www.discogs.com/release/${r.discogs_release_id}`
+    : `https://www.discogs.com/search/?q=${encodeURIComponent(`${r.artist} ${r.title}`)}&type=release`;
+}
 
 function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
@@ -54,7 +73,7 @@ function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
   const shipping = SELLER_INFO.shippingCost;
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://lateonsetaudiophile.com/records)\n\n`;
+  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://thebeeskneesrecords.com)\n\n`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 
@@ -67,13 +86,20 @@ export default function RecordsClient({
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("artist");
-  const [filter, setFilter] = useState<FilterOption>("all");
+  const [avail, setAvail] = useState<AvailOption>("all");
   const [genre, setGenre] = useState<string>("all");
   const [collection, setCollection] = useState<string | null>(null);
-  const [format, setFormat] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupOption>("none");
   const [letter, setLetter] = useState<string | null>(null);
   const [commentCopiedId, setCommentCopiedId] = useState<number | null>(null);
+
+  function clearFilters() {
+    setQuery("");
+    setSort("artist");
+    setAvail("all");
+    setGenre("all");
+    setCollection(null);
+    setLetter(null);
+  }
 
   async function copyCommentAndOpenPost(r: DbRecord) {
     const comment = `Sent you a DM about ${r.artist} — ${r.title}!`;
@@ -90,14 +116,10 @@ export default function RecordsClient({
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = records.filter((r) => {
-      if (filter === "available" && r.sold) return false;
-      if (filter === "sold" && !r.sold) return false;
-      if (filter === "new" && (!isNew(r) || r.sold)) return false;
-      if (filter === "reduced" && (!isReduced(r) || r.sold)) return false;
+      if (avail === "open" && r.sold) return false;
+      if (avail === "sold" && !r.sold) return false;
       if (genre !== "all" && !(r.genres ?? []).includes(genre)) return false;
       if (collection && r.collection !== collection) return false;
-      if (format && !FORMAT_FILTERS.find((f) => f.key === format)?.test(r))
-        return false;
       if (letter && artistLetter(r.artist) !== letter) return false;
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q);
@@ -107,13 +129,20 @@ export default function RecordsClient({
         ? a.price - b.price
         : sort === "price-desc"
           ? b.price - a.price
-          : sort === "newest"
-            ? new Date(b.created_at ?? 0).getTime() -
-              new Date(a.created_at ?? 0).getTime()
-            : (a.artist + a.title).localeCompare(b.artist + b.title)
+          : sort === "discount"
+            ? (isReduced(b) ? dropPct(b) : 0) - (isReduced(a) ? dropPct(a) : 0)
+            : sort === "newest"
+              ? new Date(b.created_at ?? 0).getTime() -
+                new Date(a.created_at ?? 0).getTime()
+              : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
-  }, [records, query, sort, filter, genre, collection, format, letter]);
+  }, [records, query, sort, avail, genre, collection, letter]);
+
+  const drops = useMemo(
+    () => records.filter((r) => isReduced(r) && !r.sold),
+    [records]
+  );
 
   const genres = useMemo(
     () =>
@@ -129,422 +158,346 @@ export default function RecordsClient({
     [records]
   );
 
-  const formats = useMemo(
-    () => FORMAT_FILTERS.filter((f) => records.some(f.test)),
-    [records]
-  );
-
-  // Grouped view: records keyed by collection (or primary genre), named
-  // groups A–Z with the catch-all last.
-  const grouped = useMemo(() => {
-    if (groupBy === "none") return null;
-    const map = new Map<string, DbRecord[]>();
-    for (const r of visible) {
-      const key =
-        groupBy === "collection"
-          ? (r.collection ?? "Everything else")
-          : ((r.genres ?? [])[0] ?? "Uncategorized");
-      map.set(key, [...(map.get(key) ?? []), r]);
-    }
-    const catchAll = groupBy === "collection" ? "Everything else" : "Uncategorized";
-    return [...map.entries()].sort(([a], [b]) =>
-      a === catchAll ? 1 : b === catchAll ? -1 : a.localeCompare(b)
-    );
-  }, [visible, groupBy]);
-
   const activeLetters = useMemo(
     () => new Set(records.map((r) => artistLetter(r.artist))),
     [records]
   );
 
   const available = records.filter((r) => !r.sold).length;
+  const hasFilters =
+    query.trim() !== "" ||
+    avail !== "all" ||
+    genre !== "all" ||
+    collection !== null ||
+    letter !== null;
 
-  // Every narrowing control currently active, so the count line can show
-  // why fewer records are visible (stacked filters confused people).
-  const activeFilters = [
-    query.trim() ? `“${query.trim()}”` : null,
-    filter === "available"
-      ? "available"
-      : filter === "sold"
-        ? "sold"
-        : filter === "new"
-          ? "new this week"
-          : filter === "reduced"
-            ? "price drops"
-            : null,
-    genre !== "all" ? genre : null,
-    collection,
-    format ? FORMAT_FILTERS.find((f) => f.key === format)?.label : null,
-    letter ? `artists “${letter}”` : null,
-  ].filter(Boolean) as string[];
+  function focusDrop(r: DbRecord) {
+    clearFilters();
+    setQuery(r.title);
+  }
 
   function recordCard(r: DbRecord) {
     const cover = r.photo_urls?.[0] || r.cover_image;
     const held = isOnHold(r) && !r.sold;
     const reduced = isReduced(r) && !r.sold;
+    const tint = tintFor(r.artist);
     return (
-      <div
+      <article
         key={r.id}
-        className={`relative rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-white/25 hover:bg-white/10 ${
-          r.sold ? "opacity-50" : ""
-        }`}
+        className={`card elev-sm record-card ${r.sold ? "is-sold" : ""}`}
       >
-        {r.sold ? (
-          <span className="absolute right-4 top-4 z-10 rounded-full bg-red-800 px-2.5 py-0.5 text-xs font-semibold tracking-wider text-white">
-            SOLD
-          </span>
-        ) : held ? (
-          <span className="absolute right-4 top-4 z-10 rounded-full bg-amber-700 px-2.5 py-0.5 text-xs font-semibold tracking-wider text-white">
-            ON HOLD
-          </span>
-        ) : null}
-        {cover ? (
-          r.photo_urls?.length ? (
-            <a href={r.photo_urls[0]} target="_blank" rel="noopener noreferrer">
-              <Image
-                src={cover}
-                alt={`${r.artist} — ${r.title}`}
-                width={600}
-                height={600}
-                className="mb-4 aspect-square w-full rounded-xl object-cover"
-              />
-            </a>
-          ) : (
-            <Image
-              src={cover}
-              alt={`${r.artist} — ${r.title}`}
-              width={600}
-              height={600}
-              className="mb-4 aspect-square w-full rounded-xl object-cover"
-            />
-          )
-        ) : null}
+        <div className="record-cover-wrap">
+          <div
+            className="record-cover"
+            style={cover ? undefined : { background: tint.bg }}
+          >
+            {cover ? (
+              r.photo_urls?.length ? (
+                <a
+                  href={r.photo_urls[0]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "block", width: "100%", height: "100%" }}
+                >
+                  <Image
+                    src={cover}
+                    alt={`${r.artist} — ${r.title}`}
+                    width={600}
+                    height={600}
+                  />
+                </a>
+              ) : (
+                <Image
+                  src={cover}
+                  alt={`${r.artist} — ${r.title}`}
+                  width={600}
+                  height={600}
+                />
+              )
+            ) : (
+              <span className="initials" style={{ color: tint.text }}>
+                {initials(r.artist)}
+              </span>
+            )}
+          </div>
+          {r.sold ? (
+            <span
+              className="tag record-badge-tl"
+              style={{
+                background: "var(--color-neutral-800)",
+                color: "var(--color-neutral-100)",
+              }}
+            >
+              SOLD
+            </span>
+          ) : held ? (
+            <span className="tag tag-accent record-badge-tl">ON HOLD</span>
+          ) : null}
+          {isNew(r) && !r.sold ? (
+            <span className="tag tag-accent record-badge-tr">New arrival</span>
+          ) : null}
+        </div>
+
         {r.photo_urls?.length > 1 ? (
-          <div className="mb-4 flex gap-2">
+          <div className="record-thumbs">
             {r.photo_urls.slice(1, 5).map((url) => (
-              <a
-                key={url}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-1/4"
-              >
+              <a key={url} href={url} target="_blank" rel="noopener noreferrer">
                 <Image
                   src={url}
                   alt={`${r.artist} — ${r.title} photo`}
                   width={150}
                   height={150}
-                  className="aspect-square w-full rounded-lg object-cover"
                 />
               </a>
             ))}
           </div>
         ) : null}
-        <h2 className={`text-lg font-medium ${r.sold ? "pr-14" : ""}`}>
-          {r.artist} — {r.title}
-        </h2>
-        <p className="mt-1 text-xs text-neutral-400">{r.pressing}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-xs text-neutral-300">
-            Media: {r.media}
-          </span>
-          <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-xs text-neutral-300">
-            Sleeve: {r.sleeve}
-          </span>
-          {r.collection ? (
-            <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-xs text-neutral-300">
-              {r.collection}
-            </span>
-          ) : null}
+
+        <div>
+          <div className="record-title">
+            {r.artist} — {r.title}
+          </div>
+          <div className="record-meta">
+            {r.pressing}
+            {r.collection ? ` · ${r.collection}` : ""}
+          </div>
+        </div>
+
+        <div className="record-tags">
+          <span className="tag tag-outline">Media: {r.media}</span>
+          <span className="tag tag-outline">Sleeve: {r.sleeve}</span>
           {r.photo_urls?.length ? (
-            <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-xs text-sky-300">
-              Actual copy pictured
-            </span>
-          ) : null}
-          {isNew(r) && !r.sold ? (
-            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-xs text-emerald-300">
-              New
-            </span>
+            <span className="tag tag-neutral">Actual copy pictured</span>
           ) : null}
           {reduced ? (
-            <span className="rounded-full border border-green-500/40 bg-green-500/10 px-2.5 py-0.5 text-xs text-green-300">
-              ↓ {Math.round((1 - r.price / Number(r.prev_price)) * 100)}% off
-            </span>
+            <span className="tag tag-accent-2">↓ {dropPct(r)}% off</span>
           ) : null}
         </div>
-        <p className="mt-3 text-xl font-semibold text-white">
+
+        {r.notes ? <p className="record-notes">{r.notes}</p> : null}
+
+        <div className="record-price-row">
           {reduced ? (
-            <span className="mr-2 text-base font-normal text-neutral-500 line-through">
-              ${r.prev_price}
-            </span>
+            <span className="record-prev-price">${r.prev_price}</span>
           ) : null}
-          ${r.price}
-        </p>
-        {r.notes ? (
-          <p className="mt-2 text-sm text-neutral-300">{r.notes}</p>
-        ) : null}
-        {r.photos || r.discogs_release_id ? (
-          <p className="mt-2 flex gap-4 text-sm">
-            {r.discogs_release_id ? (
-              <a
-                href={`https://www.discogs.com/release/${r.discogs_release_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-neutral-300 underline underline-offset-4 transition hover:text-white"
-              >
-                View on Discogs
-              </a>
-            ) : null}
-            {r.photos ? (
-              <a
-                href={r.photos}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-neutral-300 underline underline-offset-4 transition hover:text-white"
-              >
-                Photos
-              </a>
-            ) : null}
-          </p>
-        ) : null}
-        {held ? (
-          <p className="mt-4 text-sm text-amber-300/90">
+          <span className="record-price">${r.price}</span>
+          <a href={discogsUrl(r)} target="_blank" rel="noopener noreferrer">
+            Discogs ↗
+          </a>
+        </div>
+
+        {r.sold ? (
+          <button className="btn btn-secondary btn-block" disabled>
+            Sold — gone to a good home
+          </button>
+        ) : held ? (
+          <p className="record-hold-note">
             On hold for a buyer — check back in case it falls through.
           </p>
-        ) : null}
-        {!r.sold && !held && SELLER_INFO.redditUsername ? (
+        ) : SELLER_INFO.redditUsername ? (
           <>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <a
-                href={requestToBuyUrl(r, Boolean(redditPostUrl))}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
+            <a
+              className="btn btn-primary btn-block"
+              href={requestToBuyUrl(r, Boolean(redditPostUrl))}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {redditPostUrl ? "1. Request to buy" : "Request to buy"}
+            </a>
+            {redditPostUrl ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-block"
+                onClick={() => copyCommentAndOpenPost(r)}
               >
-                1. Request to buy
-              </a>
-              {redditPostUrl ? (
-                <button
-                  type="button"
-                  onClick={() => copyCommentAndOpenPost(r)}
-                  className="rounded-full border border-white/15 px-4 py-1.5 text-sm text-white transition hover:bg-white hover:text-black"
-                >
-                  {commentCopiedId === r.id
-                    ? "Comment copied!"
-                    : "2. Comment on the post"}
-                </button>
-              ) : null}
-            </div>
-            <p className="mt-2 text-xs text-neutral-500">
-              {redditPostUrl
-                ? "Step 1 opens a pre-filled DM you can edit before sending. Step 2 copies a “Sent you a DM” comment and opens the Reddit post — paste it there per sub rules."
-                : "Opens a pre-filled Reddit message you can edit before sending."}
-            </p>
+                {commentCopiedId === r.id
+                  ? "Comment copied!"
+                  : "2. Comment on the post"}
+              </button>
+            ) : null}
           </>
         ) : null}
-      </div>
+      </article>
     );
   }
 
   return (
     <>
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search artist, title, label…"
-          className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none sm:flex-1"
-        />
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortOption)}
-          className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus:border-white/30 focus:outline-none [&>option]:bg-neutral-900"
-        >
-          <option value="artist">Sort: Artist A–Z</option>
-          <option value="price-asc">Sort: Price low → high</option>
-          <option value="price-desc">Sort: Price high → low</option>
-          <option value="newest">Sort: Newest first</option>
-        </select>
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as FilterOption)}
-          className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus:border-white/30 focus:outline-none [&>option]:bg-neutral-900"
-        >
-          <option value="all">Show all</option>
-          <option value="available">Available only</option>
-          <option value="sold">Sold only</option>
-          <option value="new">New this week</option>
-          <option value="reduced">Price drops</option>
-        </select>
-        {genres.length > 0 ? (
-          <select
-            value={genre}
-            onChange={(e) => setGenre(e.target.value)}
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus:border-white/30 focus:outline-none [&>option]:bg-neutral-900"
-          >
-            <option value="all">Genre: All</option>
-            {genres.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        <select
-          value={groupBy}
-          onChange={(e) => setGroupBy(e.target.value as GroupOption)}
-          className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white focus:border-white/30 focus:outline-none [&>option]:bg-neutral-900"
-        >
-          <option value="none">Group: None</option>
-          <option value="collection">Group: Collection</option>
-          <option value="genre">Group: Genre</option>
-        </select>
-      </div>
-
-      {collections.length > 0 || formats.length > 0 ? (
-        <div className="mt-5 flex flex-wrap items-center gap-1.5">
-          {collections.length > 0 ? (
-            <>
-              <span className="mr-1 text-xs text-neutral-500">
-                Collections:
-              </span>
-              <button
-                type="button"
-                onClick={() => setCollection(null)}
-                className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-                  collection === null
-                    ? "border-white bg-white text-black"
-                    : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
-                }`}
-              >
-                All
-              </button>
-            </>
-          ) : null}
-          {collections.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCollection(collection === c ? null : c)}
-              className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-                collection === c
-                  ? "border-white bg-white text-black"
-                  : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-          {formats.length > 0 ? (
-            <>
-              <span className="ml-3 mr-1 text-xs text-neutral-500">
-                Formats:
-              </span>
-              {formats.map((f) => (
+      {drops.length > 0 ? (
+        <section className="shop-shell shop-section">
+          <div className="shop-section-head">
+            <h2>Today&rsquo;s price drops</h2>
+            <span className="shop-muted">vs. yesterday&rsquo;s Discogs price</span>
+          </div>
+          <div className="shop-drops">
+            {drops.map((r) => {
+              const tint = tintFor(r.artist);
+              const cover = r.photo_urls?.[0] || r.cover_image;
+              return (
                 <button
-                  key={f.key}
+                  key={r.id}
                   type="button"
-                  onClick={() => setFormat(format === f.key ? null : f.key)}
-                  className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-                    format === f.key
-                      ? "border-white bg-white text-black"
-                      : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
-                  }`}
+                  className="shop-drop-chip"
+                  onClick={() => focusDrop(r)}
                 >
-                  {f.label}
+                  <span
+                    className="thumb"
+                    style={cover ? undefined : { background: tint.bg }}
+                  >
+                    {cover ? (
+                      <Image
+                        src={cover}
+                        alt=""
+                        width={68}
+                        height={68}
+                      />
+                    ) : (
+                      initials(r.artist)
+                    )}
+                  </span>
+                  <span className="name">
+                    {r.artist} — {r.title}
+                  </span>
+                  <span className="tag tag-accent-2">↓ {dropPct(r)}%</span>
                 </button>
-              ))}
-            </>
-          ) : null}
-        </div>
+              );
+            })}
+          </div>
+        </section>
       ) : null}
 
-      <div className="mt-5 flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={() => setLetter(null)}
-          className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-            letter === null
-              ? "border-white bg-white text-black"
-              : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
-          }`}
-        >
-          All
-        </button>
-        {LETTERS.map((l) => {
-          const hasRecords = activeLetters.has(l);
-          return (
+      <section className="shop-shell shop-section shop-controls">
+        <div className="shop-controls-row">
+          <input
+            type="search"
+            className="input search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search artist, title, label…"
+          />
+          <select
+            className="input"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortOption)}
+            style={{ width: "auto" }}
+          >
+            <option value="artist">Sort: Artist A–Z</option>
+            <option value="price-asc">Price: low → high</option>
+            <option value="price-desc">Price: high → low</option>
+            <option value="discount">Biggest discount</option>
+            <option value="newest">Newest arrivals</option>
+          </select>
+          {genres.length > 0 ? (
+            <select
+              className="input"
+              value={genre}
+              onChange={(e) => setGenre(e.target.value)}
+              style={{ width: "auto" }}
+            >
+              <option value="all">Genre: All</option>
+              {genres.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <div className="seg">
+            {(
+              [
+                ["all", "All"],
+                ["open", "Available"],
+                ["sold", "Sold"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className="seg-opt"
+                aria-pressed={avail === value}
+                onClick={() => setAvail(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {collections.length > 0 ? (
+          <div className="shop-chip-row">
+            <span className="shop-muted">Collections:</span>
+            <button
+              type="button"
+              className={collection === null ? "tag tag-accent" : "tag tag-outline"}
+              onClick={() => setCollection(null)}
+            >
+              All
+            </button>
+            {collections.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={collection === c ? "tag tag-accent" : "tag tag-outline"}
+                onClick={() => setCollection(collection === c ? null : c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="shop-letter-row">
+          <button
+            type="button"
+            className="shop-letter"
+            aria-pressed={letter === null}
+            onClick={() => setLetter(null)}
+          >
+            All
+          </button>
+          {LETTERS.map((l) => (
             <button
               key={l}
               type="button"
-              disabled={!hasRecords}
+              className="shop-letter"
+              aria-pressed={letter === l}
+              disabled={!activeLetters.has(l)}
               onClick={() => setLetter(letter === l ? null : l)}
-              className={`w-8 rounded-lg border px-0 py-1.5 text-center text-xs transition ${
-                letter === l
-                  ? "border-white bg-white text-black"
-                  : hasRecords
-                    ? "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
-                    : "cursor-default border-white/5 text-neutral-700"
-              }`}
             >
               {l}
             </button>
-          );
-        })}
-      </div>
-
-      <p className="mt-4 text-sm text-neutral-400">
-        {visible.length} shown · {available} available of {records.length}{" "}
-        listed
-        {activeFilters.length > 0 ? (
-          <>
-            {" "}
-            · filtered to{" "}
-            <span className="text-white">{activeFilters.join(" + ")}</span>{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setFilter("all");
-                setGenre("all");
-                setCollection(null);
-                setFormat(null);
-                setLetter(null);
-              }}
-              className="ml-1 rounded-md border border-white/15 px-2 py-0.5 text-xs text-neutral-300 transition hover:bg-white hover:text-black"
-            >
+          ))}
+          <span className="shop-muted" style={{ marginLeft: "var(--space-2)" }}>
+            {visible.length} shown · {available} available of {records.length}{" "}
+            listed
+          </span>
+          {hasFilters ? (
+            <button type="button" className="btn btn-ghost" onClick={clearFilters}>
               Clear filters
             </button>
-          </>
-        ) : null}
-      </p>
+          ) : null}
+        </div>
+      </section>
 
-      {visible.length === 0 ? (
-        <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8 text-neutral-300">
-          No records match.
-        </div>
-      ) : grouped ? (
-        <div className="mt-8 flex flex-col gap-10">
-          {grouped.map(([name, list]) => (
-            <section key={name}>
-              <h2 className="border-b border-white/10 pb-2 text-xl font-medium">
-                {name}{" "}
-                <span className="text-sm font-normal text-neutral-400">
-                  ({list.length})
-                </span>
-              </h2>
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {list.map(recordCard)}
-              </div>
-            </section>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map(recordCard)}
-        </div>
-      )}
+      <main className="shop-shell shop-main">
+        {visible.length > 0 ? (
+          <>
+            <div className="shop-grid">{visible.map(recordCard)}</div>
+            <p className="shop-grid-hint">
+              {redditPostUrl
+                ? "Step 1 opens a pre-filled Reddit message you can edit before sending. Step 2 copies a “Sent you a DM” comment and opens the Reddit post — paste it there per sub rules."
+                : "“Request to buy” opens a pre-filled Reddit message you can edit before sending."}
+            </p>
+          </>
+        ) : (
+          <div className="card shop-empty">
+            <div className="shop-empty-title">No records match that.</div>
+            <button type="button" className="btn btn-ghost" onClick={clearFilters}>
+              Clear filters
+            </button>
+          </div>
+        )}
+      </main>
     </>
   );
 }

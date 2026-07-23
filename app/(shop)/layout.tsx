@@ -1,5 +1,20 @@
 import type { Metadata } from "next";
+import { Caprasimo, Figtree } from "next/font/google";
+import Image from "next/image";
 import Link from "next/link";
+import { SELLER_INFO } from "@/lib/records";
+import "./shop.css";
+
+const caprasimo = Caprasimo({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-caprasimo",
+});
+
+const figtree = Figtree({
+  subsets: ["latin"],
+  variable: "--font-figtree",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://thebeeskneesrecords.com"),
@@ -23,89 +38,76 @@ export const metadata: Metadata = {
   },
 };
 
+const redditProfile = `https://www.reddit.com/user/${SELLER_INFO.redditUsername}`;
+
 export default function ShopLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <>
-      <nav className="sticky top-0 z-50 border-b border-amber-200/20 bg-neutral-950/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-10">
-          <Link
-            href="/"
-            className="flex items-baseline gap-2 transition hover:opacity-90"
-            aria-label="The Bee's Knees Records home"
-          >
-            <span className="text-lg font-semibold tracking-tight text-amber-300">
-              The Bee&apos;s Knees
-            </span>
-            <span className="text-sm uppercase tracking-[0.25em] text-neutral-400">
-              Records
-            </span>
-          </Link>
-
-          <a
-            href="https://lateonsetaudiophile.com"
-            className="text-sm text-neutral-400 transition hover:text-white"
-          >
-            Late Onset Audiophile ↗
-          </a>
+    <div className={`shop ${caprasimo.variable} ${figtree.variable}`}>
+      <nav className="shop-nav">
+        <Link href="/" aria-label="The Bee's Knees Records home">
+          <Image
+            src="/images/beeskneeslogo.png"
+            alt="The Bee's Knees Records"
+            width={44}
+            height={44}
+            className="shop-nav-logo"
+          />
+        </Link>
+        <div className="shop-nav-brand">
+          The Bee&rsquo;s Knees <span>Records</span>
         </div>
+        <div style={{ flex: 1 }} />
+        <a href={redditProfile} target="_blank" rel="noopener noreferrer">
+          u/{SELLER_INFO.redditUsername} ↗
+        </a>
       </nav>
 
-      <main className="min-h-screen bg-neutral-950 text-neutral-100">
-        {children}
-      </main>
+      <main>{children}</main>
 
-      <footer className="border-t border-amber-200/20 bg-neutral-950">
-        <div className="mx-auto max-w-7xl px-6 py-10 md:px-10">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-base font-semibold text-amber-300">
-                The Bee&apos;s Knees Records
-              </p>
-              <p className="mt-2 max-w-xs text-sm leading-6 text-neutral-400">
-                Vinyl from a well-kept personal collection. Goldmine-graded,
-                packed like it matters.
-              </p>
-            </div>
-
-            <ul className="space-y-2 text-sm">
-              <li>
-                <a
-                  href="mailto:contact@lateonsetaudiophile.com"
-                  className="text-neutral-300 transition hover:text-white"
-                >
-                  contact@lateonsetaudiophile.com
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://www.reddit.com/user/LateOnsetAudiophile"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-neutral-300 transition hover:text-white"
-                >
-                  u/LateOnsetAudiophile on Reddit
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://lateonsetaudiophile.com"
-                  className="text-neutral-300 transition hover:text-white"
-                >
-                  A Late Onset Audiophile shop
-                </a>
-              </li>
-            </ul>
+      <footer className="shop-footer">
+        <div className="shop-footer-inner">
+          <div className="shop-footer-about">
+            <h2>About the seller</h2>
+            <p>
+              I&rsquo;m a late-onset audiophile in Phoenix thinning out a
+              collection that got away from me. Everything is play-graded under
+              good light to the Goldmine standard — if I&rsquo;m unsure between
+              two grades, I use the lower one. Prices track Discogs daily, so
+              drops are genuine.
+            </p>
           </div>
-
-          <p className="mt-10 border-t border-white/10 pt-6 text-xs text-neutral-500">
-            © {new Date().getFullYear()} The Bee&apos;s Knees Records
-          </p>
+          <div className="shop-footer-grades">
+            <div className="head">Grade cheat-sheet</div>
+            <div>
+              <strong>M</strong> — Mint, still sealed or flawless
+            </div>
+            <div>
+              <strong>NM</strong> — Near Mint, looks unplayed
+            </div>
+            <div>
+              <strong>VG+</strong> — light wear, plays clean
+            </div>
+            <div>
+              <strong>VG</strong> — visible wear, minor surface noise
+            </div>
+          </div>
+        </div>
+        <div className="shop-footer-bottom">
+          thebeeskneesrecords.com · Sold by{" "}
+          <a href={redditProfile} target="_blank" rel="noopener noreferrer">
+            u/{SELLER_INFO.redditUsername}
+          </a>{" "}
+          ·{" "}
+          <a href="mailto:contact@lateonsetaudiophile.com">
+            contact@lateonsetaudiophile.com
+          </a>{" "}
+          · © {new Date().getFullYear()}
         </div>
       </footer>
-    </>
+    </div>
   );
 }

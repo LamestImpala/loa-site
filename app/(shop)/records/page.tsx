@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { SELLER_INFO } from "@/lib/records";
 import { createServerSupabase, type DbRecord } from "@/lib/supabase";
 import RecordsClient from "./records-client";
@@ -28,62 +29,63 @@ export default async function RecordsPage() {
   const redditPostUrl = settingsData?.value?.trim() ?? "";
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-12 text-white md:px-8 md:py-16">
-        <h1 className="text-3xl font-semibold md:text-5xl">
-          {SELLER_INFO.pageTitle}
-        </h1>
-
-        <p className="mt-4 max-w-3xl text-base text-neutral-300 md:text-lg">
-          Vinyl from my personal collection, graded to the{" "}
-          <a
-            href="https://www.discogs.com/selling/resources/how-to-grade-items/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-4 transition hover:text-white"
-          >
-            Goldmine standard
-          </a>
-          . This page updates whenever the list changes — check back for new
-          arrivals.
-        </p>
-
-        {SELLER_INFO.redditUsername ? (
-          <p className="mt-2 text-sm text-neutral-400">
-            Sold by{" "}
+    <>
+      <header className="shop-shell shop-hero">
+        <div className="shop-hero-copy">
+          <div className="tag tag-accent-2" style={{ marginBottom: "var(--space-4)" }}>
+            Phoenix, Arizona · one-person shop
+          </div>
+          <h1>Sweet vinyl from my personal hive.</h1>
+          <p className="shop-hero-lede">
+            Every record here is from my own shelves, graded to the{" "}
             <a
-              href={`https://www.reddit.com/user/${SELLER_INFO.redditUsername}`}
+              href="https://www.discogs.com/selling/resources/how-to-grade-items/"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline underline-offset-4 transition hover:text-white"
             >
-              u/{SELLER_INFO.redditUsername}
+              Goldmine standard
             </a>
+            , with live Discogs pricing. Spot a green badge? That&rsquo;s a real
+            price drop since yesterday.
           </p>
-        ) : null}
-
-        <div className="mt-8 max-w-3xl rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-neutral-300">
-          <p>
-            <span className="font-medium text-white">Contact:</span>{" "}
-            {SELLER_INFO.contact}
-          </p>
-          <p className="mt-2">
-            <span className="font-medium text-white">Payment:</span>{" "}
-            {SELLER_INFO.payment}
-          </p>
-          <p className="mt-2">
-            <span className="font-medium text-white">Shipping:</span>{" "}
-            {SELLER_INFO.shipping}
-          </p>
-        </div>
-
-        {error ? (
-          <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8 text-neutral-300">
-            The record list is temporarily unavailable — please check back in a
-            minute.
+          <div className="card elev-sm shop-hero-info">
+            <div>
+              <strong>Contact:</strong> {SELLER_INFO.contact}
+            </div>
+            <div>
+              <strong>Payment:</strong> {SELLER_INFO.payment}
+            </div>
+            <div>
+              <strong>Shipping:</strong> {SELLER_INFO.shipping}
+            </div>
           </div>
-        ) : (
-          <RecordsClient records={records} redditPostUrl={redditPostUrl} />
-        )}
-    </section>
+        </div>
+        <div>
+          <Image
+            src="/images/beeskneeslogo.png"
+            alt="Bee's Knees logo"
+            width={280}
+            height={280}
+            priority
+            className="shop-hero-logo"
+          />
+        </div>
+      </header>
+
+      {error ? (
+        <div className="shop-shell shop-main">
+          <div className="card shop-empty">
+            <div className="shop-empty-title">
+              The record list is temporarily unavailable.
+            </div>
+            <p className="shop-muted" style={{ margin: 0 }}>
+              Please check back in a minute.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <RecordsClient records={records} redditPostUrl={redditPostUrl} />
+      )}
+    </>
   );
 }
