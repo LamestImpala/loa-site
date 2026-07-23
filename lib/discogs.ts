@@ -38,13 +38,21 @@ export async function getDiscogsCollection(): Promise<DiscogsRelease[]> {
   do {
     const url = `https://api.discogs.com/users/${username}/collection/folders/0/releases?per_page=${perPage}&page=${page}`;
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Discogs token=${token}`,
-        "User-Agent": "LateOnsetAudiophile/1.0",
-      },
-      next: { revalidate: 3600 },
-    });
+    // Discogs occasionally throws transient 5xx errors mid-pagination;
+    // retry before giving up so one blip doesn't lose the whole fetch.
+    let response: Response;
+    let attempt = 0;
+    do {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+      response = await fetch(url, {
+        headers: {
+          Authorization: `Discogs token=${token}`,
+          "User-Agent": "LateOnsetAudiophile/1.0",
+        },
+        next: { revalidate: 3600 },
+      });
+      attempt += 1;
+    } while (response.status >= 500 && attempt < 3);
 
     if (!response.ok) {
       throw new Error(`Discogs API request failed with status ${response.status}`);

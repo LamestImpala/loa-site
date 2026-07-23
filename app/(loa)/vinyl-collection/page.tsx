@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getDiscogsCollection } from "@/lib/discogs";
+import { getDiscogsCollection, type DiscogsRelease } from "@/lib/discogs";
 import CollectionClient from "./collection-client";
 
 export const metadata: Metadata = {
@@ -8,8 +8,17 @@ export const metadata: Metadata = {
     "A live look at my Discogs vinyl collection, sorted by most recently added. ~500 records and counting.",
 };
 
+// Re-render hourly so a failed Discogs fetch heals on the next revalidation
+// instead of failing the build (Discogs 500s have broken deploys before).
+export const revalidate = 3600;
+
 export default async function VinylCollectionPage() {
-  const releases = await getDiscogsCollection();
+  let releases: DiscogsRelease[] | null;
+  try {
+    releases = await getDiscogsCollection();
+  } catch {
+    releases = null;
+  }
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-12 text-white md:px-8 md:py-16">
@@ -28,7 +37,15 @@ export default async function VinylCollectionPage() {
         View Full Collection on Discogs
       </a>
 
-      <CollectionClient releases={releases} />
+      {releases ? (
+        <CollectionClient releases={releases} />
+      ) : (
+        <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8 text-neutral-300">
+          The collection is temporarily unavailable — Discogs isn&apos;t
+          responding. Check back in a bit, or browse it directly on Discogs
+          with the link above.
+        </div>
+      )}
     </section>
   );
 }
