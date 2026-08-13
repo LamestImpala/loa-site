@@ -25,6 +25,19 @@ function cell(s: string | undefined) {
 const SHOP_URL = "https://curiouserrecords.com";
 const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.`;
 
+// The first line of each copied post is a ready-made [For Sale] title —
+// paste it into Reddit's title field, then delete it from the body.
+function topCollections(list: DbRecord[], n: number) {
+  const counts = new Map<string, number>();
+  for (const r of list)
+    if (r.collection)
+      counts.set(r.collection, (counts.get(r.collection) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([c]) => c);
+}
+
 function redditMarkdown(records: DbRecord[]) {
   const list = records
     .filter((r) => r.listed && !r.sold)
@@ -35,7 +48,11 @@ function redditMarkdown(records: DbRecord[]) {
       : cell(r.title);
     return `| ${cell(r.artist)} | ${title} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | $${r.price} | ${cell(r.notes)} |`;
   });
+  const series = topCollections(list, 3);
+  const title = `[For Sale] ${list.length} vinyl records — collection sale, audiophile pressings${series.length ? ` (${series.join(", ")})` : ""} — PayPal G&S`;
   return [
+    title,
+    "",
     `**${SELLER_INFO.pageTitle}** — browse everything at ${SHOP_URL}`,
     "",
     `**Location:** ${SELLER_INFO.location}`,
@@ -68,7 +85,16 @@ function redditWeeklyMarkdown(records: DbRecord[]) {
     `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | $${r.price} |`;
   const dropRow = (r: DbRecord) =>
     `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.media)}/${cell(r.sleeve)} | ~~$${r.prev_price}~~ | $${r.price} |`;
+  const highlights = [
+    fresh.length ? `${fresh.length} new arrival${fresh.length === 1 ? "" : "s"}` : "",
+    drops.length ? `${drops.length} price drop${drops.length === 1 ? "" : "s"}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const title = `[For Sale] Weekly update${highlights ? ` — ${highlights}` : ""} — ${live.length}-record collection sale — PayPal G&S`;
   const parts = [
+    title,
+    "",
     `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
   ];
