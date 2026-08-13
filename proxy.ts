@@ -25,6 +25,14 @@ export function proxy(request: NextRequest) {
   }
 
   if (isShopHost) {
+    // Canonical host is the apex; www serves a redirect, not a copy.
+    if (host === `www.${SHOP_HOST}`) {
+      return NextResponse.redirect(
+        new URL(pathname + request.nextUrl.search, `https://${SHOP_HOST}`),
+        308
+      );
+    }
+
     // Canonical shop URL is the domain root, not /records.
     if (pathname === "/records" || pathname.startsWith("/records/")) {
       const url = request.nextUrl.clone();

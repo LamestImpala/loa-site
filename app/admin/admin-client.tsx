@@ -30,7 +30,7 @@ function redditMarkdown(records: DbRecord[]) {
     return `| ${cell(r.artist)} | ${title} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | $${r.price} | ${cell(r.notes)} |`;
   });
   return [
-    `**${SELLER_INFO.pageTitle}** — full list with photos: https://lateonsetaudiophile.com/records`,
+    `**${SELLER_INFO.pageTitle}** — full list with photos: https://curiouserrecords.com`,
     "",
     `**Payment:** ${SELLER_INFO.payment}`,
     "",
@@ -61,7 +61,7 @@ function redditWeeklyMarkdown(records: DbRecord[]) {
   const dropRow = (r: DbRecord) =>
     `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.media)}/${cell(r.sleeve)} | ~~$${r.prev_price}~~ | $${r.price} |`;
   const parts = [
-    "**Weekly update** — full list with photos: https://lateonsetaudiophile.com/records",
+    "**Weekly update** — full list with photos: https://curiouserrecords.com",
     "",
   ];
   if (fresh.length) {
