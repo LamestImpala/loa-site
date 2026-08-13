@@ -19,6 +19,7 @@ export function artistLetter(artist: string) {
 export type SellerInfo = {
   pageTitle: string;
   redditUsername: string;
+  location: string;
   contact: string;
   payment: string;
   shipping: string;
@@ -28,8 +29,9 @@ export type SellerInfo = {
 export const SELLER_INFO: SellerInfo = {
   pageTitle: "Records for Sale",
   redditUsername: "LateOnsetAudiophile", // shown on the page and used for "Request to buy" links
+  location: "Phoenix, AZ",
   contact: "PM me on Reddit to claim. First come, first served.",
-  payment: "PayPal G&S (invoice sent after claim).",
+  payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
   shipping: "$6 media mail (USA), records shipped outside the jacket in a proper LP mailer. Combined shipping on multiple records.",
   shippingCost: 6,
 };

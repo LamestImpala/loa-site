@@ -23,7 +23,7 @@ function cell(s: string | undefined) {
 // "Request to buy" button that pre-fills the DM; SELLER_INFO.contact stays
 // as-is for the site's own hero card.
 const SHOP_URL = "https://curiouserrecords.com";
-const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. First come, first served.`;
+const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.`;
 
 function redditMarkdown(records: DbRecord[]) {
   const list = records
@@ -37,6 +37,8 @@ function redditMarkdown(records: DbRecord[]) {
   });
   return [
     `**${SELLER_INFO.pageTitle}** — browse everything at ${SHOP_URL}`,
+    "",
+    `**Location:** ${SELLER_INFO.location}`,
     "",
     `**Payment:** ${SELLER_INFO.payment}`,
     "",
@@ -90,7 +92,15 @@ function redditWeeklyMarkdown(records: DbRecord[]) {
       ""
     );
   }
-  parts.push(`**Shipping:** ${SELLER_INFO.shipping}`, "", REDDIT_HOW_TO_BUY);
+  parts.push(
+    `**Location:** ${SELLER_INFO.location}`,
+    "",
+    `**Payment:** ${SELLER_INFO.payment}`,
+    "",
+    `**Shipping:** ${SELLER_INFO.shipping}`,
+    "",
+    REDDIT_HOW_TO_BUY
+  );
   return parts.join("\n");
 }
 
