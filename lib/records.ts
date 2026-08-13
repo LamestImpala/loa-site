@@ -28,7 +28,7 @@ export type SellerInfo = {
 
 export const SELLER_INFO: SellerInfo = {
   pageTitle: "Records for Sale",
-  redditUsername: "LateOnsetAudiophile", // shown on the page and used for "Request to buy" links
+  redditUsername: "ShroomHog", // shown on the page and used for "Request to buy" links
   location: "Phoenix, AZ",
   contact: "PM me on Reddit to claim. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
