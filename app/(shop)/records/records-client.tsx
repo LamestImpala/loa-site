@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { LETTERS, SELLER_INFO, artistLetter } from "@/lib/records";
+import {
+  LETTERS,
+  RECORDS_PER_PARCEL,
+  SELLER_INFO,
+  artistLetter,
+  combinedShipping,
+} from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
@@ -72,8 +78,33 @@ function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
-  const shipping = SELLER_INFO.shippingCost;
+  const shipping = combinedShipping(1);
   const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
+}
+
+// One combined DM for a bundle of records; parallels requestToBuyUrl but drops
+// the pressing line per record to keep the compose URL short.
+function combinedRequestMessage(list: DbRecord[], hasPost: boolean) {
+  const subject = `Record purchase: ${list.length} records from your list`;
+  const lines = list.map(
+    (r, i) =>
+      `${i + 1}. ${r.artist} — ${r.title} — Media: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}`
+  );
+  const subtotal = list.reduce((s, r) => s + r.price, 0);
+  const shipping = combinedShipping(list.length);
+  const parcels = Math.ceil(list.length / RECORDS_PER_PARCEL);
+  const commentLine = hasPost
+    ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
+    : "";
+  const message = `Hi! I am interested in purchasing these titles from you:\n\n${lines.join(
+    "\n"
+  )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${subtotal + shipping}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  return { subject, message };
+}
+
+function combinedRequestUrl(list: DbRecord[], hasPost: boolean) {
+  const { subject, message } = combinedRequestMessage(list, hasPost);
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 
@@ -91,6 +122,18 @@ export default function RecordsClient({
   const [collection, setCollection] = useState<string | null>(null);
   const [letter, setLetter] = useState<string | null>(null);
   const [commentCopiedId, setCommentCopiedId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [combinedCommentCopied, setCombinedCommentCopied] = useState(false);
+  const [combinedMessageCopied, setCombinedMessageCopied] = useState(false);
+
+  function toggleSelected(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function clearFilters() {
     setQuery("");
@@ -107,6 +150,54 @@ export default function RecordsClient({
       await navigator.clipboard.writeText(comment);
       setCommentCopiedId(r.id);
       setTimeout(() => setCommentCopiedId(null), 2500);
+    } catch {
+      window.prompt("Copy this comment, then paste it on the post:", comment);
+    }
+    window.open(redditPostUrl, "_blank", "noopener");
+  }
+
+  // Derived from `records` (not `visible`) so filters never drop a selection,
+  // and records that sell or go on hold fall out of the bundle automatically.
+  const selectedRecords = useMemo(
+    () => records.filter((r) => selected.has(r.id) && !r.sold && !isOnHold(r)),
+    [records, selected]
+  );
+  const bundleSubtotal = selectedRecords.reduce((s, r) => s + r.price, 0);
+  const bundleShipping = combinedShipping(selectedRecords.length);
+
+  async function sendCombinedRequest() {
+    const hasPost = Boolean(redditPostUrl);
+    const url = combinedRequestUrl(selectedRecords, hasPost);
+    if (url.length <= 2000) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    // Compose URLs past ~2k chars get truncated — copy the body instead and
+    // open the compose window with just the subject.
+    const { subject, message } = combinedRequestMessage(selectedRecords, hasPost);
+    try {
+      await navigator.clipboard.writeText(message);
+      setCombinedMessageCopied(true);
+      setTimeout(() => setCombinedMessageCopied(false), 2500);
+    } catch {
+      window.prompt("Copy this message, then paste it into the DM:", message);
+    }
+    window.open(
+      `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}`,
+      "_blank",
+      "noopener"
+    );
+  }
+
+  async function copyCombinedCommentAndOpenPost() {
+    const titles = selectedRecords.map((r) => `${r.artist} — ${r.title}`);
+    const shown = titles.slice(0, 3).join("; ");
+    const rest = titles.length - 3;
+    const comment = `Sent you a DM about ${selectedRecords.length} records: ${shown}${rest > 0 ? ` and ${rest} more` : ""}!`;
+    try {
+      await navigator.clipboard.writeText(comment);
+      setCombinedCommentCopied(true);
+      setTimeout(() => setCombinedCommentCopied(false), 2500);
     } catch {
       window.prompt("Copy this comment, then paste it on the post:", comment);
     }
@@ -184,7 +275,9 @@ export default function RecordsClient({
     return (
       <article
         key={r.id}
-        className={`card elev-sm record-card ${r.sold ? "is-sold" : ""}`}
+        className={`card elev-sm record-card ${r.sold ? "is-sold" : ""} ${
+          selected.has(r.id) && !r.sold && !held ? "is-selected" : ""
+        }`}
       >
         <div className="record-cover-wrap">
           <div
@@ -297,6 +390,14 @@ export default function RecordsClient({
           </p>
         ) : SELLER_INFO.redditUsername ? (
           <>
+            <button
+              type="button"
+              className={`record-select ${selected.has(r.id) ? "is-selected" : ""}`}
+              aria-pressed={selected.has(r.id)}
+              onClick={() => toggleSelected(r.id)}
+            >
+              {selected.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
+            </button>
             <a
               className="btn btn-primary btn-block"
               href={requestToBuyUrl(r, Boolean(redditPostUrl))}
@@ -487,7 +588,10 @@ export default function RecordsClient({
             <p className="shop-grid-hint">
               {redditPostUrl
                 ? "Step 1 opens a pre-filled Reddit message you can edit before sending. Step 2 copies a “Sent you a DM” comment and opens the Reddit post — paste it there per sub rules."
-                : "“Request to buy” opens a pre-filled Reddit message you can edit before sending."}
+                : "“Request to buy” opens a pre-filled Reddit message you can edit before sending."}{" "}
+              After several? “Add to bundle” collects records into one combined
+              request — shipping is $6 per parcel of up to {RECORDS_PER_PARCEL}{" "}
+              records.
             </p>
           </>
         ) : (
@@ -501,6 +605,51 @@ export default function RecordsClient({
           </div>
         )}
       </main>
+
+      {selectedRecords.length > 0 ? (
+        <div className="shop-bundle-bar" role="region" aria-label="Your bundle">
+          <div className="shop-shell shop-bundle-inner">
+            <span className="shop-bundle-summary">
+              {selectedRecords.length} record
+              {selectedRecords.length === 1 ? "" : "s"} · ${bundleSubtotal} + $
+              {bundleShipping} shipping{" "}
+              <strong>= ${bundleSubtotal + bundleShipping}</strong>
+            </span>
+            <span className="shop-bundle-shipnote">
+              $6 per parcel of up to {RECORDS_PER_PARCEL} records
+            </span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={sendCombinedRequest}
+            >
+              {combinedMessageCopied
+                ? "Message copied — paste into the DM"
+                : redditPostUrl
+                  ? `1. Request to buy ${selectedRecords.length}`
+                  : `Request to buy ${selectedRecords.length}`}
+            </button>
+            {redditPostUrl ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={copyCombinedCommentAndOpenPost}
+              >
+                {combinedCommentCopied
+                  ? "Comment copied!"
+                  : "2. Comment on the post"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

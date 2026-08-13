@@ -16,6 +16,15 @@ export function artistLetter(artist: string) {
   return first >= "A" && first <= "Z" ? first : "#";
 }
 
+// USA media mail: one parcel holds up to 3 records
+export const SHIPPING_PER_PARCEL = 6;
+export const RECORDS_PER_PARCEL = 3;
+
+export function combinedShipping(count: number): number {
+  if (count <= 0) return 0;
+  return Math.ceil(count / RECORDS_PER_PARCEL) * SHIPPING_PER_PARCEL;
+}
+
 export type SellerInfo = {
   pageTitle: string;
   redditUsername: string;
@@ -23,7 +32,6 @@ export type SellerInfo = {
   contact: string;
   payment: string;
   shipping: string;
-  shippingCost: number; // flat USA shipping, added to the price in "Request to buy" messages
 };
 
 export const SELLER_INFO: SellerInfo = {
@@ -32,6 +40,5 @@ export const SELLER_INFO: SellerInfo = {
   location: "Phoenix, AZ",
   contact: "PM me on Reddit to claim. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
-  shipping: "$6 media mail (USA), records shipped outside the jacket in a proper LP mailer. Combined shipping on multiple records.",
-  shippingCost: 6,
+  shipping: "$6 media mail per parcel of up to 3 records (USA) — 1–3 records $6, 4–6 $12, and so on. Records shipped outside the jacket in a proper LP mailer.",
 };

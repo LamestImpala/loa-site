@@ -646,6 +646,70 @@
   padding-bottom: calc(var(--space-8) + var(--space-6));
 }
 
+/* — bundle (multi-record) selection — */
+.record-select {
+  width: 100%;
+  margin-top: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px dashed var(--color-divider);
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: 999px;
+}
+.record-select:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.record-select.is-selected {
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent-100);
+}
+.record-card.is-selected {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+.shop-main:has(+ .shop-bundle-bar) {
+  padding-bottom: calc(var(--space-8) * 3);
+}
+.shop-bundle-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--color-divider);
+  box-shadow: 0 -6px 24px color-mix(in srgb, var(--color-text) 10%, transparent);
+  padding-block: var(--space-3);
+  padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+}
+.shop-bundle-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.shop-bundle-summary {
+  font-size: 15px;
+}
+.shop-bundle-summary strong {
+  font-weight: 700;
+}
+.shop-bundle-shipnote {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  margin-right: auto;
+}
+
 /* — footer — */
 .shop-footer {
   background: linear-gradient(180deg, var(--color-ink) 0%, var(--color-ink-2) 100%);
@@ -706,5 +770,17 @@
   .shop-hero-logo {
     width: 200px;
     height: 200px;
+  }
+  .shop-bundle-summary {
+    flex-basis: 100%;
+  }
+  .shop-bundle-shipnote {
+    display: none;
+  }
+  .shop-bundle-bar .btn-primary {
+    flex: 1 1 auto;
+  }
+  .shop-main:has(+ .shop-bundle-bar) {
+    padding-bottom: calc(var(--space-8) * 5);
   }
 }
