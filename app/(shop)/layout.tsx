@@ -22,9 +22,6 @@ export const metadata: Metadata = {
   title: "Curiouser Records — Used Vinyl from Phoenix, AZ",
   description:
     "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
-  icons: {
-    icon: "/images/curiouser-icon.png",
-  },
   openGraph: {
     title: "Curiouser Records",
     description:
