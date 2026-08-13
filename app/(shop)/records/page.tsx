@@ -5,7 +5,7 @@ import { createServerSupabase, type DbRecord } from "@/lib/supabase";
 import RecordsClient from "./records-client";
 
 export const metadata: Metadata = {
-  title: "Records for Sale — The Bee's Knees Records",
+  title: "Records for Sale — Curiouser Records",
   description:
     "Vinyl records for sale from my personal collection. Graded to the Goldmine standard, shipped in proper LP mailers.",
 };
@@ -35,7 +35,7 @@ export default async function RecordsPage() {
           <div className="tag tag-accent-2" style={{ marginBottom: "var(--space-4)" }}>
             Phoenix, Arizona · one-person shop
           </div>
-          <h1>Sweet vinyl from my personal hive.</h1>
+          <h1>Curiouser and curiouser finds for your turntable.</h1>
           <p className="shop-hero-lede">
             Every record here is from my own shelves, graded to the{" "}
             <a
@@ -45,8 +45,8 @@ export default async function RecordsPage() {
             >
               Goldmine standard
             </a>
-            , with live Discogs pricing. Spot a green badge? That&rsquo;s a real
-            price drop since yesterday.
+            , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
+            That&rsquo;s a real price drop since yesterday.
           </p>
           <div className="card elev-sm shop-hero-info">
             <div>
@@ -62,8 +62,8 @@ export default async function RecordsPage() {
         </div>
         <div>
           <Image
-            src="/images/beeskneeslogo.png"
-            alt="Bee's Knees logo"
+            src="/images/curiouserlogo.png"
+            alt="Curiouser Records logo"
             width={280}
             height={280}
             priority
@@ -76,7 +76,7 @@ export default async function RecordsPage() {
         <div className="shop-shell shop-main">
           <div className="card shop-empty">
             <div className="shop-empty-title">
-              The record list is temporarily unavailable.
+              The record list has gone down the rabbit hole.
             </div>
             <p className="shop-muted" style={{ margin: 0 }}>
               Please check back in a minute.

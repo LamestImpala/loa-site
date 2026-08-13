@@ -1,54 +1,62 @@
 /*
- * "Organic" design system for The Bee's Knees Records shop, ported from the
- * Claude Design project (Bees Knees Marketplace.dc.html). Everything is scoped
+ * "Wonderland" design system for Curiouser Records (Alice in Wonderland —
+ * "curiouser and curiouser"). Light parchment shop floor with a dark
+ * starry-purple hero and footer pulled from the logo: raspberry-magenta
+ * mushroom caps, pocket-watch gold, checkerboard trim. Everything is scoped
  * under .shop because this file is bundled globally — the LOA site and /admin
  * keep their own dark theme.
  *
- * Fonts: --font-caprasimo / --font-figtree are set by next/font in the shop
- * layout; the tokens below only reference them.
+ * Fonts: --font-rye / --font-alice are set by next/font in the shop layout;
+ * the tokens below only reference them.
  */
 
 .shop {
-  --color-bg: #f5ead8;
-  --color-surface: #ebddc5;
-  --color-text: #201e1d;
-  --color-accent: #c67139;
-  --color-accent-2: #7a8a5e;
-  --color-divider: color-mix(in srgb, #201e1d 16%, transparent);
+  --color-bg: #f8f1e4;
+  --color-surface: #efe5d6;
+  --color-text: #251b33;
+  --color-accent: #a83d68;
+  --color-accent-2: #c98a2b;
+  --color-divider: color-mix(in srgb, #251b33 16%, transparent);
+
+  /* Dark "down the rabbit hole" surfaces for hero and footer. */
+  --color-ink: #2b1d40;
+  --color-ink-2: #1e1430;
+  --color-ink-text: #f3ecdd;
+  --color-ink-muted: #cfc2e0;
 
   /* Tonal ramps — one shared lightness scale across roles. */
-  --color-neutral-100: #f9f4ed;
-  --color-neutral-200: #eee7db;
-  --color-neutral-300: #dcd3c4;
-  --color-neutral-400: #c0b6a5;
-  --color-neutral-500: #a19786;
-  --color-neutral-600: #82796a;
-  --color-neutral-700: #645c50;
-  --color-neutral-800: #474238;
-  --color-neutral-900: #2e2b25;
+  --color-neutral-100: #f9f3ea;
+  --color-neutral-200: #efe6da;
+  --color-neutral-300: #ded2c6;
+  --color-neutral-400: #c2b3ab;
+  --color-neutral-500: #a3928f;
+  --color-neutral-600: #847377;
+  --color-neutral-700: #66575f;
+  --color-neutral-800: #483d47;
+  --color-neutral-900: #2f2833;
 
-  --color-accent-100: #fff2eb;
-  --color-accent-200: #ffe1d0;
-  --color-accent-300: #ffc6a5;
-  --color-accent-400: #f6a06b;
-  --color-accent-500: #d67f48;
-  --color-accent-600: #b2622d;
-  --color-accent-700: #8c491a;
-  --color-accent-800: #643312;
-  --color-accent-900: #402310;
+  --color-accent-100: #fbeef4;
+  --color-accent-200: #f6d7e4;
+  --color-accent-300: #eeb2ca;
+  --color-accent-400: #dd85a8;
+  --color-accent-500: #bb5583;
+  --color-accent-600: #96345e;
+  --color-accent-700: #772647;
+  --color-accent-800: #551a32;
+  --color-accent-900: #350f1f;
 
-  --color-accent-2-100: #f0fae1;
-  --color-accent-2-200: #e1eecc;
-  --color-accent-2-300: #ccdbb2;
-  --color-accent-2-400: #aebf92;
-  --color-accent-2-500: #8fa073;
-  --color-accent-2-600: #728157;
-  --color-accent-2-700: #56633f;
-  --color-accent-2-800: #3d472b;
-  --color-accent-2-900: #272e1b;
+  --color-accent-2-100: #fcf3e1;
+  --color-accent-2-200: #f7e4bd;
+  --color-accent-2-300: #eecd8d;
+  --color-accent-2-400: #ddb05b;
+  --color-accent-2-500: #c98a2b;
+  --color-accent-2-600: #a56f1d;
+  --color-accent-2-700: #815614;
+  --color-accent-2-800: #5c3d0e;
+  --color-accent-2-900: #3a2608;
 
-  --font-heading: var(--font-caprasimo), system-ui, sans-serif;
-  --font-body: var(--font-figtree), system-ui, sans-serif;
+  --font-heading: var(--font-rye), serif;
+  --font-body: var(--font-alice), Georgia, serif;
 
   --space-1: 4.4px;
   --space-2: 8.8px;
@@ -108,7 +116,7 @@
   background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
-@keyframes bkfade {
+@keyframes curiofade {
   from {
     opacity: 0;
     transform: translateY(6px);
@@ -307,9 +315,33 @@
   font-size: 15px;
 }
 
+/* Checkerboard trim — the White Rabbit's tiled floor, from the logo. */
+.shop-checker {
+  height: 16px;
+  background: repeating-conic-gradient(
+      var(--color-ink) 0% 25%,
+      var(--color-accent-2) 0% 50%
+    )
+    0 0 / 16px 16px;
+}
+
+/* Dark starry "down the rabbit hole" stage. */
 .shop-hero {
-  padding-top: calc(var(--space-8) + var(--space-2));
-  padding-bottom: var(--space-6);
+  margin-top: var(--space-4);
+  padding: calc(var(--space-8) + var(--space-2)) var(--space-8);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(1.5px 1.5px at 12% 22%, rgba(255, 249, 230, 0.8), transparent),
+    radial-gradient(1px 1px at 28% 68%, rgba(255, 249, 230, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 45% 12%, rgba(255, 249, 230, 0.6), transparent),
+    radial-gradient(1px 1px at 58% 80%, rgba(255, 249, 230, 0.45), transparent),
+    radial-gradient(2px 2px at 70% 30%, rgba(255, 249, 230, 0.7), transparent),
+    radial-gradient(1px 1px at 82% 62%, rgba(255, 249, 230, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 92% 18%, rgba(255, 249, 230, 0.6), transparent),
+    radial-gradient(1px 1px at 6% 85%, rgba(255, 249, 230, 0.4), transparent),
+    linear-gradient(140deg, #382552 0%, var(--color-ink) 45%, var(--color-ink-2) 100%);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-ink-text);
   display: flex;
   align-items: center;
   gap: calc(var(--space-8) + var(--space-2));
@@ -320,32 +352,51 @@
   min-width: 320px;
 }
 .shop-hero h1 {
-  font-size: clamp(40px, 5vw, 64px);
-  line-height: 1.05;
+  font-size: clamp(36px, 4.5vw, 58px);
+  line-height: 1.1;
   margin: 0 0 var(--space-4);
+  /* Flame-gradient lettering from the logo: gold → orange → magenta. */
+  background: linear-gradient(100deg, #f2c94c 0%, #ee8f3a 45%, #e0567c 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .shop-hero-lede {
   font-size: 18px;
   line-height: 1.6;
   max-width: 56ch;
   margin: 0 0 var(--space-6);
-  color: var(--color-neutral-800);
+  color: var(--color-ink-muted);
 }
-.shop-hero-info {
+.shop-hero a {
+  color: var(--color-accent-2-300);
+}
+.shop-hero a:hover {
+  color: var(--color-accent-2-200);
+}
+.shop-hero .tag-accent-2 {
+  background: color-mix(in srgb, var(--color-accent-2) 24%, transparent);
+  color: var(--color-accent-2-200);
+}
+.shop .card.shop-hero-info {
   padding: var(--space-6);
   max-width: 640px;
   display: grid;
   gap: var(--space-2);
   font-size: 15px;
   line-height: 1.55;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: none;
 }
 .shop-hero-logo {
   width: 280px;
   height: 280px;
   object-fit: cover;
   border-radius: 999px;
+  border: 3px solid color-mix(in srgb, var(--color-accent-2) 65%, transparent);
   box-shadow: var(--shadow-md);
-  animation: bkfade 0.5s ease both;
+  animation: curiofade 0.5s ease both;
 }
 
 .shop-section {
@@ -473,7 +524,7 @@
 .record-card {
   padding: var(--space-4);
   gap: var(--space-3);
-  animation: bkfade 0.35s ease both;
+  animation: curiofade 0.35s ease both;
 }
 .record-card.is-sold {
   opacity: 0.55;
@@ -597,8 +648,15 @@
 
 /* — footer — */
 .shop-footer {
-  background: var(--color-accent-2-100);
+  background: linear-gradient(180deg, var(--color-ink) 0%, var(--color-ink-2) 100%);
+  color: var(--color-ink-text);
   padding: calc(var(--space-8) + var(--space-2)) var(--space-8);
+}
+.shop-footer a {
+  color: var(--color-accent-2-300);
+}
+.shop-footer a:hover {
+  color: var(--color-accent-2-200);
 }
 .shop-footer-inner {
   max-width: 1200px;
@@ -620,13 +678,13 @@
   line-height: 1.65;
   max-width: 60ch;
   margin: 0;
-  color: var(--color-neutral-800);
+  color: var(--color-ink-muted);
 }
 .shop-footer-grades {
   flex: 0 1 320px;
   font-size: 14.5px;
   line-height: 1.7;
-  color: var(--color-neutral-800);
+  color: var(--color-ink-muted);
 }
 .shop-footer-grades .head {
   font-weight: 700;
@@ -636,7 +694,7 @@
   max-width: 1200px;
   margin: var(--space-8) auto 0;
   font-size: 13px;
-  color: var(--color-neutral-700);
+  color: color-mix(in srgb, var(--color-ink-muted) 75%, transparent);
 }
 
 @media (max-width: 640px) {

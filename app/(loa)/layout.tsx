@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 };
 
 const FOOTER_LINKS = [
-  { href: "https://thebeeskneesrecords.com", label: "Records for Sale" },
+  { href: "https://curiouserrecords.com", label: "Records for Sale" },
   { href: "/reviews", label: "Reviews" },
   { href: "/vinyl-collection", label: "Vinyl Collection" },
   { href: "/mysystem", label: "My System" },

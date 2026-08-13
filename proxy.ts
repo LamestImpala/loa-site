@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const SHOP_HOST = "thebeeskneesrecords.com";
+const SHOP_HOST = "curiouserrecords.com";
+const OLD_SHOP_HOST = "thebeeskneesrecords.com";
 const LOA_HOST = "lateonsetaudiophile.com";
 
 function stripPort(host: string) {
@@ -12,7 +13,16 @@ export function proxy(request: NextRequest) {
   const host = stripPort(request.headers.get("host") ?? "");
   const { pathname } = request.nextUrl;
   const isShopHost = host === SHOP_HOST || host === `www.${SHOP_HOST}`;
+  const isOldShopHost = host === OLD_SHOP_HOST || host === `www.${OLD_SHOP_HOST}`;
   const isLoaHost = host === LOA_HOST || host === `www.${LOA_HOST}`;
+
+  // The Bee's Knees Records became Curiouser Records; forward the old domain.
+  if (isOldShopHost) {
+    return NextResponse.redirect(
+      new URL(pathname + request.nextUrl.search, `https://${SHOP_HOST}`),
+      308
+    );
+  }
 
   if (isShopHost) {
     // Canonical shop URL is the domain root, not /records.
@@ -30,7 +40,7 @@ export function proxy(request: NextRequest) {
 
   // The shop moved to its own domain. Localhost keeps /records reachable for dev.
   if (isLoaHost && (pathname === "/records" || pathname.startsWith("/records/"))) {
-    return NextResponse.redirect(new URL("https://thebeeskneesrecords.com/"), 308);
+    return NextResponse.redirect(new URL(`https://${SHOP_HOST}/`), 308);
   }
 
   return NextResponse.next();

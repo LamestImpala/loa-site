@@ -73,7 +73,7 @@ function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
   const shipping = SELLER_INFO.shippingCost;
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://thebeeskneesrecords.com)\n\n`;
+  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
 }
 
@@ -270,7 +270,7 @@ export default function RecordsClient({
             <span className="tag tag-neutral">Actual copy pictured</span>
           ) : null}
           {reduced ? (
-            <span className="tag tag-accent-2">↓ {dropPct(r)}% off</span>
+            <span className="tag tag-accent-2">Drink me · ↓ {dropPct(r)}%</span>
           ) : null}
         </div>
 
@@ -288,11 +288,12 @@ export default function RecordsClient({
 
         {r.sold ? (
           <button className="btn btn-secondary btn-block" disabled>
-            Sold — gone to a good home
+            Sold — gone down the rabbit hole
           </button>
         ) : held ? (
           <p className="record-hold-note">
-            On hold for a buyer — check back in case it falls through.
+            On hold — the White Rabbit&rsquo;s watch is ticking. Check back in
+            case it falls through.
           </p>
         ) : SELLER_INFO.redditUsername ? (
           <>
@@ -326,7 +327,7 @@ export default function RecordsClient({
       {drops.length > 0 ? (
         <section className="shop-shell shop-section">
           <div className="shop-section-head">
-            <h2>Today&rsquo;s price drops</h2>
+            <h2>Drink me — today&rsquo;s shrinking prices</h2>
             <span className="shop-muted">vs. yesterday&rsquo;s Discogs price</span>
           </div>
           <div className="shop-drops">
@@ -373,7 +374,7 @@ export default function RecordsClient({
             className="input search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search artist, title, label…"
+            placeholder="What are you curious about? Artist, title, label…"
           />
           <select
             className="input"
@@ -491,7 +492,9 @@ export default function RecordsClient({
           </>
         ) : (
           <div className="card shop-empty">
-            <div className="shop-empty-title">No records match that.</div>
+            <div className="shop-empty-title">
+              Curiouser and curiouser… nothing matches.
+            </div>
             <button type="button" className="btn btn-ghost" onClick={clearFilters}>
               Clear filters
             </button>

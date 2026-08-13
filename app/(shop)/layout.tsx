@@ -1,40 +1,44 @@
 import type { Metadata } from "next";
-import { Caprasimo, Figtree } from "next/font/google";
+import { Alice, Rye } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import { SELLER_INFO } from "@/lib/records";
 import "./shop.css";
 
-const caprasimo = Caprasimo({
+const rye = Rye({
   weight: "400",
   subsets: ["latin"],
-  variable: "--font-caprasimo",
+  variable: "--font-rye",
 });
 
-const figtree = Figtree({
+const alice = Alice({
+  weight: "400",
   subsets: ["latin"],
-  variable: "--font-figtree",
+  variable: "--font-alice",
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://thebeeskneesrecords.com"),
-  title: "The Bee's Knees Records",
+  metadataBase: new URL("https://curiouserrecords.com"),
+  title: "Curiouser Records — Used Vinyl from Phoenix, AZ",
   description:
-    "Vinyl records for sale, graded to the Goldmine standard and shipped in proper LP mailers.",
+    "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
+  icons: {
+    icon: "/images/curiouser-icon.png",
+  },
   openGraph: {
-    title: "The Bee's Knees Records",
+    title: "Curiouser Records",
     description:
-      "Vinyl records for sale, graded to the Goldmine standard and shipped in proper LP mailers.",
-    url: "https://thebeeskneesrecords.com",
-    siteName: "The Bee's Knees Records",
+      "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
+    url: "https://curiouserrecords.com",
+    siteName: "Curiouser Records",
     locale: "en_US",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "The Bee's Knees Records",
+    title: "Curiouser Records",
     description:
-      "Vinyl records for sale, graded to the Goldmine standard and shipped in proper LP mailers.",
+      "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
   },
 };
 
@@ -46,28 +50,30 @@ export default function ShopLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <div className={`shop ${caprasimo.variable} ${figtree.variable}`}>
+    <div className={`shop ${rye.variable} ${alice.variable}`}>
       <nav className="shop-nav">
-        <Link href="/" aria-label="The Bee's Knees Records home">
+        <Link href="/" aria-label="Curiouser Records home">
           <Image
-            src="/images/beeskneeslogo.png"
-            alt="The Bee's Knees Records"
+            src="/images/curiouserlogo.png"
+            alt="Curiouser Records"
             width={44}
             height={44}
             className="shop-nav-logo"
           />
         </Link>
         <div className="shop-nav-brand">
-          The Bee&rsquo;s Knees <span>Records</span>
+          Curiouser <span>Records</span>
         </div>
         <div style={{ flex: 1 }} />
         <a href={redditProfile} target="_blank" rel="noopener noreferrer">
           u/{SELLER_INFO.redditUsername} ↗
         </a>
       </nav>
+      <div className="shop-checker" aria-hidden />
 
       <main>{children}</main>
 
+      <div className="shop-checker" aria-hidden />
       <footer className="shop-footer">
         <div className="shop-footer-inner">
           <div className="shop-footer-about">
@@ -77,7 +83,7 @@ export default function ShopLayout({
               collection that got away from me. Everything is play-graded under
               good light to the Goldmine standard — if I&rsquo;m unsure between
               two grades, I use the lower one. Prices track Discogs daily, so
-              drops are genuine.
+              the &ldquo;Drink me&rdquo; drops are genuine.
             </p>
           </div>
           <div className="shop-footer-grades">
@@ -97,7 +103,7 @@ export default function ShopLayout({
           </div>
         </div>
         <div className="shop-footer-bottom">
-          thebeeskneesrecords.com · Sold by{" "}
+          curiouserrecords.com · Sold by{" "}
           <a href={redditProfile} target="_blank" rel="noopener noreferrer">
             u/{SELLER_INFO.redditUsername}
           </a>{" "}
