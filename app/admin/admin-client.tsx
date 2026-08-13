@@ -23,7 +23,7 @@ function cell(s: string | undefined) {
 // "Request to buy" button that pre-fills the DM; SELLER_INFO.contact stays
 // as-is for the site's own hero card.
 const SHOP_URL = "https://curiouserrecords.com";
-const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with photos and live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. First come, first served.`;
+const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. First come, first served.`;
 
 function redditMarkdown(records: DbRecord[]) {
   const list = records
@@ -36,7 +36,7 @@ function redditMarkdown(records: DbRecord[]) {
     return `| ${cell(r.artist)} | ${title} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | $${r.price} | ${cell(r.notes)} |`;
   });
   return [
-    `**${SELLER_INFO.pageTitle}** — browse everything with photos at ${SHOP_URL}`,
+    `**${SELLER_INFO.pageTitle}** — browse everything at ${SHOP_URL}`,
     "",
     `**Payment:** ${SELLER_INFO.payment}`,
     "",
@@ -67,7 +67,7 @@ function redditWeeklyMarkdown(records: DbRecord[]) {
   const dropRow = (r: DbRecord) =>
     `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.media)}/${cell(r.sleeve)} | ~~$${r.prev_price}~~ | $${r.price} |`;
   const parts = [
-    `**Weekly update** — browse everything with photos at ${SHOP_URL}`,
+    `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
   ];
   if (fresh.length) {
