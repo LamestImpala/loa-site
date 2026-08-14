@@ -46,6 +46,29 @@ export type PendingPriceChange = {
   records?: Pick<DbRecord, "artist" | "title" | "pressing" | "price"> | null;
 };
 
+// Snapshot of one record inside an order request, captured at request time.
+export type OrderRequestItem = {
+  id: number;
+  artist: string;
+  title: string;
+  media: string;
+  sleeve: string;
+  price: number;
+};
+
+export type OrderRequest = {
+  id: number;
+  ref_code: string; // CR-XXXX, also printed in the buyer's DM
+  record_ids: number[];
+  items: OrderRequestItem[];
+  subtotal: number;
+  shipping: number;
+  total: number;
+  status: "new" | "loaded" | "completed" | "dismissed";
+  created_at: string;
+  updated_at: string;
+};
+
 export type PriceRun = {
   id: number;
   ran_at: string;

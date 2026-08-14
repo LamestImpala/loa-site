@@ -33,9 +33,10 @@ export type BundleItem = {
   price: number;
 };
 
-// Itemized quote for a set of records. The shop's combined "Request to buy"
-// message (records-client.tsx) has a parallel formatter with the same line
-// format — keep them in sync.
+// Itemized quote for a set of records — the one formatter for the shop's
+// combined "Request to buy" DM, the admin sale-desk reply, and the PayPal
+// invoice route. The order_requests DB trigger recomputes shipping with the
+// same $6-per-3 math — a rate change must touch both.
 export function bundleBreakdown(items: BundleItem[]) {
   const lines = items.map(
     (r, i) =>
@@ -45,6 +46,27 @@ export function bundleBreakdown(items: BundleItem[]) {
   const parcels = Math.ceil(items.length / RECORDS_PER_PARCEL);
   const shipping = combinedShipping(items.length);
   return { lines, subtotal, parcels, shipping, total: subtotal + shipping };
+}
+
+// Order-request ref codes: CR- plus 4 chars from an alphabet without 0/O/1/I.
+// The code goes in the buyer's DM and keys the order_requests row, so the
+// admin can match a DM to a saved request.
+export const REF_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+export const REF_LINE_RE = /\bRef:\s*(CR-[A-HJ-NP-Z2-9]{4})\b/i;
+
+export function makeRefCode(): string {
+  const picks = new Uint32Array(4);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(picks);
+  } else {
+    for (let i = 0; i < picks.length; i++) {
+      picks[i] = Math.floor(Math.random() * REF_CODE_ALPHABET.length);
+    }
+  }
+  let code = "CR-";
+  for (const n of picks) code += REF_CODE_ALPHABET[n % REF_CODE_ALPHABET.length];
+  return code;
 }
 
 export type SellerInfo = {

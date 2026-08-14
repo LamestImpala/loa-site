@@ -7,9 +7,11 @@ import {
   RECORDS_PER_PARCEL,
   SELLER_INFO,
   artistLetter,
+  bundleBreakdown,
   combinedShipping,
+  makeRefCode,
 } from "@/lib/records";
-import type { DbRecord } from "@/lib/supabase";
+import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
@@ -84,28 +86,40 @@ function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
 }
 
 // One combined DM for a bundle of records; parallels requestToBuyUrl but drops
-// the pressing line per record to keep the compose URL short.
-function combinedRequestMessage(list: DbRecord[], hasPost: boolean) {
+// the pressing line per record to keep the compose URL short. The Ref line
+// ties the DM to the order_requests row saved when the buyer clicks send.
+function combinedRequestMessage(
+  list: DbRecord[],
+  hasPost: boolean,
+  refCode: string
+) {
   const subject = `Record purchase: ${list.length} records from your list`;
-  const lines = list.map(
-    (r, i) =>
-      `${i + 1}. ${r.artist} — ${r.title} — Media: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}`
-  );
-  const subtotal = list.reduce((s, r) => s + r.price, 0);
-  const shipping = combinedShipping(list.length);
-  const parcels = Math.ceil(list.length / RECORDS_PER_PARCEL);
+  const { lines, subtotal, parcels, shipping, total } = bundleBreakdown(list);
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
   const message = `Hi! I am interested in purchasing these titles from you:\n\n${lines.join(
     "\n"
-  )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${subtotal + shipping}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${total}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
   return { subject, message };
 }
 
-function combinedRequestUrl(list: DbRecord[], hasPost: boolean) {
-  const { subject, message } = combinedRequestMessage(list, hasPost);
+function combinedRequestUrl(list: DbRecord[], hasPost: boolean, refCode: string) {
+  const { subject, message } = combinedRequestMessage(list, hasPost, refCode);
   return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
+}
+
+// Fire-and-forget: save the request so /admin can load it by ref code. The
+// trigger revalidates ids and recomputes totals server-side; errors are
+// swallowed because the DM must go out regardless (paste parser is the
+// fallback). No .select() — the anon role has no read access to the table.
+function persistOrderRequest(refCode: string, ids: number[]) {
+  getBrowserSupabase()
+    .from("order_requests")
+    .insert({ ref_code: refCode, record_ids: ids })
+    .then(({ error }) => {
+      if (error) console.warn("order request not saved:", error.message);
+    });
 }
 
 export default function RecordsClient({
@@ -167,14 +181,25 @@ export default function RecordsClient({
 
   async function sendCombinedRequest() {
     const hasPost = Boolean(redditPostUrl);
-    const url = combinedRequestUrl(selectedRecords, hasPost);
+    const refCode = makeRefCode();
+    const url = combinedRequestUrl(selectedRecords, hasPost, refCode);
+    // Insert before window.open but without awaiting — popup blockers only
+    // tolerate window.open inside the click gesture.
+    persistOrderRequest(
+      refCode,
+      selectedRecords.map((r) => r.id)
+    );
     if (url.length <= 2000) {
       window.open(url, "_blank", "noopener");
       return;
     }
     // Compose URLs past ~2k chars get truncated — copy the body instead and
     // open the compose window with just the subject.
-    const { subject, message } = combinedRequestMessage(selectedRecords, hasPost);
+    const { subject, message } = combinedRequestMessage(
+      selectedRecords,
+      hasPost,
+      refCode
+    );
     try {
       await navigator.clipboard.writeText(message);
       setCombinedMessageCopied(true);
