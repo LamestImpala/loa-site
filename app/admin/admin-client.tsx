@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   LETTERS,
@@ -138,6 +144,19 @@ function redditWeeklyMarkdown(records: DbRecord[]) {
 
 const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
 
+// Collapsible page sections — keys double as the localStorage payload, so
+// renaming one silently resets its saved state.
+const SECTIONS = [
+  "reddit",
+  "pending",
+  "add",
+  "listings",
+  "runs",
+  "account",
+] as const;
+type SectionKey = (typeof SECTIONS)[number];
+const COLLAPSED_SECTIONS_KEY = "admin-collapsed-sections";
+
 type NewRecordDraft = {
   discogs_release_id: number;
   artist: string;
@@ -231,6 +250,76 @@ export default function AdminClient() {
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
   const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
   const [tableCopied, setTableCopied] = useState(false);
+
+  const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(
+    () => {
+      if (typeof window === "undefined") return new Set();
+      try {
+        const saved = JSON.parse(
+          window.localStorage.getItem(COLLAPSED_SECTIONS_KEY) ?? "[]"
+        );
+        return new Set(
+          (Array.isArray(saved) ? saved : []).filter(
+            (k): k is SectionKey => (SECTIONS as readonly string[]).includes(k)
+          )
+        );
+      } catch {
+        return new Set();
+      }
+    }
+  );
+
+  const setCollapsed = useCallback((next: Set<SectionKey>) => {
+    setCollapsedSections(next);
+    try {
+      window.localStorage.setItem(
+        COLLAPSED_SECTIONS_KEY,
+        JSON.stringify([...next])
+      );
+    } catch {
+      // localStorage may be unavailable (private mode) — collapsing still works
+    }
+  }, []);
+
+  const toggleSection = useCallback(
+    (key: SectionKey) => {
+      const next = new Set(collapsedSections);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      setCollapsed(next);
+    },
+    [collapsedSections, setCollapsed]
+  );
+
+  const allCollapsed = SECTIONS.every((k) => collapsedSections.has(k));
+
+  function sectionHeading(
+    key: SectionKey,
+    title: ReactNode,
+    className: string
+  ) {
+    const open = !collapsedSections.has(key);
+    return (
+      <h2 className={className}>
+        <button
+          type="button"
+          onClick={() => toggleSection(key)}
+          aria-expanded={open}
+          className="flex items-center gap-2 text-left transition hover:text-neutral-300"
+        >
+          <span
+            aria-hidden
+            className={`text-sm text-neutral-500 transition-transform ${
+              open ? "rotate-90" : ""
+            }`}
+          >
+            ▶
+          </span>
+          {title}
+        </button>
+      </h2>
+    );
+  }
 
   async function copyRedditTable() {
     const md = redditMarkdown(records);
@@ -1178,6 +1267,16 @@ export default function AdminClient() {
             <span>{session.user.email}</span>
             <button
               type="button"
+              onClick={() =>
+                setCollapsed(allCollapsed ? new Set() : new Set(SECTIONS))
+              }
+              title="Collapse or expand every section on the page"
+              className={buttonClass}
+            >
+              {allCollapsed ? "Expand all" : "Collapse all"}
+            </button>
+            <button
+              type="button"
               onClick={() => supabase.auth.signOut()}
               className={buttonClass}
             >
@@ -1224,7 +1323,9 @@ export default function AdminClient() {
         </div>
 
         {/* Reddit tools */}
-        <h2 className="mt-10 text-xl font-medium">Reddit tools</h2>
+        {sectionHeading("reddit", "Reddit tools", "mt-10 text-xl font-medium")}
+        {collapsedSections.has("reddit") ? null : (
+          <>
         <p className="mt-1 text-sm text-neutral-400">
           Copies a ready-to-paste markdown table of every shown, unsold record
           for a new sale post.
@@ -1261,15 +1362,22 @@ export default function AdminClient() {
             {postUrlStatus === "saved" ? "Saved!" : "Save"}
           </button>
         </div>
+          </>
+        )}
 
         {/* Pending price approvals */}
-        <h2 className="mt-10 text-xl font-medium">
-          Pending price changes{" "}
-          <span className="text-sm text-neutral-400">
-            (moves over ±5% from the daily Discogs run)
-          </span>
-        </h2>
-        {pending.length === 0 ? (
+        {sectionHeading(
+          "pending",
+          <>
+            Pending price changes{" "}
+            <span className="text-sm text-neutral-400">
+              ({pending.length} waiting · moves over ±5% from the daily Discogs
+              run)
+            </span>
+          </>,
+          "mt-10 text-xl font-medium"
+        )}
+        {collapsedSections.has("pending") ? null : pending.length === 0 ? (
           <p className="mt-3 text-sm text-neutral-400">
             Nothing waiting for approval.
           </p>
@@ -1374,7 +1482,9 @@ export default function AdminClient() {
         )}
 
         {/* Add record */}
-        <h2 className="mt-12 text-xl font-medium">Add a record</h2>
+        {sectionHeading("add", "Add a record", "mt-12 text-xl font-medium")}
+        {collapsedSections.has("add") ? null : (
+          <>
         <p className="mt-1 text-sm text-neutral-400">
           Paste a Discogs release URL or ID and Fetch fills in the details and
           cover art. Leave the price at 0 and tonight&apos;s run will set it to
@@ -1512,9 +1622,22 @@ export default function AdminClient() {
             </div>
           </div>
         ) : null}
+          </>
+        )}
 
         {/* Records editor */}
-        <h2 className="mt-12 text-xl font-medium">Listings</h2>
+        {sectionHeading(
+          "listings",
+          <>
+            Listings{" "}
+            <span className="text-sm text-neutral-400">
+              ({records.length} records)
+            </span>
+          </>,
+          "mt-12 text-xl font-medium"
+        )}
+        {collapsedSections.has("listings") ? null : (
+          <>
         <p className="mt-1 text-sm text-neutral-400">
           Shown controls whether a record appears on /records at all; Sold
           keeps it visible with a SOLD badge.
@@ -2145,10 +2268,16 @@ export default function AdminClient() {
             </tbody>
           </table>
         </div>
+          </>
+        )}
 
         {/* Price run reports */}
-        <h2 className="mt-12 text-xl font-medium">Daily price runs</h2>
-        {runs.length === 0 ? (
+        {sectionHeading(
+          "runs",
+          "Daily price runs",
+          "mt-12 text-xl font-medium"
+        )}
+        {collapsedSections.has("runs") ? null : runs.length === 0 ? (
           <p className="mt-3 text-sm text-neutral-400">No runs yet.</p>
         ) : (
           <div className="mt-4 flex flex-col gap-3">
@@ -2245,7 +2374,9 @@ export default function AdminClient() {
         )}
 
         {/* Account */}
-        <h2 className="mt-12 text-xl font-medium">Account</h2>
+        {sectionHeading("account", "Account", "mt-12 text-xl font-medium")}
+        {collapsedSections.has("account") ? null : (
+          <>
         <p className="mt-1 text-sm text-neutral-400">
           Set a password to sign in directly — magic-link emails are
           rate-limited by Supabase.
@@ -2274,6 +2405,8 @@ export default function AdminClient() {
             {pwStatus}
           </p>
         ) : null}
+          </>
+        )}
       </section>
     </main>
   );
