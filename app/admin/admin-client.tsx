@@ -19,9 +19,17 @@ import {
   ADMIN_EMAIL,
   getBrowserSupabase,
   type DbRecord,
+  type OrderRequest,
   type PendingPriceChange,
   type PriceRun,
 } from "@/lib/supabase";
+import {
+  extractRefCode,
+  matchLines,
+  parseOrderText,
+  recordFlags,
+  type LineMatch,
+} from "@/lib/order-parse";
 
 // Reddit markdown pipes inside a cell break the table — escape them.
 function cell(s: string | undefined) {
@@ -148,6 +156,7 @@ const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
 // renaming one silently resets its saved state.
 const SECTIONS = [
   "reddit",
+  "requests",
   "pending",
   "add",
   "listings",
@@ -216,6 +225,15 @@ function pct(n: number) {
   return `${n > 0 ? "+" : ""}${(n * 100).toFixed(1)}%`;
 }
 
+function timeAgo(iso: string) {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export default function AdminClient() {
   const supabase = getBrowserSupabase();
 
@@ -231,6 +249,7 @@ export default function AdminClient() {
   const [records, setRecords] = useState<DbRecord[]>([]);
   const [pending, setPending] = useState<PendingPriceChange[]>([]);
   const [runs, setRuns] = useState<PriceRun[]>([]);
+  const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
@@ -398,29 +417,37 @@ export default function AdminClient() {
 
   const loadData = useCallback(async () => {
     setLoadError("");
-    const [recordsRes, pendingRes, runsRes, settingsRes] = await Promise.all([
-      supabase.from("records").select("*").order("artist").order("title"),
-      supabase
-        .from("pending_price_changes")
-        .select("*, records(artist, title, pressing, price)")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("price_runs")
-        .select("*")
-        .order("ran_at", { ascending: false })
-        .limit(14),
-      supabase
-        .from("settings")
-        .select("value")
-        .eq("key", "reddit_post_url")
-        .single(),
-    ]);
-    if (recordsRes.error || pendingRes.error || runsRes.error) {
+    const [recordsRes, pendingRes, runsRes, settingsRes, requestsRes] =
+      await Promise.all([
+        supabase.from("records").select("*").order("artist").order("title"),
+        supabase
+          .from("pending_price_changes")
+          .select("*, records(artist, title, pressing, price)")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("price_runs")
+          .select("*")
+          .order("ran_at", { ascending: false })
+          .limit(14),
+        supabase
+          .from("settings")
+          .select("value")
+          .eq("key", "reddit_post_url")
+          .single(),
+        supabase
+          .from("order_requests")
+          .select("*")
+          .in("status", ["new", "loaded"])
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
+    if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
       setLoadError(
         recordsRes.error?.message ||
           pendingRes.error?.message ||
           runsRes.error?.message ||
+          requestsRes.error?.message ||
           "Failed to load"
       );
       return;
@@ -428,6 +455,7 @@ export default function AdminClient() {
     setRecords((recordsRes.data ?? []) as DbRecord[]);
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
     setRuns((runsRes.data ?? []) as PriceRun[]);
+    setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
     setPostUrl(settingsRes.data?.value ?? "");
   }, [supabase]);
 
@@ -943,6 +971,30 @@ export default function AdminClient() {
           doneSet.has(r.id) ? { ...r, ...patches.get(r.id) } : r
         )
       );
+      // Best-effort: close loaded order requests whose records are now all
+      // sold. Failures are non-fatal — the card keeps its manual buttons.
+      const finished = orderRequests.filter(
+        (req) =>
+          req.status === "loaded" &&
+          req.record_ids.every((id) => doneSet.has(id) || byId.get(id)?.sold)
+      );
+      if (finished.length > 0) {
+        supabase
+          .from("order_requests")
+          .update({ status: "completed", updated_at: new Date().toISOString() })
+          .in(
+            "id",
+            finished.map((r) => r.id)
+          )
+          .then(({ error }) => {
+            if (error) {
+              console.warn("order request auto-complete failed:", error.message);
+              return;
+            }
+            const finishedIds = new Set(finished.map((r) => r.id));
+            setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
+          });
+      }
       const withDiscogs = targets.filter((r) => r.discogs_release_id);
       if (
         withDiscogs.length > 0 &&
@@ -1019,6 +1071,144 @@ export default function AdminClient() {
     } catch {
       window.prompt("Copy the payment link:", saleInvoice.url);
     }
+  }
+
+  // --- Incoming order requests + paste-a-DM parser ---
+  const byId = useMemo(
+    () => new Map(records.map((r) => [r.id, r])),
+    [records]
+  );
+  const newRequestCount = orderRequests.filter((r) => r.status === "new").length;
+
+  const [refCopiedId, setRefCopiedId] = useState<number | null>(null);
+  const [pasteText, setPasteText] = useState("");
+  const [parseResult, setParseResult] = useState<null | {
+    ref: string | null;
+    refRequest: OrderRequest | null;
+    rows: LineMatch[];
+    choices: Record<number, number>; // row index -> chosen record id
+  }>(null);
+
+  // Replace the sale-desk selection (with confirmation when it differs),
+  // open the Listings section, and scroll to the sticky bar.
+  function applySaleSelection(ids: number[]): boolean {
+    const next = new Set(ids);
+    const differs =
+      selectedIds.size !== next.size ||
+      [...selectedIds].some((id) => !next.has(id));
+    if (selectedIds.size > 0 && differs) {
+      if (
+        !window.confirm(
+          `Replace the current sale desk selection (${selectedIds.size} record${selectedIds.size === 1 ? "" : "s"})?`
+        )
+      )
+        return false;
+    }
+    setSelectedIds(next);
+    if (collapsedSections.has("listings")) {
+      const opened = new Set(collapsedSections);
+      opened.delete("listings");
+      setCollapsed(opened);
+    }
+    // The sticky bar only exists once the selection renders.
+    setTimeout(() => {
+      document
+        .getElementById("sale-desk")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+    return true;
+  }
+
+  async function loadRequestIntoSaleDesk(req: OrderRequest) {
+    const available = req.record_ids.filter((id) => {
+      const r = byId.get(id);
+      return r && !r.sold;
+    });
+    if (available.length === 0) {
+      window.alert("None of this request's records are still available.");
+      return;
+    }
+    if (!applySaleSelection(available)) return;
+    if (req.status === "new") {
+      const { error } = await supabase
+        .from("order_requests")
+        .update({ status: "loaded", updated_at: new Date().toISOString() })
+        .eq("id", req.id);
+      if (!error) {
+        setOrderRequests((prev) =>
+          prev.map((r) => (r.id === req.id ? { ...r, status: "loaded" } : r))
+        );
+      }
+    }
+  }
+
+  async function updateRequestStatus(
+    req: OrderRequest,
+    status: "completed" | "dismissed"
+  ) {
+    const { error } = await supabase
+      .from("order_requests")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", req.id);
+    if (error) {
+      setLoadError(error.message);
+      return;
+    }
+    setOrderRequests((prev) => prev.filter((r) => r.id !== req.id));
+  }
+
+  async function copyRefCode(req: OrderRequest) {
+    try {
+      await navigator.clipboard.writeText(req.ref_code);
+      setRefCopiedId(req.id);
+      setTimeout(() => setRefCopiedId(null), 1600);
+    } catch {
+      window.prompt("Copy the ref code:", req.ref_code);
+    }
+  }
+
+  async function parsePasted() {
+    const text = pasteText;
+    if (!text.trim()) return;
+    const ref = extractRefCode(text);
+    let refRequest = ref
+      ? (orderRequests.find((r) => r.ref_code === ref) ?? null)
+      : null;
+    if (ref && !refRequest) {
+      // Not in the open list — maybe already completed/dismissed or older
+      // than the load window.
+      const { data } = await supabase
+        .from("order_requests")
+        .select("*")
+        .eq("ref_code", ref)
+        .maybeSingle();
+      refRequest = (data as OrderRequest | null) ?? null;
+    }
+    const rows = matchLines(parseOrderText(text), records);
+    setParseResult({ ref, refRequest, rows, choices: {} });
+  }
+
+  // Records the review panel would put on the sale desk right now.
+  function parsedSelectionIds(): number[] {
+    if (!parseResult) return [];
+    const ids: number[] = [];
+    parseResult.rows.forEach((row, i) => {
+      if (row.status === "matched" && row.match && !row.match.sold) {
+        ids.push(row.match.id);
+      } else if (row.status === "ambiguous") {
+        const chosen = parseResult.choices[i];
+        if (chosen !== undefined && !byId.get(chosen)?.sold) ids.push(chosen);
+      }
+    });
+    return [...new Set(ids)];
+  }
+
+  function applyParsedSelection() {
+    const ids = parsedSelectionIds();
+    if (ids.length === 0) return;
+    if (!applySaleSelection(ids)) return;
+    setPasteText("");
+    setParseResult(null);
   }
 
   const activeLetters = useMemo(
@@ -1362,6 +1552,326 @@ export default function AdminClient() {
             {postUrlStatus === "saved" ? "Saved!" : "Save"}
           </button>
         </div>
+          </>
+        )}
+
+        {/* Incoming order requests */}
+        {sectionHeading(
+          "requests",
+          <>
+            Incoming requests{" "}
+            {newRequestCount > 0 ? (
+              <span className="text-sm text-amber-400">
+                ({newRequestCount} new)
+              </span>
+            ) : (
+              <span className="text-sm text-neutral-400">
+                ({orderRequests.length} open)
+              </span>
+            )}
+          </>,
+          "mt-10 text-xl font-medium"
+        )}
+        {collapsedSections.has("requests") ? null : (
+          <>
+            <p className="mt-1 text-sm text-neutral-400">
+              Saved automatically when a buyer clicks &ldquo;Request to
+              buy&rdquo; on the site — the ref code also appears in their DM.
+              Load one to check its records into the sale desk, or paste the DM
+              itself below.
+            </p>
+            {orderRequests.length === 0 ? (
+              <p className="mt-3 text-sm text-neutral-400">No open requests.</p>
+            ) : (
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                {orderRequests.map((req) => {
+                  const unavailable = req.record_ids.filter((id) => {
+                    const r = byId.get(id);
+                    return !r || r.sold;
+                  }).length;
+                  return (
+                    <div
+                      key={req.id}
+                      className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyRefCode(req)}
+                          title="Copy ref code"
+                          className="font-mono text-sm text-amber-300 transition hover:text-amber-100"
+                        >
+                          {refCopiedId === req.id ? "Copied!" : req.ref_code}
+                        </button>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-xs ${
+                            req.status === "new"
+                              ? "border-amber-400/40 text-amber-300"
+                              : "border-white/15 text-neutral-400"
+                          }`}
+                        >
+                          {req.status}
+                        </span>
+                        <span className="ml-auto text-xs text-neutral-500">
+                          {timeAgo(req.created_at)}
+                        </span>
+                      </div>
+                      <ul className="mt-3 space-y-1 text-sm">
+                        {req.items.map((it) => {
+                          const r = byId.get(it.id);
+                          const flags = r
+                            ? recordFlags(r, it.price)
+                            : ["no longer in the system"];
+                          return (
+                            <li key={it.id}>
+                              {it.artist} — {it.title}{" "}
+                              <span className="text-neutral-500">
+                                {it.media}/{it.sleeve}
+                              </span>{" "}
+                              — ${it.price}
+                              {flags.length > 0 ? (
+                                <span className="text-amber-400">
+                                  {" "}
+                                  · {flags.join(" · ")}
+                                </span>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="mt-2 text-sm text-neutral-400">
+                        Subtotal ${req.subtotal} · Shipping ${req.shipping} ·{" "}
+                        <span className="font-medium text-white">
+                          Total ${req.total}
+                        </span>
+                      </p>
+                      {unavailable > 0 ? (
+                        <p className="mt-1 text-xs text-amber-400">
+                          {unavailable} of {req.record_ids.length} unavailable —
+                          will not be selected.
+                        </p>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          onClick={() => loadRequestIntoSaleDesk(req)}
+                        >
+                          Load into sale desk
+                        </button>
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          onClick={() => updateRequestStatus(req, "completed")}
+                        >
+                          Mark completed
+                        </button>
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          onClick={() => updateRequestStatus(req, "dismissed")}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <h3 className="mt-8 text-lg font-medium">Paste a DM</h3>
+            <p className="mt-1 text-sm text-neutral-400">
+              Paste the buyer&rsquo;s message — even edited — and it&rsquo;s
+              matched against your listings for review. Nothing is selected
+              until you confirm.
+            </p>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              rows={6}
+              placeholder={
+                "1. Artist — Title — Media: M / Sleeve: NM — $63\n2. …"
+              }
+              className={`mt-3 w-full max-w-3xl ${inputClass}`}
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={!pasteText.trim()}
+                onClick={parsePasted}
+              >
+                Parse
+              </button>
+              {parseResult ? (
+                <button
+                  type="button"
+                  className={buttonClass}
+                  onClick={() => {
+                    setPasteText("");
+                    setParseResult(null);
+                  }}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            {parseResult ? (
+              <div className="mt-3 max-w-3xl space-y-2 text-sm">
+                {parseResult.refRequest ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3">
+                    <span className="text-emerald-300">
+                      Exact match: saved request{" "}
+                      <span className="font-mono">
+                        {parseResult.refRequest.ref_code}
+                      </span>{" "}
+                      ({parseResult.refRequest.record_ids.length} records, $
+                      {parseResult.refRequest.total}
+                      {parseResult.refRequest.status !== "new" &&
+                      parseResult.refRequest.status !== "loaded"
+                        ? ` · ${parseResult.refRequest.status}`
+                        : ""}
+                      )
+                    </span>
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      onClick={() =>
+                        loadRequestIntoSaleDesk(parseResult.refRequest!)
+                      }
+                    >
+                      Load request
+                    </button>
+                  </div>
+                ) : parseResult.ref ? (
+                  <p className="text-amber-400">
+                    Ref code {parseResult.ref} found, but no saved request
+                    matches it — using the parsed lines below.
+                  </p>
+                ) : null}
+                {parseResult.rows.length === 0 ? (
+                  <p className="text-neutral-400">
+                    No order lines found in the pasted text.
+                  </p>
+                ) : (
+                  parseResult.rows.map((row, i) => {
+                    if (row.status === "matched" && row.match) {
+                      const excluded = row.match.sold;
+                      return (
+                        <div
+                          key={i}
+                          className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2"
+                        >
+                          <span className="text-emerald-400">✓</span>{" "}
+                          {row.match.artist} — {row.match.title} ($
+                          {row.match.price})
+                          {row.flags && row.flags.length > 0 ? (
+                            <span className="text-amber-400">
+                              {" "}
+                              · {row.flags.join(" · ")}
+                              {excluded ? " — will not be selected" : ""}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    }
+                    if (row.status === "ambiguous") {
+                      return (
+                        <div
+                          key={i}
+                          className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+                        >
+                          <p className="text-amber-300">
+                            Which record is &ldquo;{row.parsed.raw}&rdquo;?
+                          </p>
+                          <div className="mt-2 space-y-1">
+                            <label className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={`ambiguous-${i}`}
+                                checked={parseResult.choices[i] === undefined}
+                                onChange={() =>
+                                  setParseResult((prev) => {
+                                    if (!prev) return prev;
+                                    const choices = { ...prev.choices };
+                                    delete choices[i];
+                                    return { ...prev, choices };
+                                  })
+                                }
+                              />
+                              <span className="text-neutral-400">
+                                None of these
+                              </span>
+                            </label>
+                            {(row.candidates ?? []).map((c) => {
+                              const flags = recordFlags(c, row.parsed.price);
+                              return (
+                                <label
+                                  key={c.id}
+                                  className="flex items-center gap-2"
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`ambiguous-${i}`}
+                                    checked={parseResult.choices[i] === c.id}
+                                    onChange={() =>
+                                      setParseResult((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              choices: {
+                                                ...prev.choices,
+                                                [i]: c.id,
+                                              },
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                  />
+                                  <span>
+                                    {c.artist} — {c.title}{" "}
+                                    <span className="text-neutral-500">
+                                      {c.pressing}
+                                    </span>{" "}
+                                    — ${c.price}
+                                    {flags.length > 0 ? (
+                                      <span className="text-amber-400">
+                                        {" "}
+                                        · {flags.join(" · ")}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={i}
+                        className="rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-red-300"
+                      >
+                        No match — select manually in Listings:{" "}
+                        <span className="text-red-200">{row.parsed.raw}</span>
+                      </div>
+                    );
+                  })
+                )}
+                {parseResult.rows.length > 0 ? (
+                  <button
+                    type="button"
+                    className={buttonClass}
+                    disabled={parsedSelectionIds().length === 0}
+                    onClick={applyParsedSelection}
+                  >
+                    Add {parsedSelectionIds().length} to sale desk
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </>
         )}
 
@@ -1713,7 +2223,10 @@ export default function AdminClient() {
           {filteredRecords.length} of {records.length} records
         </p>
         {selectedIds.size > 0 ? (
-          <div className="sticky top-0 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur">
+          <div
+            id="sale-desk"
+            className="sticky top-0 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur"
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-white">
                 <span className="font-medium">
