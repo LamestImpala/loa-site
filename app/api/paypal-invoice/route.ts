@@ -104,6 +104,8 @@ export async function POST(req: NextRequest) {
       total: breakdown.total,
     });
   } catch (e) {
+    // Surfaces PayPal's response body in the Vercel runtime logs
+    console.error("paypal-invoice failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "PayPal request failed" },
       { status: 502 }
