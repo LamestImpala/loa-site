@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { LETTERS, SELLER_INFO, artistLetter } from "@/lib/records";
+import {
+  LETTERS,
+  RECORDS_PER_PARCEL,
+  SELLER_INFO,
+  artistLetter,
+  bundleBreakdown,
+} from "@/lib/records";
 import {
   ADMIN_EMAIL,
   getBrowserSupabase,
@@ -697,6 +703,235 @@ export default function AdminClient() {
     });
   }, [records, search, genreFilter, collectionFilter, letterFilter]);
 
+  // --- Sale desk: multi-select records for a Reddit-DM sale ---
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [saleBuyer, setSaleBuyer] = useState("");
+  const [saleEmail, setSaleEmail] = useState("");
+  const [saleBusy, setSaleBusy] = useState<null | "hold" | "sold" | "invoice">(null);
+  const [saleStatus, setSaleStatus] = useState("");
+  const [saleInvoice, setSaleInvoice] = useState<null | {
+    id: string;
+    url: string | null;
+    status: string;
+    warning?: string;
+  }>(null);
+  const [replyCopied, setReplyCopied] = useState(false);
+  const [invoiceLinkCopied, setInvoiceLinkCopied] = useState(false);
+
+  // From records, not filteredRecords — selection survives filter changes.
+  const selectedRecords = useMemo(
+    () => records.filter((r) => selectedIds.has(r.id)),
+    [records, selectedIds]
+  );
+  const saleRecords = useMemo(
+    () => selectedRecords.filter((r) => !r.sold),
+    [selectedRecords]
+  );
+  const saleTotals = useMemo(() => bundleBreakdown(saleRecords), [saleRecords]);
+  const saleSoldCount = selectedRecords.length - saleRecords.length;
+
+  function toggleSelected(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    // Seed the buyer input from an active hold the first time it's useful
+    setSaleBuyer((prev) => {
+      if (prev.trim()) return prev;
+      const r = records.find((x) => x.id === id);
+      return r && holdActive(r) && r.hold_buyer ? r.hold_buyer : prev;
+    });
+  }
+
+  function toggleSelectAllFiltered(checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const r of filteredRecords) {
+        if (checked) next.add(r.id);
+        else next.delete(r.id);
+      }
+      return next;
+    });
+  }
+
+  function clearSaleDesk() {
+    setSelectedIds(new Set());
+    setSaleBuyer("");
+    setSaleEmail("");
+    setSaleStatus("");
+    setSaleInvoice(null);
+  }
+
+  async function copySaleReply() {
+    if (saleRecords.length === 0) return;
+    const buyer = saleBuyer.trim().replace(/^u\//, "");
+    const { lines, subtotal, parcels, shipping, total } = saleTotals;
+    const text = `${buyer ? `Hi u/${buyer}!` : "Hi!"} Here's the breakdown for the records you asked about:\n\n${lines.join(
+      "\n"
+    )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setReplyCopied(true);
+      setTimeout(() => setReplyCopied(false), 1600);
+    } catch {
+      window.prompt("Copy this reply:", text);
+    }
+  }
+
+  async function holdSelected() {
+    const buyer = saleBuyer.trim().replace(/^u\//, "");
+    const ids = saleRecords.map((r) => r.id);
+    if (!buyer || ids.length === 0 || saleBusy) return;
+    setSaleBusy("hold");
+    const patch = {
+      hold_buyer: buyer,
+      hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+    };
+    const { error } = await supabase
+      .from("records")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .in("id", ids);
+    setSaleBusy(null);
+    if (error) {
+      setLoadError(error.message);
+      return;
+    }
+    const idSet = new Set(ids);
+    setRecords((prev) =>
+      prev.map((r) => (idSet.has(r.id) ? { ...r, ...patch } : r))
+    );
+  }
+
+  async function markSelectedSold() {
+    const buyer = saleBuyer.trim().replace(/^u\//, "");
+    const targets = saleRecords;
+    if (targets.length === 0 || saleBusy) return;
+    if (
+      !window.confirm(
+        `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to u/${buyer}` : ""}? Each record's sold price is set to its listed price.`
+      )
+    )
+      return;
+    setSaleBusy("sold");
+    try {
+      const patches = new Map(
+        targets.map((r) => [
+          r.id,
+          {
+            sold: true,
+            sold_price: Number(r.price),
+            buyer_username:
+              buyer || r.hold_buyer || (r.buyer_username ?? "").trim() || "",
+            hold_buyer: null,
+            hold_until: null,
+          } satisfies Partial<DbRecord>,
+        ])
+      );
+      const chunk = 10;
+      const done: number[] = [];
+      for (let i = 0; i < targets.length; i += chunk) {
+        const slice = targets.slice(i, i + chunk);
+        const results = await Promise.all(
+          slice.map((r) =>
+            supabase
+              .from("records")
+              .update({
+                ...patches.get(r.id),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", r.id)
+          )
+        );
+        const failed = results.find((res) => res.error);
+        done.push(...slice.map((r) => r.id));
+        if (failed?.error) throw new Error(failed.error.message);
+      }
+      const doneSet = new Set(done);
+      setRecords((prev) =>
+        prev.map((r) =>
+          doneSet.has(r.id) ? { ...r, ...patches.get(r.id) } : r
+        )
+      );
+      const withDiscogs = targets.filter((r) => r.discogs_release_id);
+      if (
+        withDiscogs.length > 0 &&
+        window.confirm(
+          `Also remove ${withDiscogs.length} record${withDiscogs.length > 1 ? "s" : ""} from your Discogs collection?`
+        )
+      ) {
+        // Sequential to be gentle on Discogs rate limits
+        for (const r of withDiscogs) {
+          await removeFromDiscogs(r);
+        }
+      }
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Bulk mark-sold failed");
+    } finally {
+      setSaleBusy(null);
+    }
+  }
+
+  async function createInvoice() {
+    const buyer = saleBuyer.trim().replace(/^u\//, "");
+    const targets = saleRecords;
+    if (!buyer || targets.length === 0 || saleBusy) return;
+    setSaleBusy("invoice");
+    setSaleStatus("");
+    setSaleInvoice(null);
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/paypal-invoice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({
+          ids: targets.map((r) => r.id),
+          buyer,
+          email: saleEmail.trim() || undefined,
+        }),
+      });
+      const body = await res.json();
+      if (res.status === 409) {
+        setSaleStatus(
+          `Already sold: ${(body.soldIds ?? []).join(", ")} — refreshing records…`
+        );
+        await loadData();
+        return;
+      }
+      if (!res.ok) {
+        setSaleStatus(body.error || "Invoice failed");
+        return;
+      }
+      setSaleInvoice({
+        id: body.invoiceId,
+        url: body.recipientViewUrl,
+        status: body.status,
+        warning: body.warning,
+      });
+    } catch {
+      setSaleStatus("Request failed");
+    } finally {
+      setSaleBusy(null);
+    }
+  }
+
+  async function copyInvoiceLink() {
+    if (!saleInvoice?.url) return;
+    try {
+      await navigator.clipboard.writeText(saleInvoice.url);
+      setInvoiceLinkCopied(true);
+      setTimeout(() => setInvoiceLinkCopied(false), 1600);
+    } catch {
+      window.prompt("Copy the payment link:", saleInvoice.url);
+    }
+  }
+
   const activeLetters = useMemo(
     () => new Set(records.map((r) => artistLetter(r.artist))),
     [records]
@@ -1354,10 +1589,151 @@ export default function AdminClient() {
         <p className="mt-2 text-sm text-neutral-500">
           {filteredRecords.length} of {records.length} records
         </p>
+        {selectedIds.size > 0 ? (
+          <div className="sticky top-0 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-white">
+                <span className="font-medium">
+                  {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
+                </span>{" "}
+                <span className="text-neutral-400">
+                  · Subtotal ${saleTotals.subtotal} · Shipping $
+                  {saleTotals.shipping} ({saleTotals.parcels} parcel
+                  {saleTotals.parcels === 1 ? "" : "s"}) ·{" "}
+                </span>
+                <span className="font-semibold">Total ${saleTotals.total}</span>
+              </p>
+              <button
+                type="button"
+                onClick={clearSaleDesk}
+                className="text-xs text-neutral-500 underline transition hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+            {saleSoldCount > 0 ? (
+              <p className="mt-2 text-xs text-amber-400">
+                {saleSoldCount} selected record{saleSoldCount === 1 ? " is" : "s are"}{" "}
+                already sold and will be skipped.
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-neutral-500">u/</span>
+              <input
+                type="text"
+                value={saleBuyer}
+                onChange={(e) => setSaleBuyer(e.target.value)}
+                placeholder="reddit buyer"
+                className={`w-36 ${inputClass}`}
+              />
+              <input
+                type="email"
+                value={saleEmail}
+                onChange={(e) => setSaleEmail(e.target.value)}
+                placeholder="PayPal email (optional)"
+                className={`w-56 ${inputClass}`}
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={saleRecords.length === 0}
+                onClick={copySaleReply}
+              >
+                {replyCopied ? "Copied!" : "Copy reply"}
+              </button>
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null}
+                onClick={holdSelected}
+              >
+                {saleBusy === "hold" ? "Holding…" : "Hold all 48h"}
+              </button>
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={saleRecords.length === 0 || saleBusy !== null}
+                onClick={markSelectedSold}
+              >
+                {saleBusy === "sold" ? "Saving…" : "Mark all sold"}
+              </button>
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null}
+                onClick={createInvoice}
+              >
+                {saleBusy === "invoice" ? "Creating…" : "PayPal invoice"}
+              </button>
+            </div>
+            {saleStatus ? (
+              <p className="mt-2 text-xs text-red-400">{saleStatus}</p>
+            ) : null}
+            {saleInvoice ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-emerald-400">
+                  Invoice {saleInvoice.id} · {saleInvoice.status}
+                  {saleEmail.trim() && !saleInvoice.warning
+                    ? " — PayPal also emailed the buyer."
+                    : ""}
+                </span>
+                {saleInvoice.url ? (
+                  <>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-white/15 px-2 py-1 text-white transition hover:bg-white hover:text-black"
+                      onClick={copyInvoiceLink}
+                    >
+                      {invoiceLinkCopied ? "Copied!" : "Copy payment link"}
+                    </button>
+                    <a
+                      href={saleInvoice.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-neutral-400 underline hover:text-white"
+                    >
+                      Open ↗
+                    </a>
+                  </>
+                ) : null}
+                {saleInvoice.warning ? (
+                  <span className="text-amber-400">
+                    {saleInvoice.warning}{" "}
+                    <a
+                      href="https://www.paypal.com/invoices"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      PayPal dashboard ↗
+                    </a>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-white/10 bg-white/5 text-left text-neutral-400">
+                <th className="px-3 py-3 text-center font-medium">
+                  <div className="flex flex-col items-center gap-1">
+                    Sel
+                    <input
+                      type="checkbox"
+                      title="Select/deselect all records in the current search for the sale desk"
+                      checked={
+                        filteredRecords.length > 0 &&
+                        filteredRecords.every((r) => selectedIds.has(r.id))
+                      }
+                      onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+                      className="admin-checkbox"
+                    />
+                  </div>
+                </th>
                 <th className="px-4 py-3 font-medium">Record</th>
                 <th className="px-3 py-3 font-medium">Price</th>
                 <th className="px-3 py-3 text-center font-medium">
@@ -1409,6 +1785,14 @@ export default function AdminClient() {
                     key={r.id}
                     className="border-b border-white/5 last:border-b-0"
                   >
+                    <td className="px-3 py-3 text-center align-top">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleSelected(r.id)}
+                        className="admin-checkbox"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-white">
                         {r.artist} — {r.title}

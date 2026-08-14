@@ -25,6 +25,28 @@ export function combinedShipping(count: number): number {
   return Math.ceil(count / RECORDS_PER_PARCEL) * SHIPPING_PER_PARCEL;
 }
 
+export type BundleItem = {
+  artist: string;
+  title: string;
+  media: string;
+  sleeve: string;
+  price: number;
+};
+
+// Itemized quote for a set of records. The shop's combined "Request to buy"
+// message (records-client.tsx) has a parallel formatter with the same line
+// format — keep them in sync.
+export function bundleBreakdown(items: BundleItem[]) {
+  const lines = items.map(
+    (r, i) =>
+      `${i + 1}. ${r.artist} — ${r.title} — Media: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}`
+  );
+  const subtotal = items.reduce((s, r) => s + r.price, 0);
+  const parcels = Math.ceil(items.length / RECORDS_PER_PARCEL);
+  const shipping = combinedShipping(items.length);
+  return { lines, subtotal, parcels, shipping, total: subtotal + shipping };
+}
+
 export type SellerInfo = {
   pageTitle: string;
   redditUsername: string;
