@@ -125,19 +125,28 @@ export async function createAndSendInvoice(args: {
 
   // From here on the draft exists — never throw the id away.
   try {
-    const sendRes = await fetch(
-      `${base}/v2/invoicing/invoices/${invoiceId}/send`,
-      {
+    const sendBody = JSON.stringify({
+      send_to_invoicer: false,
+      send_to_recipient: !!args.recipientEmail,
+    });
+    const trySend = () =>
+      fetch(`${base}/v2/invoicing/invoices/${invoiceId}/send`, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          send_to_invoicer: false,
-          send_to_recipient: !!args.recipientEmail,
-        }),
-      }
-    );
+        body: sendBody,
+      });
+    let sendRes = await trySend();
+    if (sendRes.status !== 200 && sendRes.status !== 202) {
+      // Live occasionally rejects a send issued immediately after create
+      // (draft not yet propagated) — log the full response and retry once.
+      const firstFail = await sendRes.text().catch(() => "");
+      console.error(`paypal send failed (${sendRes.status}), retrying:`, firstFail);
+      await new Promise((r) => setTimeout(r, 1500));
+      sendRes = await trySend();
+    }
     if (sendRes.status !== 200 && sendRes.status !== 202) {
       const detail = await sendRes.text().catch(() => "");
+      console.error(`paypal send retry failed (${sendRes.status}):`, detail);
       return {
         invoiceId,
         status: "DRAFT",
