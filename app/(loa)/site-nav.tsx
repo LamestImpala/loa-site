@@ -35,8 +35,8 @@ export default function SiteNav() {
           <Image
             src="/images/loalogo.webp"
             alt="Late Onset Audiophile logo"
-            width={1024}
-            height={1024}
+            width={104}
+            height={104}
             className="h-12 w-12 object-contain md:h-[52px] md:w-[52px]"
             priority
           />
@@ -68,8 +68,9 @@ export default function SiteNav() {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
+          aria-controls="site-nav-menu"
           aria-label={open ? "Close menu" : "Open menu"}
-          className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/15 text-neutral-200 transition hover:bg-white/10 lg:hidden"
+          className="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/15 text-neutral-200 transition hover:bg-white/10 lg:hidden"
         >
           {open ? (
             <svg
@@ -98,7 +99,7 @@ export default function SiteNav() {
       </div>
 
       {open ? (
-        <div className="border-t border-white/10 lg:hidden">
+        <div id="site-nav-menu" className="border-t border-white/10 lg:hidden">
           <div className="mx-auto flex max-w-7xl flex-col px-4 py-3">
             {NAV_LINKS.map((link) => (
               <Link

@@ -322,6 +322,7 @@ export default function RecordsClient({
                     alt={`${r.artist} — ${r.title}`}
                     width={600}
                     height={600}
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 100vw"
                   />
                 </a>
               ) : (
@@ -330,6 +331,7 @@ export default function RecordsClient({
                   alt={`${r.artist} — ${r.title}`}
                   width={600}
                   height={600}
+                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 100vw"
                 />
               )
             ) : (
@@ -365,6 +367,7 @@ export default function RecordsClient({
                   alt={`${r.artist} — ${r.title} photo`}
                   width={150}
                   height={150}
+                  sizes="(min-width: 640px) 90px, 25vw"
                 />
               </a>
             ))}
