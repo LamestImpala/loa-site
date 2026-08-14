@@ -5,8 +5,46 @@ import {
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
 } from "@/lib/supabase";
-import { bundleBreakdown } from "@/lib/records";
-import { createAndSendInvoice, paypalConfigured } from "@/lib/paypal";
+import { bundleBreakdown, RECORDS_PER_PARCEL } from "@/lib/records";
+import {
+  createAndSendInvoice,
+  paypalConfigured,
+  type InvoiceShippingAddress,
+} from "@/lib/paypal";
+import { defaultParcel } from "@/lib/easypost";
+
+// Pull an optional shipping address out of the request body. Returns
+// undefined when no address was sent, or an error string when one was
+// sent but is unusable.
+function parseAddress(
+  raw: unknown
+): InvoiceShippingAddress | undefined | { error: string } {
+  if (raw == null || typeof raw !== "object") return undefined;
+  const a = raw as Record<string, unknown>;
+  const field = (key: string) =>
+    typeof a[key] === "string" ? (a[key] as string).trim() : "";
+  const addr: InvoiceShippingAddress = {
+    name: field("name"),
+    street1: field("street1"),
+    street2: field("street2") || undefined,
+    city: field("city"),
+    state: field("state").toUpperCase(),
+    zip: field("zip"),
+  };
+  if (!addr.name && !addr.street1 && !addr.city && !addr.state && !addr.zip) {
+    return undefined; // all-empty form counts as "no address"
+  }
+  if (!addr.name || !addr.street1 || !addr.city) {
+    return { error: "Shipping address needs a name, street, and city" };
+  }
+  if (!/^[A-Z]{2}$/.test(addr.state)) {
+    return { error: "Shipping address state must be a 2-letter code" };
+  }
+  if (!/^\d{5}(-\d{4})?$/.test(addr.zip)) {
+    return { error: "Shipping address ZIP must be 5 digits" };
+  }
+  return addr;
+}
 
 // Creates and sends a PayPal invoice for a set of records claimed by a
 // Reddit buyer. PayPal credentials only exist server-side, so the admin
@@ -55,6 +93,10 @@ export async function POST(req: NextRequest) {
   if (email && !/.+@.+\..+/.test(email)) {
     return NextResponse.json({ error: "Invalid buyer email" }, { status: 400 });
   }
+  const address = parseAddress(body.address);
+  if (address && "error" in address) {
+    return NextResponse.json({ error: address.error }, { status: 400 });
+  }
 
   const { data: recs, error: fetchError } = await supabase
     .from("records")
@@ -96,9 +138,49 @@ export async function POST(req: NextRequest) {
       note: `Vinyl records for Reddit user u/${buyer} — thanks! Shipped USPS Media Mail from Phoenix, AZ.`,
       memo: `Reddit sale to u/${buyer}`,
       recipientEmail: email,
+      shippingAddress: address,
     });
+
+    // With an address in hand, stage one draft shipment per parcel
+    // (up to 3 records each, same order as the invoice lines). Labels
+    // get quoted and bought from the admin Shipments panel after the
+    // invoice is paid.
+    let shipmentIds: number[] = [];
+    let shipmentWarning: string | undefined;
+    if (address) {
+      const parcels: number[][] = [];
+      for (let i = 0; i < ids.length; i += RECORDS_PER_PARCEL) {
+        parcels.push(ids.slice(i, i + RECORDS_PER_PARCEL));
+      }
+      const { data: drafts, error: draftError } = await supabase
+        .from("shipments")
+        .insert(
+          parcels.map((recordIds) => ({
+            buyer_username: buyer,
+            record_ids: recordIds,
+            to_address: address,
+            parcel: defaultParcel(recordIds.length),
+            paypal_invoice_id: result.invoiceId,
+          }))
+        )
+        .select("id");
+      if (draftError) {
+        shipmentWarning = `Invoice created, but drafting shipments failed: ${draftError.message}`;
+      } else {
+        shipmentIds = (drafts ?? []).map((d) => d.id);
+      }
+    }
+
     return NextResponse.json({
       ...result,
+      ...(shipmentWarning
+        ? {
+            warning: [result.warning, shipmentWarning]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : {}),
+      shipmentIds,
       subtotal: breakdown.subtotal,
       shipping: breakdown.shipping,
       total: breakdown.total,

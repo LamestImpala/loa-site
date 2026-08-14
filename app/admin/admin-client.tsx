@@ -19,6 +19,7 @@ import {
   ADMIN_EMAIL,
   getBrowserSupabase,
   type DbRecord,
+  type DbShipment,
   type PendingPriceChange,
   type PriceRun,
 } from "@/lib/supabase";
@@ -150,6 +151,7 @@ const SECTIONS = [
   "reddit",
   "pending",
   "add",
+  "shipments",
   "listings",
   "runs",
   "account",
@@ -205,6 +207,53 @@ function detectCollection(rel: {
     if (haystack.some((n) => re.test(n))) return tag;
   }
   return "";
+}
+
+type AddressForm = {
+  name: string;
+  street1: string;
+  street2: string;
+  city: string;
+  state: string;
+  zip: string;
+};
+
+const EMPTY_ADDRESS: AddressForm = {
+  name: "",
+  street1: "",
+  street2: "",
+  city: "",
+  state: "",
+  zip: "",
+};
+
+// Best-effort parse of a pasted US address block (name / street / [unit]
+// / "City, ST 12345"). EasyPost's USPS verification normalizes whatever
+// this gets wrong; the structured fields stay editable either way.
+function parseAddressBlock(text: string): AddressForm | null {
+  const lines = text
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 3) return null;
+  const cityLine = lines[lines.length - 1].match(
+    /^(.+?),?\s+([A-Za-z]{2})\.?,?\s+(\d{5}(?:-\d{4})?)$/
+  );
+  if (!cityLine) return null;
+  return {
+    name: lines[0],
+    street1: lines[1],
+    street2: lines.slice(2, -1).join(", "),
+    city: cityLine[1].replace(/,$/, ""),
+    state: cityLine[2].toUpperCase(),
+    zip: cityLine[3],
+  };
+}
+
+function formatAddress(a: DbShipment["to_address"]): string {
+  return [a.name, a.street1, a.street2, `${a.city}, ${a.state} ${a.zip}`]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 const inputClass =
@@ -434,6 +483,26 @@ export default function AdminClient() {
   useEffect(() => {
     if (isAdmin) loadData();
   }, [isAdmin, loadData]);
+
+  // Refunded shipments drop out of the panel; history stays in Supabase.
+  const [shipments, setShipments] = useState<DbShipment[]>([]);
+  const loadShipments = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("*")
+      .in("status", ["draft", "purchased"])
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (error) {
+      setLoadError(error.message);
+      return;
+    }
+    setShipments((data ?? []) as DbShipment[]);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (isAdmin) loadShipments();
+  }, [isAdmin, loadShipments]);
 
   async function sendMagicLink() {
     setAuthError("");
@@ -803,7 +872,11 @@ export default function AdminClient() {
     url: string | null;
     status: string;
     warning?: string;
+    parcels?: number;
   }>(null);
+  const [saleAddress, setSaleAddress] = useState<AddressForm>(EMPTY_ADDRESS);
+  const [addressPaste, setAddressPaste] = useState("");
+  const saleAddressFilled = Object.values(saleAddress).some((v) => v.trim());
   const [replyCopied, setReplyCopied] = useState(false);
   const [invoiceLinkCopied, setInvoiceLinkCopied] = useState(false);
 
@@ -851,6 +924,8 @@ export default function AdminClient() {
     setSaleEmail("");
     setSaleStatus("");
     setSaleInvoice(null);
+    setSaleAddress(EMPTY_ADDRESS);
+    setAddressPaste("");
   }
 
   async function copySaleReply() {
@@ -983,6 +1058,7 @@ export default function AdminClient() {
           ids: targets.map((r) => r.id),
           buyer,
           email: saleEmail.trim() || undefined,
+          address: saleAddressFilled ? saleAddress : undefined,
         }),
       });
       const body = await res.json();
@@ -1002,12 +1078,142 @@ export default function AdminClient() {
         url: body.recipientViewUrl,
         status: body.status,
         warning: body.warning,
+        parcels: (body.shipmentIds ?? []).length,
       });
+      if ((body.shipmentIds ?? []).length > 0) await loadShipments();
     } catch {
       setSaleStatus("Request failed");
     } finally {
       setSaleBusy(null);
     }
+  }
+
+  // --- Shipments panel: quote/buy/refund Media Mail labels ---
+  const [parcelEdits, setParcelEdits] = useState<
+    Record<number, Partial<Record<"length" | "width" | "height" | "weight_oz", string>>>
+  >({});
+  const [shipmentBusy, setShipmentBusy] = useState<null | {
+    id: number;
+    action: "quote" | "buy" | "refund";
+  }>(null);
+  const [shipmentNotes, setShipmentNotes] = useState<
+    Record<number, { ok: boolean; text: string }>
+  >({});
+
+  const recordsById = useMemo(
+    () => new Map(records.map((r) => [r.id, r])),
+    [records]
+  );
+
+  function parcelWithEdits(s: DbShipment) {
+    const edits = parcelEdits[s.id] ?? {};
+    const num = (raw: string | undefined, fallback: number) => {
+      if (raw == null || raw.trim() === "") return fallback;
+      const v = Number(raw);
+      return Number.isFinite(v) && v > 0 ? v : fallback;
+    };
+    return {
+      length: num(edits.length, s.parcel.length),
+      width: num(edits.width, s.parcel.width),
+      height: num(edits.height, s.parcel.height),
+      weight_oz: num(edits.weight_oz, s.parcel.weight_oz),
+    };
+  }
+
+  async function shipmentAction(
+    s: DbShipment,
+    action: "quote" | "buy" | "refund"
+  ) {
+    if (shipmentBusy) return;
+    if (
+      action === "buy" &&
+      !window.confirm(
+        `Buy the Media Mail label for u/${s.buyer_username}${s.rate_amount != null ? ` ($${s.rate_amount})` : ""}?\n\nFirst check the PayPal transaction details: Seller Protection only covers the address on the transaction. Ship there — if it differs from this one, fix the shipment first.`
+      )
+    )
+      return;
+    if (
+      action === "refund" &&
+      !window.confirm(
+        "Refund this label? USPS refunds labels that were never scanned; the tracking number on its records is cleared."
+      )
+    )
+      return;
+    setShipmentBusy({ id: s.id, action });
+    setShipmentNotes((prev) => {
+      const next = { ...prev };
+      delete next[s.id];
+      return next;
+    });
+    const note = (ok: boolean, text: string) =>
+      setShipmentNotes((prev) => ({ ...prev, [s.id]: { ok, text } }));
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/shipping-label", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({
+          action,
+          shipmentId: s.id,
+          ...(action === "quote" ? { parcel: parcelWithEdits(s) } : {}),
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        note(false, body.error || "Request failed");
+        return;
+      }
+      if (action === "quote") {
+        note(
+          true,
+          `Media Mail $${body.rate}${body.mode === "test" ? " — TEST mode, label will be free but not mailable" : ""}`
+        );
+      } else if (action === "buy") {
+        note(
+          true,
+          `Label bought — tracking ${body.trackingCode}${body.warning ? ` · ${body.warning}` : ""}`
+        );
+        const idSet = new Set(s.record_ids);
+        setRecords((prev) =>
+          prev.map((r) =>
+            idSet.has(r.id) ? { ...r, tracking_number: body.trackingCode } : r
+          )
+        );
+      } else {
+        note(true, `Refund ${body.refundStatus} — USPS confirms within a few days.`);
+        const idSet = new Set(s.record_ids);
+        setRecords((prev) =>
+          prev.map((r) =>
+            idSet.has(r.id) && r.tracking_number === s.tracking_code
+              ? { ...r, tracking_number: "" }
+              : r
+          )
+        );
+      }
+      await loadShipments();
+    } catch {
+      note(false, "Request failed");
+    } finally {
+      setShipmentBusy(null);
+    }
+  }
+
+  async function discardShipment(s: DbShipment) {
+    if (s.status !== "draft" || shipmentBusy) return;
+    if (
+      !window.confirm(
+        `Discard the draft parcel for u/${s.buyer_username}? Use this when a sale falls through.`
+      )
+    )
+      return;
+    const { error } = await supabase.from("shipments").delete().eq("id", s.id);
+    if (error) setLoadError(error.message);
+    else await loadShipments();
   }
 
   async function copyInvoiceLink() {
@@ -1625,6 +1831,172 @@ export default function AdminClient() {
           </>
         )}
 
+        {/* Shipments: Media Mail labels via EasyPost */}
+        {sectionHeading(
+          "shipments",
+          <>
+            Shipments{" "}
+            <span className="text-sm text-neutral-400">
+              ({shipments.filter((s) => s.status === "draft").length} to buy ·{" "}
+              {shipments.filter((s) => s.status === "purchased").length} bought)
+            </span>
+          </>,
+          "mt-12 text-xl font-medium"
+        )}
+        {collapsedSections.has("shipments") ? null : shipments.length === 0 ? (
+          <p className="mt-3 text-sm text-neutral-400">
+            Nothing staged. Creating a PayPal invoice with a shipping address
+            stages one draft parcel per {RECORDS_PER_PARCEL} records here.
+          </p>
+        ) : (
+          <div className="mt-4 flex flex-col gap-3">
+            {shipments.map((s) => {
+              const busy = shipmentBusy?.id === s.id ? shipmentBusy.action : null;
+              const note = shipmentNotes[s.id];
+              const titles = s.record_ids
+                .map((id) => {
+                  const r = recordsById.get(id);
+                  return r ? `${r.artist} — ${r.title}` : `#${id}`;
+                })
+                .join(" · ");
+              return (
+                <div
+                  key={s.id}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm">
+                      <span className="font-medium">u/{s.buyer_username}</span>{" "}
+                      <span className="text-neutral-400">
+                        · {s.record_ids.length} record
+                        {s.record_ids.length === 1 ? "" : "s"} ·{" "}
+                        {s.status === "purchased" ? (
+                          <span className="text-emerald-400">label bought</span>
+                        ) : (
+                          "draft"
+                        )}
+                        {s.mode === "test" ? (
+                          <span className="text-amber-400"> · TEST</span>
+                        ) : null}
+                      </span>
+                    </p>
+                    {s.status === "draft" ? (
+                      <button
+                        type="button"
+                        onClick={() => discardShipment(s)}
+                        className="text-xs text-neutral-500 underline transition hover:text-white"
+                      >
+                        Discard
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-sm text-neutral-400">{titles}</p>
+                  <p className="mt-1 text-sm text-neutral-400">
+                    {formatAddress(s.to_address)}
+                    {s.address_verified ? (
+                      <span className="text-emerald-400"> · USPS verified</span>
+                    ) : null}
+                  </p>
+                  {s.status === "draft" ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {(
+                        [
+                          ["weight_oz", "oz"],
+                          ["length", "L"],
+                          ["width", "W"],
+                          ["height", "H"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label
+                          key={key}
+                          className="flex items-center gap-1 text-xs text-neutral-500"
+                        >
+                          {label}
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={parcelEdits[s.id]?.[key] ?? String(s.parcel[key])}
+                            onChange={(e) =>
+                              setParcelEdits((prev) => ({
+                                ...prev,
+                                [s.id]: { ...prev[s.id], [key]: e.target.value },
+                              }))
+                            }
+                            className={`w-16 ${inputClass}`}
+                          />
+                        </label>
+                      ))}
+                      <button
+                        type="button"
+                        className={buttonClass}
+                        disabled={shipmentBusy !== null}
+                        onClick={() => shipmentAction(s, "quote")}
+                      >
+                        {busy === "quote"
+                          ? "Quoting…"
+                          : s.rate_amount != null
+                            ? "Re-quote"
+                            : "Get Media Mail rate"}
+                      </button>
+                      {s.rate_amount != null ? (
+                        <>
+                          <span className="text-sm text-neutral-300">
+                            ${s.rate_amount}
+                          </span>
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            disabled={shipmentBusy !== null}
+                            onClick={() => shipmentAction(s, "buy")}
+                          >
+                            {busy === "buy" ? "Buying…" : "Buy label"}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                      {s.label_url ? (
+                        <a
+                          href={s.label_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-white/15 px-3 py-1.5 text-white transition hover:bg-white hover:text-black"
+                        >
+                          Label PDF ↗
+                        </a>
+                      ) : null}
+                      {s.tracking_code ? (
+                        <span className="text-neutral-300">
+                          Tracking {s.tracking_code}
+                        </span>
+                      ) : null}
+                      {s.rate_amount != null ? (
+                        <span className="text-neutral-500">${s.rate_amount}</span>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={shipmentBusy !== null}
+                        onClick={() => shipmentAction(s, "refund")}
+                        className="text-xs text-neutral-500 underline transition hover:text-white disabled:opacity-40"
+                      >
+                        {busy === "refund" ? "Refunding…" : "Refund label"}
+                      </button>
+                    </div>
+                  )}
+                  {note ? (
+                    <p
+                      className={`mt-2 text-xs ${note.ok ? "text-emerald-400" : "text-red-400"}`}
+                    >
+                      {note.text}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Records editor */}
         {sectionHeading(
           "listings",
@@ -1757,6 +2129,55 @@ export default function AdminClient() {
                 className={`w-56 ${inputClass}`}
               />
             </div>
+            <div className="mt-3 flex flex-col gap-2">
+              <textarea
+                value={addressPaste}
+                onChange={(e) => {
+                  setAddressPaste(e.target.value);
+                  const parsed = parseAddressBlock(e.target.value);
+                  if (parsed) setSaleAddress(parsed);
+                }}
+                rows={3}
+                placeholder={
+                  "Paste shipping address from the DM (optional)\nJane Doe\n123 Main St\nPhoenix, AZ 85001"
+                }
+                className={`max-w-md ${inputClass}`}
+              />
+              {saleAddressFilled || addressPaste.trim() ? (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {(
+                      [
+                        ["name", "Name", "w-44"],
+                        ["street1", "Street", "w-56"],
+                        ["street2", "Apt/unit", "w-28"],
+                        ["city", "City", "w-36"],
+                        ["state", "ST", "w-14"],
+                        ["zip", "ZIP", "w-24"],
+                      ] as const
+                    ).map(([key, label, width]) => (
+                      <input
+                        key={key}
+                        type="text"
+                        value={saleAddress[key]}
+                        onChange={(e) =>
+                          setSaleAddress((prev) => ({
+                            ...prev,
+                            [key]: e.target.value,
+                          }))
+                        }
+                        placeholder={label}
+                        className={`${width} ${inputClass}`}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-neutral-500">
+                    Goes on the PayPal invoice (keeps Seller Protection) and
+                    stages Media Mail label drafts in the Shipments section.
+                  </p>
+                </>
+              ) : null}
+            </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1798,6 +2219,9 @@ export default function AdminClient() {
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <span className="text-emerald-400">
                   Invoice {saleInvoice.id} · {saleInvoice.status}
+                  {saleInvoice.parcels
+                    ? ` · ${saleInvoice.parcels} parcel${saleInvoice.parcels === 1 ? "" : "s"} staged in Shipments`
+                    : ""}
                   {saleEmail.trim() && !saleInvoice.warning
                     ? " — PayPal also emailed the buyer."
                     : ""}

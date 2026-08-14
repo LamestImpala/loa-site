@@ -35,6 +35,35 @@ export type DbRecord = {
   updated_at: string;
 };
 
+// One row per parcel of an accepted sale (up to 3 records each).
+// Admin-only via RLS — to_address is a buyer's home address.
+export type DbShipment = {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  buyer_username: string;
+  record_ids: number[];
+  to_address: {
+    name: string;
+    street1: string;
+    street2?: string;
+    city: string;
+    state: string;
+    zip: string;
+  };
+  address_verified: boolean | null;
+  parcel: { length: number; width: number; height: number; weight_oz: number };
+  paypal_invoice_id: string | null;
+  easypost_shipment_id: string | null;
+  easypost_rate_id: string | null;
+  rate_amount: number | null;
+  service: string | null;
+  label_url: string | null;
+  tracking_code: string | null;
+  mode: string | null; // EasyPost "test" | "production"
+  status: "draft" | "purchased" | "refunded";
+};
+
 export type PendingPriceChange = {
   id: number;
   record_id: number;
