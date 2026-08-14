@@ -44,6 +44,19 @@ export type InvoiceItemInput = {
   value: string; // "30.00"
 };
 
+// Branding shown on every invoice (PayPal caps logos at 250×90px)
+const INVOICER = {
+  business_name: "Curiouser Records",
+  website: "https://curiouserrecords.com",
+  logo_url: "https://curiouserrecords.com/images/curiouser-invoice-logo.png",
+};
+
+const TERMS =
+  "All records are graded to the Goldmine standard — media and sleeve grades are listed per item. " +
+  "Shipped via USPS Media Mail from Phoenix, AZ, outside the jacket in a proper LP mailer. " +
+  "Combined shipping is $6 per parcel of up to 3 records. " +
+  "Questions? Reply to this invoice or PM u/ShroomHog on Reddit.";
+
 export type InvoiceResult = {
   invoiceId: string;
   status: string;
@@ -73,8 +86,10 @@ export async function createAndSendInvoice(args: {
         currency_code: "USD",
         note: args.note,
         memo: args.memo,
+        terms_and_conditions: TERMS,
         payment_term: { term_type: "DUE_ON_RECEIPT" },
       },
+      invoicer: INVOICER,
       ...(args.recipientEmail
         ? {
             primary_recipients: [
