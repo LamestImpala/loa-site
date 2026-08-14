@@ -205,6 +205,8 @@
 /* — segmented control — */
 .shop .seg {
   display: inline-flex;
+  align-items: stretch;
+  min-height: 36px;
   overflow: hidden;
   border: 1px solid var(--color-divider);
   border-radius: 999px;
@@ -213,7 +215,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
+  padding: 7px 14px;
   font-family: var(--font-body);
   font-size: 13px;
   cursor: pointer;
@@ -328,6 +330,7 @@
 /* Dark starry "down the rabbit hole" stage. */
 .shop-hero {
   margin-top: var(--space-4);
+  margin-bottom: var(--space-8);
   padding: calc(var(--space-8) + var(--space-2)) var(--space-8);
   border-radius: var(--radius-lg);
   background:
@@ -398,6 +401,10 @@
   box-shadow: var(--shadow-md);
   animation: curiofade 0.5s ease both;
 }
+/* When the hero wraps, center the logo instead of leaving it stranded left. */
+.shop-hero > div:last-child {
+  margin-inline: auto;
+}
 
 .shop-section {
   padding-bottom: var(--space-6);
@@ -423,7 +430,22 @@
   display: flex;
   gap: var(--space-3);
   overflow-x: auto;
-  padding-bottom: var(--space-2);
+  padding-bottom: var(--space-3);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-400) transparent;
+}
+.shop-drops::-webkit-scrollbar {
+  height: 8px;
+}
+.shop-drops::-webkit-scrollbar-track {
+  background: transparent;
+}
+.shop-drops::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-300);
+  border-radius: 999px;
+}
+.shop-drops::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-400);
 }
 .shop-drop-chip {
   display: flex;
@@ -489,6 +511,11 @@
   gap: 6px;
   flex-wrap: wrap;
   align-items: center;
+}
+/* Keep the result count out of the letter chips — right-aligned on its own. */
+.shop-letter-row .shop-muted {
+  margin-left: auto;
+  padding-left: var(--space-2);
 }
 .shop-letter {
   min-width: 34px;
