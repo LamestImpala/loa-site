@@ -5,7 +5,9 @@
  * Discogs price suggestion for its media grade and computes a target price
  * of round(suggestion * PRICE_FACTOR). Moves within ±THRESHOLD apply
  * automatically; bigger moves are queued in pending_price_changes for
- * approval on /admin. Each run is logged to price_runs, and an email report
+ * approval on /admin. No price is ever applied OR recommended below
+ * FLOOR_FACTOR × the grade suggestion — Discogs' lowest listing is
+ * condition-blind, so junk copies can't drag prices down. Each run is logged to price_runs, and an email report
  * is sent via Resend when anything was flagged (if RESEND_API_KEY is set).
  *
  * Required env: DISCOGS_TOKEN, SUPABASE_SERVICE_ROLE_KEY
@@ -19,7 +21,7 @@ const PRICE_FACTOR = 0.85; // ask 85% of the Discogs suggested price
 const THRESHOLD = 0.05; // auto-apply moves within ±5%
 const UNDERCUT_BY = 1; // competitive price = $1 below the cheapest listing
 const MAX_AUTO_CUT = 0.1; // auto-apply competitive cuts up to 10%
-const FLOOR_FACTOR = 0.7; // never auto-price below 70% of the grade suggestion
+const FLOOR_FACTOR = 0.7; // never recommend below 70% of the grade suggestion
 
 const GRADE_KEY = {
   M: "Mint (M)",
@@ -352,9 +354,19 @@ async function main() {
 
       if (!suggestion) continue; // pricing logic needs a suggestion
 
-      const competitive = lowest
+      // Discogs' lowest_price is condition-blind: it's the cheapest listing
+      // of the release in ANY grade, from any seller, before shipping — so a
+      // trashed copy at $0.99 must never drag our price down. A competitive
+      // price below the floor (FLOOR_FACTOR × grade suggestion) is treated
+      // as condition noise and ignored entirely.
+      const floor = Math.round(suggestion * FLOOR_FACTOR);
+      const rawCompetitive = lowest
         ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
         : null;
+      const competitive =
+        rawCompetitive !== null && rawCompetitive >= floor
+          ? rawCompetitive
+          : null;
 
       let price = r.price; // tracks changes made within this iteration
 
@@ -410,11 +422,17 @@ async function main() {
 
       // Competitive check: is our price above the cheapest Discogs listing?
       // Buyers see that number, so undercut it by $1 — automatically when
-      // the cut is small (≤MAX_AUTO_CUT) and stays above the floor
-      // (FLOOR_FACTOR × grade suggestion); otherwise queue it for approval.
-      if (price > 0 && lowest && price > lowest && competitive < price) {
+      // the cut is small (≤MAX_AUTO_CUT); otherwise queue it for approval.
+      // competitive is already null when it would fall below the floor, so
+      // sub-floor cuts are never applied OR recommended.
+      if (
+        price > 0 &&
+        lowest &&
+        price > lowest &&
+        competitive !== null &&
+        competitive < price
+      ) {
         aboveLowest++;
-        const floor = Math.round(suggestion * FLOOR_FACTOR);
         const cutPct = Number(((competitive - price) / price).toFixed(4));
         const entry = {
           record_id: r.id,
@@ -429,7 +447,7 @@ async function main() {
           want,
           ebay_median: ebay?.median ?? null,
         };
-        if (Math.abs(cutPct) <= MAX_AUTO_CUT && competitive >= floor) {
+        if (Math.abs(cutPct) <= MAX_AUTO_CUT) {
           const { error: updErr } = await supabase
             .from("records")
             .update({
