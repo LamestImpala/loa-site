@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-const SHOP_HOST = "curiouserrecords.com";
-const OLD_SHOP_HOST = "thebeeskneesrecords.com";
-const LOA_HOST = "lateonsetaudiophile.com";
+import { LOA_HOST, OLD_SHOP_HOST, SHOP_HOST, matchesHost } from "@/lib/hosts";
 
 function stripPort(host: string) {
   return host.split(":")[0];
@@ -12,9 +9,9 @@ function stripPort(host: string) {
 export function proxy(request: NextRequest) {
   const host = stripPort(request.headers.get("host") ?? "");
   const { pathname } = request.nextUrl;
-  const isShopHost = host === SHOP_HOST || host === `www.${SHOP_HOST}`;
-  const isOldShopHost = host === OLD_SHOP_HOST || host === `www.${OLD_SHOP_HOST}`;
-  const isLoaHost = host === LOA_HOST || host === `www.${LOA_HOST}`;
+  const isShopHost = matchesHost(host, SHOP_HOST);
+  const isOldShopHost = matchesHost(host, OLD_SHOP_HOST);
+  const isLoaHost = matchesHost(host, LOA_HOST);
 
   // The Bee's Knees Records became Curiouser Records; forward the old domain.
   if (isOldShopHost) {
@@ -55,5 +52,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next|api|images|favicon\\.ico|.*\\..*).*)"],
+  // _vercel is excluded so the analytics beacon (POST /_vercel/insights/view, no dot in
+  // the path) isn't rewritten to /records/... on the shop host and lost.
+  matcher: ["/((?!_next|_vercel|api|images|favicon\\.ico|.*\\..*).*)"],
 };
