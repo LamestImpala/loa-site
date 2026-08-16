@@ -52,13 +52,13 @@ export default function Home() {
               <Image
                 src="/images/loalogo.webp"
                 alt="Late Onset Audiophile logo"
-                width={1024}
-                height={1024}
+                width={192}
+                height={192}
                 className="h-[72px] w-[72px] object-contain md:h-[96px] md:w-[96px]"
               />
             </div>
 
-            <h1 className="max-w-4xl text-5xl font-semibold tracking-tight md:text-7xl">
+            <h1 className="max-w-4xl text-4xl font-semibold tracking-tight sm:text-5xl md:text-7xl">
               A modern hi-fi story, built from the ground up.
             </h1>
 
@@ -77,7 +77,7 @@ export default function Home() {
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
                 href="https://curiouserrecords.com"
-                className="rounded-2xl bg-orange-500 px-6 py-3 font-medium text-white transition hover:scale-[1.02]"
+                className="rounded-2xl bg-orange-500 px-6 py-3 font-medium text-white transition motion-safe:hover:scale-[1.02]"
               >
                 Browse records for sale
               </Link>
@@ -98,6 +98,7 @@ export default function Home() {
                 alt="Late Onset Audiophile hero image"
                 width={1200}
                 height={1400}
+                sizes="(min-width: 1024px) 50vw, 100vw"
                 className="h-full w-full object-cover"
                 priority
               />
@@ -140,7 +141,7 @@ export default function Home() {
             </p>
             <Link
               href="https://curiouserrecords.com"
-              className="mt-6 inline-block rounded-2xl bg-orange-500 px-5 py-3 text-sm font-medium text-white transition hover:scale-[1.02]"
+              className="mt-6 inline-block rounded-2xl bg-orange-500 px-5 py-3 text-sm font-medium text-white transition motion-safe:hover:scale-[1.02]"
             >
               See what&apos;s available
             </Link>

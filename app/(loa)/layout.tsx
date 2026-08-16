@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     images: [
       {
         url: "/images/og-image.png",
-        width: 1200,
+        width: 945,
         height: 630,
         alt: "Late Onset Audiophile",
       },
@@ -52,7 +52,7 @@ export default function LoaLayout({
     <>
       <SiteNav />
 
-      <main className="min-h-screen bg-neutral-950 text-neutral-100">
+      <main className="min-h-dvh bg-neutral-950 text-neutral-100">
         {children}
       </main>
 
@@ -73,12 +73,12 @@ export default function LoaLayout({
               <p className="text-sm uppercase tracking-[0.2em] text-neutral-500">
                 Explore
               </p>
-              <ul className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <ul className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
                 {FOOTER_LINKS.map((link) => (
                   <li key={link.href}>
                     <Link
                       href={link.href}
-                      className="text-neutral-300 transition hover:text-white"
+                      className="inline-block py-1 text-neutral-300 transition hover:text-white"
                     >
                       {link.label}
                     </Link>
@@ -91,11 +91,11 @@ export default function LoaLayout({
               <p className="text-sm uppercase tracking-[0.2em] text-neutral-500">
                 Get in touch
               </p>
-              <ul className="mt-4 space-y-2 text-sm">
+              <ul className="mt-4 space-y-1 text-sm">
                 <li>
                   <a
                     href="mailto:contact@lateonsetaudiophile.com"
-                    className="text-neutral-300 transition hover:text-white"
+                    className="inline-block py-1 text-neutral-300 transition hover:text-white"
                   >
                     contact@lateonsetaudiophile.com
                   </a>
@@ -105,7 +105,7 @@ export default function LoaLayout({
                     href="https://www.reddit.com/user/LateOnsetAudiophile"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-neutral-300 transition hover:text-white"
+                    className="inline-block py-1 text-neutral-300 transition hover:text-white"
                   >
                     u/LateOnsetAudiophile on Reddit
                   </a>
@@ -115,7 +115,7 @@ export default function LoaLayout({
                     href="https://instagram.com/lateonsetaudiophile"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-neutral-300 transition hover:text-white"
+                    className="inline-block py-1 text-neutral-300 transition hover:text-white"
                   >
                     Instagram
                   </a>
@@ -125,7 +125,7 @@ export default function LoaLayout({
                     href="https://x.com/lateonsetaudio"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-neutral-300 transition hover:text-white"
+                    className="inline-block py-1 text-neutral-300 transition hover:text-white"
                   >
                     X
                   </a>

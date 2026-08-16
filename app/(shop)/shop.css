@@ -79,6 +79,7 @@
   font-size: 15px;
   line-height: 1.55;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .shop h1,
@@ -184,7 +185,8 @@
   min-height: 36px;
   padding: 6px 14px;
   font: inherit;
-  font-size: 14px;
+  /* 16px minimum: anything smaller makes iOS Safari zoom the page on focus. */
+  font-size: 16px;
   color: var(--color-text);
   caret-color: var(--color-accent);
   background: var(--color-surface);
@@ -349,7 +351,8 @@
 }
 .shop-hero-copy {
   flex: 1 1 480px;
-  min-width: 320px;
+  /* No min-width: a hard floor here forces horizontal scroll on narrow phones. */
+  min-width: 0;
 }
 .shop-hero h1 {
   font-size: clamp(36px, 4.5vw, 58px);
@@ -771,6 +774,10 @@
     width: 200px;
     height: 200px;
   }
+  .shop-letter {
+    min-width: 44px;
+    height: 44px;
+  }
   .shop-bundle-summary {
     flex-basis: 100%;
   }
@@ -782,5 +789,12 @@
   }
   .shop-main:has(+ .shop-bundle-bar) {
     padding-bottom: calc(var(--space-8) * 5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-hero-logo,
+  .record-card {
+    animation: none;
   }
 }

@@ -151,7 +151,7 @@ export default function CollectionClient({
             setPage(1);
           }}
           placeholder="Search by artist or album title"
-          className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none"
+          className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-base text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none"
         />
       </div>
 
@@ -191,6 +191,7 @@ export default function CollectionClient({
                     alt={`${artist} - ${info.title}`}
                     width={600}
                     height={600}
+                    sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                     className="h-auto w-full rounded-xl object-cover"
                   />
                 ) : null}
