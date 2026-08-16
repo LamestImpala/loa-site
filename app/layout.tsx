@@ -1,5 +1,6 @@
 import type { Viewport } from "next";
 import { Geist } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import VercelAnalytics from "./analytics";
 import "./globals.css";
 
@@ -26,6 +27,7 @@ export default function RootLayout({
       <body className="bg-neutral-950 text-neutral-100 font-sans antialiased">
         {children}
         <VercelAnalytics />
+        <SpeedInsights />
       </body>
     </html>
   );
