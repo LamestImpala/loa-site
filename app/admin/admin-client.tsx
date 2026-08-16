@@ -267,6 +267,9 @@ export default function AdminClient() {
     "all" | "clicked-no-request"
   >("all");
   const [letterFilter, setLetterFilter] = useState<string | null>(null);
+  const [shownFilter, setShownFilter] = useState<"all" | "shown" | "hidden">(
+    "all"
+  );
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
@@ -842,6 +845,8 @@ export default function AdminClient() {
       )
         return false;
       if (letterFilter && artistLetter(r.artist) !== letterFilter) return false;
+      if (shownFilter === "shown" && !r.listed) return false;
+      if (shownFilter === "hidden" && r.listed) return false;
       if (interestFilter === "clicked-no-request") {
         const i = interest[r.id];
         const held =
@@ -860,7 +865,7 @@ export default function AdminClient() {
         .toLowerCase()
         .includes(q);
     });
-  }, [records, search, genreFilter, collectionFilter, letterFilter, interestFilter, interest]);
+  }, [records, search, genreFilter, collectionFilter, letterFilter, shownFilter, interestFilter, interest]);
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -1390,6 +1395,13 @@ export default function AdminClient() {
   async function toggleAllFiltered(field: "listed" | "sold", value: boolean) {
     const ids = filteredRecords.map((r) => r.id);
     if (ids.length === 0) return;
+    const label = field === "listed" ? "Shown" : "Sold";
+    if (
+      !window.confirm(
+        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${ids.length === 1 ? "" : "s"} in the current filter?`
+      )
+    )
+      return;
     setBulkSaving(true);
     const { error } = await supabase
       .from("records")
@@ -2236,6 +2248,17 @@ export default function AdminClient() {
           >
             <option value="all">Interest: All</option>
             <option value="clicked-no-request">Clicked, no request</option>
+          </select>
+          <select
+            value={shownFilter}
+            onChange={(e) =>
+              setShownFilter(e.target.value as "all" | "shown" | "hidden")
+            }
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="all">Shown: All</option>
+            <option value="shown">Shown only</option>
+            <option value="hidden">Hidden only</option>
           </select>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
