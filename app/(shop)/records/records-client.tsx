@@ -17,6 +17,8 @@ type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
 
 const NEW_WINDOW_DAYS = 14;
+// Was-prices and discount badges clear from view a day after the change.
+const REDUCED_WINDOW_HOURS = 24;
 
 function isNew(r: DbRecord) {
   return (
@@ -32,7 +34,7 @@ function isReduced(r: DbRecord) {
     r.prev_price != null &&
     Number(r.prev_price) > r.price &&
     Date.now() - new Date(r.updated_at).getTime() <
-      NEW_WINDOW_DAYS * 24 * 3600 * 1000
+      REDUCED_WINDOW_HOURS * 3600 * 1000
   );
 }
 
