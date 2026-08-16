@@ -90,65 +90,66 @@ function redditMarkdown(records: DbRecord[]) {
   ].join("\n");
 }
 
-function redditWeeklyMarkdown(records: DbRecord[]) {
-  const now = Date.now();
-  const daysAgo = (s?: string | null) =>
-    s ? (now - new Date(s).getTime()) / 86400000 : Infinity;
-  const live = records.filter((r) => r.listed && !r.sold);
-  const fresh = live.filter((r) => daysAgo(r.created_at) <= 7);
-  const drops = live.filter(
-    (r) =>
-      r.prev_price != null &&
-      Number(r.prev_price) > r.price &&
-      daysAgo(r.updated_at) <= 7
+// Weekly post is built from the hand-picked records ("Sel" column), not the
+// whole catalog, and never shows an old price — steep markdowns read as
+// suspicious to buyers.
+const weeklyRow = (r: DbRecord) =>
+  `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | $${r.price} |`;
+
+const REDDIT_TABLE_HEADER = [
+  "| Artist | Title | Pressing | Grade (M/S) | Price |",
+  "|---|---|---|---|---|",
+];
+
+function redditWeeklyMarkdown(selected: DbRecord[], liveCount: number) {
+  const list = [...selected].sort((a, b) =>
+    (a.artist + a.title).localeCompare(b.artist + b.title)
   );
-  const row = (r: DbRecord) =>
-    `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | $${r.price} |`;
-  const dropRow = (r: DbRecord) =>
-    `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.media)}/${cell(r.sleeve)} | ~~$${r.prev_price}~~ | $${r.price} |`;
-  const highlights = [
-    fresh.length ? `${fresh.length} new arrival${fresh.length === 1 ? "" : "s"}` : "",
-    drops.length ? `${drops.length} price drop${drops.length === 1 ? "" : "s"}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-  const title = `[For Sale] Weekly update${highlights ? ` — ${highlights}` : ""} — ${live.length}-record collection sale — PayPal G&S`;
-  const parts = [
+  const title = `[For Sale] Weekly update — ${list.length} picks from a ${liveCount}-record collection sale — PayPal G&S`;
+  return [
     title,
     "",
     `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
-  ];
-  if (fresh.length) {
-    parts.push(
-      "**New this week**",
-      "",
-      "| Artist | Title | Pressing | Grade (M/S) | Price |",
-      "|---|---|---|---|---|",
-      ...fresh.map(row),
-      ""
-    );
-  }
-  if (drops.length) {
-    parts.push(
-      "**Price drops**",
-      "",
-      "| Artist | Title | Grade (M/S) | Was | Now |",
-      "|---|---|---|---|---|",
-      ...drops.map(dropRow),
-      ""
-    );
-  }
-  parts.push(
+    ...REDDIT_TABLE_HEADER,
+    ...list.map(weeklyRow),
+    "",
     `**Location:** ${SELLER_INFO.location}`,
     "",
     `**Payment:** ${SELLER_INFO.payment}`,
     "",
     `**Shipping:** ${SELLER_INFO.shipping}`,
     "",
-    REDDIT_HOW_TO_BUY
+    REDDIT_HOW_TO_BUY,
+  ].join("\n");
+}
+
+// Body-only refresh of the live weekly post (Reddit titles can't be edited,
+// so there's no title line — paste this over the existing post body). Sold
+// records stay visible as struck-through rows with the price hidden.
+function redditUpdateMarkdown(posted: DbRecord[]) {
+  const list = [...posted].sort((a, b) =>
+    (a.artist + a.title).localeCompare(b.artist + b.title)
   );
-  return parts.join("\n");
+  const openCount = list.filter((r) => !r.sold).length;
+  const row = (r: DbRecord) =>
+    r.sold
+      ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | **SOLD** |`
+      : weeklyRow(r);
+  return [
+    `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
+    "",
+    ...REDDIT_TABLE_HEADER,
+    ...list.map(row),
+    "",
+    `**Location:** ${SELLER_INFO.location}`,
+    "",
+    `**Payment:** ${SELLER_INFO.payment}`,
+    "",
+    `**Shipping:** ${SELLER_INFO.shipping}`,
+    "",
+    REDDIT_HOW_TO_BUY,
+  ].join("\n");
 }
 
 const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
@@ -272,6 +273,12 @@ export default function AdminClient() {
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
   const [postUrl, setPostUrl] = useState("");
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
+  // Record ids included in the live weekly post, saved when the post is
+  // copied so "update post" can regenerate the exact posted list later.
+  const [postedInfo, setPostedInfo] = useState<{
+    ids: number[];
+    posted_at: string | null;
+  }>({ ids: [], posted_at: null });
   const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
   const [tableCopied, setTableCopied] = useState(false);
 
@@ -358,13 +365,54 @@ export default function AdminClient() {
 
   const [weeklyCopied, setWeeklyCopied] = useState(false);
   async function copyWeeklyPost() {
-    const md = redditWeeklyMarkdown(records);
+    const picks = records.filter((r) => selectedIds.has(r.id) && !r.sold);
+    if (picks.length === 0) return;
+    const liveCount = records.filter((r) => r.listed && !r.sold).length;
+    const md = redditWeeklyMarkdown(picks, liveCount);
+    // Copy before the settings round-trip — Safari drops the clipboard
+    // permission if the user gesture has to wait on a network call.
     try {
       await navigator.clipboard.writeText(md);
       setWeeklyCopied(true);
       setTimeout(() => setWeeklyCopied(false), 1600);
     } catch {
       window.prompt("Copy the post below:", md);
+    }
+    await savePostedIds(picks.map((r) => r.id));
+  }
+
+  async function savePostedIds(ids: number[]) {
+    const posted_at = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("settings")
+      .update({ value: JSON.stringify({ ids, posted_at }) })
+      .eq("key", "reddit_post_records")
+      .select("key");
+    if (error || !data?.length) {
+      setLoadError(
+        error?.message ??
+          "Couldn't save the posted record list — the reddit_post_records settings row is missing."
+      );
+      return;
+    }
+    setPostedInfo({ ids, posted_at });
+  }
+
+  const [updateCopied, setUpdateCopied] = useState(false);
+  async function copyUpdatePost() {
+    // Records deleted since the post went up just drop out of the list.
+    const lookup = new Map(records.map((r) => [r.id, r]));
+    const posted = postedInfo.ids
+      .map((id) => lookup.get(id))
+      .filter((r): r is DbRecord => Boolean(r));
+    if (posted.length === 0) return;
+    const md = redditUpdateMarkdown(posted);
+    try {
+      await navigator.clipboard.writeText(md);
+      setUpdateCopied(true);
+      setTimeout(() => setUpdateCopied(false), 1600);
+    } catch {
+      window.prompt("Copy the updated post below:", md);
     }
   }
 
@@ -443,9 +491,8 @@ export default function AdminClient() {
           .limit(14),
         supabase
           .from("settings")
-          .select("value")
-          .eq("key", "reddit_post_url")
-          .single(),
+          .select("key,value")
+          .in("key", ["reddit_post_url", "reddit_post_records"]),
         supabase
           .from("order_requests")
           .select("*")
@@ -468,7 +515,23 @@ export default function AdminClient() {
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
     setRuns((runsRes.data ?? []) as PriceRun[]);
     setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
-    setPostUrl(settingsRes.data?.value ?? "");
+    const settingsMap = new Map(
+      ((settingsRes.data ?? []) as { key: string; value: string }[]).map(
+        (s) => [s.key, s.value]
+      )
+    );
+    setPostUrl(settingsMap.get("reddit_post_url") ?? "");
+    try {
+      const saved = JSON.parse(settingsMap.get("reddit_post_records") || "null");
+      if (saved && Array.isArray(saved.ids)) {
+        setPostedInfo({
+          ids: saved.ids.filter((id: unknown) => typeof id === "number"),
+          posted_at: typeof saved.posted_at === "string" ? saved.posted_at : null,
+        });
+      }
+    } catch {
+      // Malformed saved post list — treat as no saved post.
+    }
     // Interest is non-fatal — a failed read shouldn't blank the admin.
     setInterest(
       Object.fromEntries(
@@ -1559,10 +1622,13 @@ export default function AdminClient() {
         {collapsedSections.has("reddit") ? null : (
           <>
         <p className="mt-1 text-sm text-neutral-400">
-          Copies a ready-to-paste markdown table of every shown, unsold record
-          for a new sale post.
+          The weekly post uses the records ticked in the listings table&rsquo;s
+          &ldquo;Sel&rdquo; column (shared with the sale desk) — pick 15&ndash;20,
+          copy, and the list is remembered so you can post an update later with
+          sold records crossed out (no price shown). &ldquo;Copy Reddit
+          table&rdquo; is still the full catalog.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={copyRedditTable} className={buttonClass}>
             {tableCopied ? "Copied!" : "Copy Reddit table"}
           </button>
@@ -1570,11 +1636,42 @@ export default function AdminClient() {
             type="button"
             onClick={copyWeeklyPost}
             className={buttonClass}
-            title="New arrivals and price drops from the last 7 days, ready to post"
+            disabled={saleRecords.length === 0}
+            title="Builds the weekly post from the records selected in the listings table"
           >
-            {weeklyCopied ? "Copied!" : "Copy weekly update post"}
+            {weeklyCopied
+              ? "Copied!"
+              : `Copy weekly post (${saleRecords.length} selected)`}
+          </button>
+          <button
+            type="button"
+            onClick={copyUpdatePost}
+            className={buttonClass}
+            disabled={postedInfo.ids.length === 0}
+            title="Regenerates the last copied weekly post with sold records crossed out — paste over the live post's body"
+          >
+            {updateCopied
+              ? "Copied!"
+              : `Copy post update${
+                  postedInfo.ids.length
+                    ? ` (${postedInfo.ids.filter((id) => byId.get(id)?.sold).length} sold / ${postedInfo.ids.length} posted)`
+                    : ""
+                }`}
           </button>
         </div>
+        {saleRecords.length > 0 &&
+        (saleRecords.length < 15 || saleRecords.length > 20) ? (
+          <p className="mt-2 text-xs text-amber-400">
+            Tip: 15&ndash;20 records works well for a weekly post — you have{" "}
+            {saleRecords.length} selected.
+          </p>
+        ) : null}
+        {postedInfo.posted_at ? (
+          <p className="mt-2 text-xs text-neutral-500">
+            Current post: {postedInfo.ids.length} records, copied{" "}
+            {new Date(postedInfo.posted_at).toLocaleDateString()}.
+          </p>
+        ) : null}
 
         <h3 className="mt-8 text-lg font-medium">Active Reddit post</h3>
         <p className="mt-1 text-sm text-neutral-400">
