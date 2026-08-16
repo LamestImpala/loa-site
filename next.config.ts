@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // A stray package-lock.json in the home directory otherwise makes Next
+  // treat ~ as the workspace root and module resolution breaks.
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     remotePatterns: [
       {

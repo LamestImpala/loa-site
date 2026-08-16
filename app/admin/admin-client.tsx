@@ -22,6 +22,7 @@ import {
   type OrderRequest,
   type PendingPriceChange,
   type PriceRun,
+  type RecordInterest,
 } from "@/lib/supabase";
 import {
   extractRefCode,
@@ -261,6 +262,10 @@ export default function AdminClient() {
   const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
   const [genreFilter, setGenreFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
+  const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
+  const [interestFilter, setInterestFilter] = useState<
+    "all" | "clicked-no-request"
+  >("all");
   const [letterFilter, setLetterFilter] = useState<string | null>(null);
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -417,8 +422,14 @@ export default function AdminClient() {
 
   const loadData = useCallback(async () => {
     setLoadError("");
-    const [recordsRes, pendingRes, runsRes, settingsRes, requestsRes] =
-      await Promise.all([
+    const [
+      recordsRes,
+      pendingRes,
+      runsRes,
+      settingsRes,
+      requestsRes,
+      interestRes,
+    ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
           .from("pending_price_changes")
@@ -441,6 +452,7 @@ export default function AdminClient() {
           .in("status", ["new", "loaded"])
           .order("created_at", { ascending: false })
           .limit(50),
+        supabase.from("record_interest").select("*"),
       ]);
     if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
       setLoadError(
@@ -457,11 +469,28 @@ export default function AdminClient() {
     setRuns((runsRes.data ?? []) as PriceRun[]);
     setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
     setPostUrl(settingsRes.data?.value ?? "");
+    // Interest is non-fatal — a failed read shouldn't blank the admin.
+    setInterest(
+      Object.fromEntries(
+        ((interestRes.data ?? []) as RecordInterest[]).map((x) => [
+          x.record_id,
+          x,
+        ])
+      )
+    );
   }, [supabase]);
 
   useEffect(() => {
     if (isAdmin) loadData();
   }, [isAdmin, loadData]);
+
+  // Flag this browser so the owner's own shop browsing isn't tracked.
+  useEffect(() => {
+    if (!isAdmin) return;
+    try {
+      localStorage.setItem("cr_no_track", "1");
+    } catch {}
+  }, [isAdmin]);
 
   async function sendMagicLink() {
     setAuthError("");
@@ -813,12 +842,25 @@ export default function AdminClient() {
       )
         return false;
       if (letterFilter && artistLetter(r.artist) !== letterFilter) return false;
+      if (interestFilter === "clicked-no-request") {
+        const i = interest[r.id];
+        const held =
+          !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
+        if (
+          !i ||
+          i.interest_sessions === 0 ||
+          i.request_sessions > 0 ||
+          r.sold ||
+          held
+        )
+          return false;
+      }
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""}`
         .toLowerCase()
         .includes(q);
     });
-  }, [records, search, genreFilter, collectionFilter, letterFilter]);
+  }, [records, search, genreFilter, collectionFilter, letterFilter, interestFilter, interest]);
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -2185,6 +2227,16 @@ export default function AdminClient() {
             ))}
             <option value="none">No collection</option>
           </select>
+          <select
+            value={interestFilter}
+            onChange={(e) =>
+              setInterestFilter(e.target.value as "all" | "clicked-no-request")
+            }
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="all">Interest: All</option>
+            <option value="clicked-no-request">Clicked, no request</option>
+          </select>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <button
@@ -2372,6 +2424,7 @@ export default function AdminClient() {
                 </th>
                 <th className="px-4 py-3 font-medium">Record</th>
                 <th className="px-3 py-3 font-medium">Price</th>
+                <th className="px-3 py-3 font-medium">Interest</th>
                 <th className="px-3 py-3 text-center font-medium">
                   <div className="flex flex-col items-center gap-1">
                     Shown
@@ -2635,6 +2688,24 @@ export default function AdminClient() {
                           vs last
                         </p>
                       ) : null}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      {interest[r.id] ? (
+                        <span
+                          className="text-neutral-300"
+                          title={`${interest[r.id].interest_events} clicks · ${interest[r.id].request_events} requests · last ${new Date(interest[r.id].last_event_at).toLocaleDateString()}`}
+                        >
+                          {interest[r.id].interest_sessions} looked
+                          {interest[r.id].request_sessions > 0 ? (
+                            <span className="text-green-400">
+                              {" "}
+                              · {interest[r.id].request_sessions} asked
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-600">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <input

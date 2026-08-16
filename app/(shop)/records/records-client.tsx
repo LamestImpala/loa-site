@@ -40,6 +40,49 @@ function isOnHold(r: DbRecord) {
   return !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
 }
 
+type TrackEvent = "photo_open" | "discogs_click" | "bundle_add" | "buy_request";
+// Suppress repeat interest events within a page load; cross-visit repeats are
+// absorbed by distinct-session counting on the admin side.
+const sentEvents = new Set<string>();
+
+function trackingSessionId(): string {
+  let sid = localStorage.getItem("cr_session_id");
+  if (!sid) {
+    sid = crypto.randomUUID();
+    localStorage.setItem("cr_session_id", sid);
+  }
+  return sid;
+}
+
+function track(recordId: number, event: TrackEvent) {
+  try {
+    // Set by /admin so the owner's own browsing doesn't count.
+    if (localStorage.getItem("cr_no_track")) return;
+    const key = `${recordId}:${event}`;
+    if (event !== "buy_request") {
+      if (sentEvents.has(key)) return;
+      sentEvents.add(key);
+    }
+    const payload = JSON.stringify({
+      record_id: recordId,
+      event,
+      session_id: trackingSessionId(),
+    });
+    // sendBeacon survives the new-tab navigation on "Request to buy".
+    const blob = new Blob([payload], { type: "application/json" });
+    if (!navigator.sendBeacon?.("/api/track", blob)) {
+      fetch("/api/track", {
+        method: "POST",
+        body: payload,
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+      }).catch(() => {});
+    }
+  } catch {
+    // Tracking must never break the shop.
+  }
+}
+
 function dropPct(r: DbRecord) {
   return Math.round((1 - r.price / Number(r.prev_price)) * 100);
 }
@@ -180,6 +223,7 @@ export default function RecordsClient({
   const bundleShipping = combinedShipping(selectedRecords.length);
 
   async function sendCombinedRequest() {
+    for (const r of selectedRecords) track(r.id, "buy_request");
     const hasPost = Boolean(redditPostUrl);
     const refCode = makeRefCode();
     const url = combinedRequestUrl(selectedRecords, hasPost, refCode);
@@ -316,6 +360,7 @@ export default function RecordsClient({
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ display: "block", width: "100%", height: "100%" }}
+                  onClick={() => track(r.id, "photo_open")}
                 >
                   <Image
                     src={cover}
@@ -361,7 +406,13 @@ export default function RecordsClient({
         {r.photo_urls?.length > 1 ? (
           <div className="record-thumbs">
             {r.photo_urls.slice(1, 5).map((url) => (
-              <a key={url} href={url} target="_blank" rel="noopener noreferrer">
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => track(r.id, "photo_open")}
+              >
                 <Image
                   src={url}
                   alt={`${r.artist} — ${r.title} photo`}
@@ -402,7 +453,12 @@ export default function RecordsClient({
             <span className="record-prev-price">${r.prev_price}</span>
           ) : null}
           <span className="record-price">${r.price}</span>
-          <a href={discogsUrl(r)} target="_blank" rel="noopener noreferrer">
+          <a
+            href={discogsUrl(r)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => track(r.id, "discogs_click")}
+          >
             Discogs ↗
           </a>
         </div>
@@ -422,7 +478,10 @@ export default function RecordsClient({
               type="button"
               className={`record-select ${selected.has(r.id) ? "is-selected" : ""}`}
               aria-pressed={selected.has(r.id)}
-              onClick={() => toggleSelected(r.id)}
+              onClick={() => {
+                if (!selected.has(r.id)) track(r.id, "bundle_add");
+                toggleSelected(r.id);
+              }}
             >
               {selected.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
             </button>
@@ -431,6 +490,7 @@ export default function RecordsClient({
               href={requestToBuyUrl(r, Boolean(redditPostUrl))}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => track(r.id, "buy_request")}
             >
               {redditPostUrl ? "1. Request to buy" : "Request to buy"}
             </a>

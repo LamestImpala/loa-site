@@ -94,6 +94,17 @@ export type PriceRun = {
   }[];
 };
 
+// Per-record aggregate of shopper click events (record_interest view);
+// "sessions" are distinct anonymous visitors, "events" are raw clicks.
+export type RecordInterest = {
+  record_id: number;
+  interest_events: number;
+  interest_sessions: number;
+  request_events: number;
+  request_sessions: number;
+  last_event_at: string;
+};
+
 // Server-side client for the public /records page (anon role: RLS only
 // exposes listed records).
 export function createServerSupabase(): SupabaseClient {
