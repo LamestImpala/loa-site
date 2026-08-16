@@ -597,7 +597,7 @@ export default function RecordsClient({
               {l}
             </button>
           ))}
-          <span className="shop-muted" style={{ marginLeft: "var(--space-2)" }}>
+          <span className="shop-muted">
             {visible.length} shown · {available} available of {records.length}{" "}
             listed
           </span>
