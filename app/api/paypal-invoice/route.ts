@@ -97,8 +97,31 @@ export async function POST(req: NextRequest) {
       memo: `Reddit sale to u/${buyer}`,
       recipientEmail: email,
     });
+    // Link the records to the invoice so fulfillment can find the PayPal
+    // transaction later. Non-fatal: the invoice already exists.
+    const { error: stampError } = await supabase
+      .from("records")
+      .update({
+        paypal_invoice_id: result.invoiceId,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", ids);
+    if (stampError) {
+      console.error("paypal-invoice: failed to stamp invoice id:", stampError.message);
+    }
+    const warning =
+      [
+        result.warning,
+        stampError
+          ? "Couldn't save the invoice id on the records — link it by hand in Fulfillment."
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" ") || undefined;
     return NextResponse.json({
       ...result,
+      warning,
+      invoiceStamped: !stampError,
       subtotal: breakdown.subtotal,
       shipping: breakdown.shipping,
       total: breakdown.total,

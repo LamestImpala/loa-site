@@ -30,9 +30,38 @@ export type DbRecord = {
   sold: boolean;
   listed: boolean;
   buyer_username?: string; // admin-only; not selected on the public page
-  tracking_number?: string; // admin-only
+  tracking_number?: string; // admin-only; mirrored from shipments.tracking_code
   sold_price?: number | null; // admin-only; final price the record sold for
+  sold_at?: string | null; // admin-only; when the record was marked sold
+  paypal_invoice_id?: string | null; // admin-only; invoice this record was billed on
   updated_at: string;
+};
+
+// One parcel of a sale. mode "manual" = tracking typed in the admin,
+// "paypal" = tracking pulled from a label bought inside PayPal. The
+// easypost_* / label columns belong to a future label-buying flow.
+export type Shipment = {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  buyer_username: string;
+  record_ids: number[];
+  to_address: Record<string, unknown>;
+  address_verified: boolean | null;
+  parcel: Record<string, unknown>;
+  paypal_invoice_id: string | null;
+  easypost_shipment_id: string | null;
+  easypost_rate_id: string | null;
+  rate_amount: number | null;
+  service: string | null;
+  label_url: string | null;
+  tracking_code: string | null;
+  carrier: string; // USPS default
+  mode: string | null;
+  status: "draft" | "purchased" | "shipped" | "refunded";
+  paypal_tracker_id: string | null; // "{txnId}-{trackingNumber}" once known in PayPal
+  paypal_tracked_number: string | null; // the tracking number PayPal currently has
+  paypal_synced_at: string | null;
 };
 
 export type PendingPriceChange = {
