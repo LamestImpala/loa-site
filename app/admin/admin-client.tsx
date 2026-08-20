@@ -23,7 +23,9 @@ import {
   type PendingPriceChange,
   type PriceRun,
   type RecordInterest,
+  type Shipment,
 } from "@/lib/supabase";
+import { FulfillmentPanel } from "./fulfillment-panel";
 import {
   extractRefCode,
   matchLines,
@@ -159,6 +161,7 @@ const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
 const SECTIONS = [
   "reddit",
   "requests",
+  "fulfillment",
   "pending",
   "add",
   "listings",
@@ -249,6 +252,7 @@ export default function AdminClient() {
   const [pwStatus, setPwStatus] = useState("");
 
   const [records, setRecords] = useState<DbRecord[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
   const [pending, setPending] = useState<PendingPriceChange[]>([]);
   const [runs, setRuns] = useState<PriceRun[]>([]);
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
@@ -480,6 +484,7 @@ export default function AdminClient() {
       settingsRes,
       requestsRes,
       interestRes,
+      shipmentsRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
@@ -503,6 +508,10 @@ export default function AdminClient() {
           .order("created_at", { ascending: false })
           .limit(50),
         supabase.from("record_interest").select("*"),
+        supabase
+          .from("shipments")
+          .select("*")
+          .order("created_at", { ascending: false }),
       ]);
     if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
       setLoadError(
@@ -515,6 +524,9 @@ export default function AdminClient() {
       return;
     }
     setRecords((recordsRes.data ?? []) as DbRecord[]);
+    // Shipments are non-fatal, like interest — an error just leaves the
+    // fulfillment panel empty.
+    setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
     setRuns((runsRes.data ?? []) as PriceRun[]);
     setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
@@ -738,7 +750,10 @@ export default function AdminClient() {
 
   async function markSold(r: DbRecord, sold: boolean) {
     // Selling a held record carries the hold's buyer over and clears the hold
-    const patch: Partial<DbRecord> = { sold };
+    const patch: Partial<DbRecord> = {
+      sold,
+      sold_at: sold ? new Date().toISOString() : null,
+    };
     if (sold && r.hold_buyer && !(r.buyer_username ?? "").trim()) {
       patch.buyer_username = r.hold_buyer;
     }
@@ -1048,6 +1063,7 @@ export default function AdminClient() {
           r.id,
           {
             sold: true,
+            sold_at: new Date().toISOString(),
             sold_price: Number(r.price),
             buyer_username:
               buyer || r.hold_buyer || (r.buyer_username ?? "").trim() || "",
@@ -1165,6 +1181,20 @@ export default function AdminClient() {
         status: body.status,
         warning: body.warning,
       });
+      // The route stamps paypal_invoice_id on the records — mirror it locally
+      // so the fulfillment panel links up without a reload, but only when
+      // the stamp actually landed (otherwise the panel would show a link
+      // that vanishes on reload).
+      if (body.invoiceStamped !== false) {
+        const invoicedIds = new Set(targets.map((r) => r.id));
+        setRecords((prev) =>
+          prev.map((r) =>
+            invoicedIds.has(r.id)
+              ? { ...r, paypal_invoice_id: body.invoiceId }
+              : r
+          )
+        );
+      }
     } catch {
       setSaleStatus("Request failed");
     } finally {
@@ -1347,15 +1377,22 @@ export default function AdminClient() {
     const hidden = records.filter((r) => !r.listed && !r.sold);
     const sum = (list: DbRecord[], pick: (r: DbRecord) => number) =>
       list.reduce((total, r) => total + pick(r), 0);
+    const soldTotal = sum(sold, (r) => Number(r.sold_price ?? r.price));
     return {
       forSaleCount: forSale.length,
       askingTotal: sum(forSale, (r) => Number(r.price)),
       soldCount: sold.length,
-      soldTotal: sum(sold, (r) => Number(r.sold_price ?? r.price)),
+      soldTotal,
+      asp: sold.length ? soldTotal / sold.length : 0,
       hiddenCount: hidden.length,
       hiddenTotal: sum(hidden, (r) => Number(r.price)),
     };
   }, [records]);
+
+  const draftParcelCount = useMemo(
+    () => shipments.filter((s) => s.status === "draft").length,
+    [shipments]
+  );
 
   const [bulkSaving, setBulkSaving] = useState(false);
 
@@ -1456,7 +1493,11 @@ export default function AdminClient() {
 
   // Toggle listed/sold for every record currently shown by the search filter.
   async function toggleAllFiltered(field: "listed" | "sold", value: boolean) {
-    const ids = filteredRecords.map((r) => r.id);
+    // Skip records already in the target state — bulk "Sold ON" must not
+    // re-stamp sold_at on historical sales.
+    const ids = filteredRecords
+      .filter((r) => r[field] !== value)
+      .map((r) => r.id);
     if (ids.length === 0) return;
     const label = field === "listed" ? "Shown" : "Sold";
     if (
@@ -1466,9 +1507,11 @@ export default function AdminClient() {
     )
       return;
     setBulkSaving(true);
+    const patch: Partial<DbRecord> = { [field]: value };
+    if (field === "sold") patch.sold_at = value ? new Date().toISOString() : null;
     const { error } = await supabase
       .from("records")
-      .update({ [field]: value, updated_at: new Date().toISOString() })
+      .update({ ...patch, updated_at: new Date().toISOString() })
       .in("id", ids);
     setBulkSaving(false);
     if (error) {
@@ -1477,7 +1520,7 @@ export default function AdminClient() {
     }
     const idSet = new Set(ids);
     setRecords((prev) =>
-      prev.map((r) => (idSet.has(r.id) ? { ...r, [field]: value } : r))
+      prev.map((r) => (idSet.has(r.id) ? { ...r, ...patch } : r))
     );
   }
 
@@ -1614,8 +1657,11 @@ export default function AdminClient() {
             <p className="mt-1 text-2xl font-semibold text-green-400">
               ${stats.soldTotal.toLocaleString()}
             </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {stats.soldCount} records · uses final sold price when entered
+            <p
+              className="mt-1 text-xs text-neutral-500"
+              title="Uses the final sold price when entered, listed price otherwise"
+            >
+              {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -2024,6 +2070,38 @@ export default function AdminClient() {
               </div>
             ) : null}
           </>
+        )}
+
+        {/* Fulfillment: parcels + tracking for sold records */}
+        {sectionHeading(
+          "fulfillment",
+          <>
+            Fulfillment{" "}
+            <span className="text-sm text-neutral-400">
+              ({draftParcelCount} parcel{draftParcelCount === 1 ? "" : "s"}{" "}
+              awaiting tracking)
+            </span>
+          </>,
+          "mt-10 text-xl font-medium"
+        )}
+        {collapsedSections.has("fulfillment") ? null : (
+          <FulfillmentPanel
+            records={records.filter((r) => r.sold)}
+            shipments={shipments}
+            supabase={supabase}
+            onShipmentsChange={setShipments}
+            onRecordPatched={(id, patch) =>
+              setRecords((prev) =>
+                prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
+              )
+            }
+            getAccessToken={async () => {
+              const {
+                data: { session: current },
+              } = await supabase.auth.getSession();
+              return current?.access_token ?? "";
+            }}
+          />
         )}
 
         {/* Pending price approvals */}
