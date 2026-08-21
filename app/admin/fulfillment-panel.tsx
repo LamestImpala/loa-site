@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DbRecord, Shipment } from "@/lib/supabase";
+import type { DbRecord, Invoice, Shipment } from "@/lib/supabase";
 
 /*
  * Fulfillment: sold records grouped by buyer, split into parcels
@@ -16,6 +16,10 @@ import type { DbRecord, Shipment } from "@/lib/supabase";
  *
  * shipments is the source of truth; records.tracking_number is mirrored
  * per member record so the listings table's quick input stays accurate.
+ *
+ * Costs live here too: each parcel takes a postage cost, and each invoice
+ * takes the PayPal fee and buyer-paid shipping (both read off PayPal's
+ * transaction page). They feed the Net stats tile and the tax records.
  */
 
 const inputClass =
@@ -26,6 +30,12 @@ const smallButtonClass =
   "rounded-md border border-white/15 px-2 py-1 text-xs text-neutral-300 transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-300";
 
 const CARRIERS = ["USPS", "UPS", "FEDEX", "DHL", "OTHER"];
+
+// A fulfilled order stays under "completed" this long after its last
+// shipment update, then moves to the archive. Keyed to fulfillment (not the
+// sale date) so an order still in transit never archives early — the window
+// covers delivery plus an it-arrived-damaged grace period.
+const ARCHIVE_AFTER_DAYS = 21;
 
 // A parcel already known to PayPal, under its current tracking number.
 const inPayPal = (s: Shipment) =>
@@ -47,33 +57,46 @@ type Group = {
   invoiceId: string; // unique invoice id among member records, if any
   unassigned: DbRecord[];
   done: boolean;
+  lastActivity: number; // most recent shipment update (ms) — drives archiving
 };
 
 export function FulfillmentPanel({
   records,
   shipments,
+  invoices,
   supabase,
   onShipmentsChange,
+  onInvoicesChange,
   onRecordPatched,
   getAccessToken,
 }: {
   records: DbRecord[]; // sold records only
   shipments: Shipment[];
+  invoices: Invoice[];
   supabase: SupabaseClient;
   // Functional-updater form so async handlers can't clobber each other
   // with a stale copy of the list.
   onShipmentsChange: (update: (prev: Shipment[]) => Shipment[]) => void;
+  onInvoicesChange: (update: (prev: Invoice[]) => Invoice[]) => void;
   onRecordPatched: (id: number, patch: Partial<DbRecord>) => void;
   getAccessToken: () => Promise<string>;
 }) {
   const [showDone, setShowDone] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [selected, setSelected] = useState<Record<string, number[]>>({});
   const [trackingEdits, setTrackingEdits] = useState<Record<number, string>>({});
   const [invoiceEdits, setInvoiceEdits] = useState<Record<string, string>>({});
+  const [postageEdits, setPostageEdits] = useState<Record<number, string>>({});
+  // Keyed `${group key}:paypal_fee` / `${group key}:shipping_charged`.
+  const [costEdits, setCostEdits] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null); // group key or `ship-${id}`
   const [notes, setNotes] = useState<Record<string, string>>({}); // group key or shipment id -> status text
 
   const byId = useMemo(() => new Map(records.map((r) => [r.id, r])), [records]);
+  const invoiceById = useMemo(
+    () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
+    [invoices]
+  );
 
   const groups = useMemo<Group[]>(() => {
     const map = new Map<string, Group>();
@@ -89,6 +112,7 @@ export function FulfillmentPanel({
           invoiceId: "",
           unassigned: [],
           done: false,
+          lastActivity: 0,
         };
         map.set(key, g);
       }
@@ -112,6 +136,11 @@ export function FulfillmentPanel({
         g.records.length > 0 &&
         g.unassigned.length === 0 &&
         g.shipments.every((s) => !!s.tracking_code);
+      g.lastActivity = g.shipments.reduce(
+        (max, s) =>
+          Math.max(max, new Date(s.updated_at ?? s.created_at).getTime()),
+        0
+      );
     }
     return [...map.values()].sort((a, b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
@@ -119,7 +148,28 @@ export function FulfillmentPanel({
     });
   }, [records, shipments]);
 
-  const visibleGroups = groups.filter((g) => showDone || !g.done);
+  // Fulfilled orders age out of the completed list into a month-grouped
+  // archive once the delivery/grace window has passed.
+  const archiveCutoff = Date.now() - ARCHIVE_AFTER_DAYS * 24 * 3600 * 1000;
+  const completedGroups = groups.filter(
+    (g) => g.done && g.lastActivity >= archiveCutoff
+  );
+  const archivedGroups = groups
+    .filter((g) => g.done && g.lastActivity < archiveCutoff)
+    .sort((a, b) => b.lastActivity - a.lastActivity);
+  const visibleGroups = groups.filter(
+    (g) => !g.done || (showDone && g.lastActivity >= archiveCutoff)
+  );
+  const archivedByMonth: [string, Group[]][] = [];
+  for (const g of archivedGroups) {
+    const label = new Date(g.lastActivity).toLocaleString(undefined, {
+      month: "long",
+      year: "numeric",
+    });
+    const bucket = archivedByMonth.find(([l]) => l === label);
+    if (bucket) bucket[1].push(g);
+    else archivedByMonth.push([label, [g]]);
+  }
 
   function note(key: string, text: string) {
     setNotes((prev) => ({ ...prev, [key]: text }));
@@ -229,6 +279,76 @@ export function FulfillmentPanel({
       });
       await mirrorTracking(s.record_ids ?? [], value);
     }
+  }
+
+  // "" clears the stored amount; "$" prefixes are tolerated.
+  function parseMoney(raw: string): number | null | undefined {
+    const t = raw.trim().replace(/^\$/, "");
+    if (t === "") return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  }
+
+  async function savePostage(s: Shipment) {
+    const raw = postageEdits[s.id];
+    if (raw === undefined) return;
+    const value = parseMoney(raw);
+    if (value === undefined) {
+      note(`ship-${s.id}`, `"${raw}" isn't a valid postage cost.`);
+      return;
+    }
+    // Postgres numerics arrive as strings — normalize before comparing.
+    if (value === (s.postage_cost == null ? null : Number(s.postage_cost)))
+      return;
+    const ok = await saveShipment(s, { postage_cost: value });
+    if (ok) {
+      setPostageEdits((prev) => {
+        const next = { ...prev };
+        delete next[s.id];
+        return next;
+      });
+    }
+  }
+
+  async function saveInvoiceCost(
+    g: Group,
+    field: "paypal_fee" | "shipping_charged"
+  ) {
+    const raw = costEdits[`${g.key}:${field}`];
+    if (raw === undefined) return;
+    const invoiceId = (invoiceEdits[g.key] ?? g.invoiceId).trim();
+    if (!invoiceId) return;
+    const value = parseMoney(raw);
+    if (value === undefined) {
+      note(g.key, `"${raw}" isn't a valid amount.`);
+      return;
+    }
+    const stored = invoiceById.get(invoiceId)?.[field];
+    if (value === (stored == null ? null : Number(stored))) return;
+    const { data, error } = await supabase
+      .from("invoices")
+      .upsert({
+        paypal_invoice_id: invoiceId,
+        [field]: value,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) {
+      note(g.key, `Saving the amount failed: ${error.message}`);
+      return;
+    }
+    const saved = data as Invoice;
+    onInvoicesChange((prev) => [
+      saved,
+      ...prev.filter((inv) => inv.paypal_invoice_id !== invoiceId),
+    ]);
+    setCostEdits((prev) => {
+      const next = { ...prev };
+      delete next[`${g.key}:${field}`];
+      return next;
+    });
+    note(g.key, "");
   }
 
   async function toggleMember(s: Shipment, recordId: number, add: boolean) {
@@ -407,7 +527,7 @@ export function FulfillmentPanel({
     return r ? `${r.artist} — ${r.title}` : `#${id}`;
   };
 
-  const doneCount = groups.filter((g) => g.done).length;
+  const doneCount = completedGroups.length;
 
   return (
     <div className="mt-3">
@@ -415,7 +535,9 @@ export function FulfillmentPanel({
         Sold records grouped by buyer. Split each order into parcels, one
         tracking number per parcel. &ldquo;Sync from PayPal&rdquo; pulls the
         numbers from labels bought inside PayPal; a manual parcel&rsquo;s
-        number can be pushed the other way (PayPal emails the buyer).
+        number can be pushed the other way (PayPal emails the buyer). Each
+        parcel takes its postage cost, and each invoice the PayPal fee and
+        shipping charged — those feed the Net stat and the tax records.
       </p>
       {notes["panel"] ? (
         <p className="mt-2 text-xs text-yellow-400">{notes["panel"]}</p>
@@ -435,14 +557,46 @@ export function FulfillmentPanel({
           Nothing to fulfill — sold records with a buyer show up here.
         </p>
       ) : (
-        <div className="mt-3 grid gap-3">
-          {visibleGroups.map((g) => {
-            const invoiceValue = invoiceEdits[g.key] ?? g.invoiceId;
-            const groupBusy = busy === g.key;
-            const pushables = g.shipments.filter(
-              (s) => s.tracking_code && s.paypal_invoice_id && !inPayPal(s)
-            );
-            return (
+        <div className="mt-3 grid gap-3">{visibleGroups.map(renderGroup)}</div>
+      )}
+      {archivedGroups.length > 0 ? (
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() => setShowArchive((v) => !v)}
+            title={`Orders fully fulfilled more than ${ARCHIVE_AFTER_DAYS} days ago`}
+            className={smallButtonClass}
+          >
+            {showArchive ? "Hide" : "Show"} archive ({archivedGroups.length}{" "}
+            order{archivedGroups.length === 1 ? "" : "s"})
+          </button>
+          {showArchive
+            ? archivedByMonth.map(([label, gs]) => (
+                <div key={label} className="mt-4">
+                  <h4 className="text-sm font-medium text-neutral-500">
+                    {label} · {gs.length} order{gs.length === 1 ? "" : "s"}
+                  </h4>
+                  <div className="mt-2 grid gap-3">{gs.map(renderGroup)}</div>
+                </div>
+              ))
+            : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  // Shared order-card renderer for the active/completed list and the archive.
+  function renderGroup(g: Group) {
+    const invoiceValue = invoiceEdits[g.key] ?? g.invoiceId;
+    const invoice = invoiceById.get(invoiceValue.trim());
+    const costValue = (field: "paypal_fee" | "shipping_charged") =>
+      costEdits[`${g.key}:${field}`] ??
+      (invoice?.[field] == null ? "" : String(invoice[field]));
+    const groupBusy = busy === g.key;
+    const pushables = g.shipments.filter(
+      (s) => s.tracking_code && s.paypal_invoice_id && !inPayPal(s)
+    );
+    return (
               <div
                 key={g.key}
                 className="rounded-2xl border border-white/10 bg-white/5 p-4"
@@ -496,6 +650,38 @@ export function FulfillmentPanel({
                     >
                       Push {pushables.length} to PayPal
                     </button>
+                  ) : null}
+                  {invoiceValue.trim() ? (
+                    <>
+                      <input
+                        type="text"
+                        value={costValue("paypal_fee")}
+                        onChange={(e) =>
+                          setCostEdits((prev) => ({
+                            ...prev,
+                            [`${g.key}:paypal_fee`]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => saveInvoiceCost(g, "paypal_fee")}
+                        placeholder="PayPal fee $"
+                        title="PayPal's transaction fee, from the transaction details page — a deductible cost"
+                        className={`w-28 ${inputClass}`}
+                      />
+                      <input
+                        type="text"
+                        value={costValue("shipping_charged")}
+                        onChange={(e) =>
+                          setCostEdits((prev) => ({
+                            ...prev,
+                            [`${g.key}:shipping_charged`]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => saveInvoiceCost(g, "shipping_charged")}
+                        placeholder="shipping charged $"
+                        title="Shipping the buyer paid on this invoice — counted as income in the Net stat"
+                        className={`w-36 ${inputClass}`}
+                      />
+                    </>
                   ) : null}
                 </div>
                 {notes[g.key] ? (
@@ -629,6 +815,25 @@ export function FulfillmentPanel({
                             </option>
                           ))}
                         </select>
+                        <input
+                          type="text"
+                          value={
+                            postageEdits[s.id] ??
+                            (s.postage_cost == null
+                              ? ""
+                              : String(s.postage_cost))
+                          }
+                          onChange={(e) =>
+                            setPostageEdits((prev) => ({
+                              ...prev,
+                              [s.id]: e.target.value,
+                            }))
+                          }
+                          onBlur={() => savePostage(s)}
+                          placeholder="postage $"
+                          title="What this label cost — a deductible cost, feeds the Net stat"
+                          className={`w-28 ${inputClass}`}
+                        />
                         {s.paypal_invoice_id &&
                         s.tracking_code &&
                         !inPayPal(s) ? (
@@ -691,10 +896,6 @@ export function FulfillmentPanel({
                   );
                 })}
               </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+    );
+  }
 }
