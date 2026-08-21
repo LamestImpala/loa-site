@@ -49,6 +49,13 @@ const needsRepush = (s: Shipment) =>
   !!s.tracking_code &&
   s.paypal_tracked_number !== s.tracking_code;
 
+// Marked as a label bought inside PayPal that the tracking API can't see
+// (PayPal Shipping labels never register as trackers): the tracking is
+// already on the transaction, so pushing would only duplicate the buyer
+// email. Parcels PayPal does know about keep their re-push behavior.
+const pushNotNeeded = (s: Shipment) =>
+  s.mode === "paypal" && !s.paypal_tracker_id;
+
 type Group = {
   key: string;
   buyer: string;
@@ -535,7 +542,10 @@ export function FulfillmentPanel({
         Sold records grouped by buyer. Split each order into parcels, one
         tracking number per parcel. &ldquo;Sync from PayPal&rdquo; pulls the
         numbers from labels bought inside PayPal; a manual parcel&rsquo;s
-        number can be pushed the other way (PayPal emails the buyer). Each
+        number can be pushed the other way (PayPal emails the buyer). PayPal
+        Shipping labels never show up in the sync — click a parcel&rsquo;s
+        &ldquo;manual&rdquo; chip to mark it &ldquo;PayPal label&rdquo; instead
+        of pushing, since its tracking is already on the transaction. Each
         parcel takes its postage cost, and each invoice the PayPal fee and
         shipping charged — those feed the Net stat and the tax records.
       </p>
@@ -594,7 +604,11 @@ export function FulfillmentPanel({
       (invoice?.[field] == null ? "" : String(invoice[field]));
     const groupBusy = busy === g.key;
     const pushables = g.shipments.filter(
-      (s) => s.tracking_code && s.paypal_invoice_id && !inPayPal(s)
+      (s) =>
+        s.tracking_code &&
+        s.paypal_invoice_id &&
+        !inPayPal(s) &&
+        !pushNotNeeded(s)
     );
     return (
               <div
@@ -746,11 +760,29 @@ export function FulfillmentPanel({
                         <span className="text-sm text-neutral-300">
                           Parcel {i + 1}
                         </span>
-                        <span className="text-xs text-neutral-500">
-                          {s.mode === "paypal"
-                            ? "from PayPal label"
-                            : "manual"}
-                        </span>
+                        {s.paypal_tracker_id ? (
+                          <span className="text-xs text-neutral-500">
+                            {s.mode === "paypal" ? "PayPal label" : "manual"}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              saveShipment(s, {
+                                mode:
+                                  s.mode === "paypal" ? "manual" : "paypal",
+                              })
+                            }
+                            title={
+                              s.mode === "paypal"
+                                ? "Label bought inside PayPal — tracking is already on the transaction, nothing to push. Click if it was bought elsewhere."
+                                : "Label bought elsewhere — tracking can be pushed to PayPal. Click if it was bought inside PayPal."
+                            }
+                            className="text-xs text-neutral-500 underline decoration-dotted underline-offset-2 transition hover:text-white"
+                          >
+                            {s.mode === "paypal" ? "PayPal label" : "manual"}
+                          </button>
+                        )}
                         {inPayPal(s) ? (
                           <span
                             className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-400"
@@ -836,7 +868,8 @@ export function FulfillmentPanel({
                         />
                         {s.paypal_invoice_id &&
                         s.tracking_code &&
-                        !inPayPal(s) ? (
+                        !inPayPal(s) &&
+                        !pushNotNeeded(s) ? (
                           <button
                             type="button"
                             onClick={() => pushToPayPal([s], shipKey)}
