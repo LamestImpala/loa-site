@@ -537,6 +537,51 @@ export default function AdminClient() {
     });
   }
 
+  // For copies that were never actually sold (given away, no longer owned).
+  // Real sales should stay as history — un-check "sold" instead.
+  async function deleteRecord(r: DbRecord) {
+    setSavingId(r.id);
+    const { data: parcels, error: parcelErr } = await supabase
+      .from("shipments")
+      .select("id")
+      .contains("record_ids", [r.id]);
+    setSavingId(null);
+    if (parcelErr) {
+      pushToast("error", `Couldn't check parcels: ${parcelErr.message}`);
+      return;
+    }
+    if ((parcels ?? []).length > 0) {
+      pushToast(
+        "error",
+        `"${r.artist} — ${r.title}" is in a parcel — remove it in Fulfillment first.`
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete "${r.artist} — ${r.title}" permanently? Its photos and price history go with it. Meant for records that were never actually sold — this can't be undone.`
+      )
+    )
+      return;
+    setSavingId(r.id);
+    const paths = (r.photo_urls ?? [])
+      .map((url) => url.split("/record-photos/")[1])
+      .filter((p): p is string => !!p)
+      .map((p) => decodeURIComponent(p));
+    if (paths.length > 0) {
+      await supabase.storage.from("record-photos").remove(paths);
+    }
+    const { error } = await supabase.from("records").delete().eq("id", r.id);
+    setSavingId(null);
+    if (error) {
+      pushToast("error", `Delete failed: ${error.message}`);
+      return;
+    }
+    setRecords((prev) => prev.filter((x) => x.id !== r.id));
+    setPending((prev) => prev.filter((x) => x.record_id !== r.id));
+    pushToast("success", `Deleted "${r.artist} — ${r.title}"`);
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -3169,6 +3214,15 @@ export default function AdminClient() {
                         >
                           Popsike
                         </a>
+                        <button
+                          type="button"
+                          disabled={savingId === r.id}
+                          onClick={() => deleteRecord(r)}
+                          title="Permanently delete this record — for copies that were never actually sold (e.g. no longer owned)"
+                          className="text-neutral-500 underline underline-offset-2 transition hover:text-red-400"
+                        >
+                          Delete…
+                        </button>
                       </p>
                     </td>
                     <td className="px-3 py-3">
