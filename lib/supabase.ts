@@ -57,11 +57,23 @@ export type Shipment = {
   label_url: string | null;
   tracking_code: string | null;
   carrier: string; // USPS default
+  postage_cost: number | null; // what the label cost — a deductible expense
   mode: string | null;
   status: "draft" | "purchased" | "shipped" | "refunded";
   paypal_tracker_id: string | null; // "{txnId}-{trackingNumber}" once known in PayPal
   paypal_tracked_number: string | null; // the tracking number PayPal currently has
   paypal_synced_at: string | null;
+};
+
+// Money facts about one PayPal invoice, typed in from the transaction
+// details page. Fee and postage feed the net figure on the stats tiles and
+// give the tax records something to point at.
+export type Invoice = {
+  paypal_invoice_id: string;
+  paypal_fee: number | null; // PayPal's transaction fee (a cost)
+  shipping_charged: number | null; // shipping the buyer paid (income)
+  created_at: string;
+  updated_at: string;
 };
 
 export type PendingPriceChange = {

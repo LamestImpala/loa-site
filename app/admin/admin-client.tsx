@@ -19,6 +19,7 @@ import {
   ADMIN_EMAIL,
   getBrowserSupabase,
   type DbRecord,
+  type Invoice,
   type OrderRequest,
   type PendingPriceChange,
   type PriceRun,
@@ -270,6 +271,7 @@ export default function AdminClient() {
 
   const [records, setRecords] = useState<DbRecord[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pending, setPending] = useState<PendingPriceChange[]>([]);
   const [runs, setRuns] = useState<PriceRun[]>([]);
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
@@ -559,6 +561,7 @@ export default function AdminClient() {
       requestsRes,
       interestRes,
       shipmentsRes,
+      invoicesRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
@@ -586,6 +589,7 @@ export default function AdminClient() {
           .from("shipments")
           .select("*")
           .order("created_at", { ascending: false }),
+        supabase.from("invoices").select("*"),
       ]);
     setLoading(false);
     if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
@@ -607,7 +611,11 @@ export default function AdminClient() {
     if (interestRes.error) {
       pushToast("error", `Interest data didn't load: ${interestRes.error.message}`);
     }
+    if (invoicesRes.error) {
+      pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
+    }
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
+    setInvoices((invoicesRes.data ?? []) as Invoice[]);
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
     setRuns((runsRes.data ?? []) as PriceRun[]);
     setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
@@ -1555,6 +1563,21 @@ export default function AdminClient() {
     const sum = (list: DbRecord[], pick: (r: DbRecord) => number) =>
       list.reduce((total, r) => total + pick(r), 0);
     const soldTotal = sum(sold, (r) => Number(r.sold_price ?? r.price));
+    // Costs typed in from PayPal's transaction pages: fees and buyer-paid
+    // shipping per invoice, postage per parcel. Net is what actually landed
+    // in the account — record sales + shipping income − fees − postage.
+    const feesTotal = invoices.reduce(
+      (t, inv) => t + Number(inv.paypal_fee ?? 0),
+      0
+    );
+    const shippingCharged = invoices.reduce(
+      (t, inv) => t + Number(inv.shipping_charged ?? 0),
+      0
+    );
+    const postageTotal = shipments.reduce(
+      (t, s) => t + Number(s.postage_cost ?? 0),
+      0
+    );
     return {
       forSaleCount: forSale.length,
       askingTotal: sum(forSale, (r) => Number(r.price)),
@@ -1563,8 +1586,12 @@ export default function AdminClient() {
       asp: sold.length ? soldTotal / sold.length : 0,
       hiddenCount: hidden.length,
       hiddenTotal: sum(hidden, (r) => Number(r.price)),
+      feesTotal,
+      postageTotal,
+      shippingCharged,
+      netTotal: soldTotal + shippingCharged - feesTotal - postageTotal,
     };
-  }, [records]);
+  }, [records, shipments, invoices]);
 
   const draftParcelCount = useMemo(
     () => shipments.filter((s) => s.status === "draft").length,
@@ -1878,8 +1905,8 @@ export default function AdminClient() {
 
         {/* Collection value summary */}
         {loading && records.length === 0 ? (
-          <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {["For sale", "Sold", "Hidden"].map((label) => (
+          <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {["For sale", "Sold", "Net", "Hidden"].map((label) => (
               <div
                 key={label}
                 className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5"
@@ -1891,7 +1918,7 @@ export default function AdminClient() {
             ))}
           </div>
         ) : (
-        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <p className="text-sm text-neutral-400">For sale</p>
             <p className="mt-1 text-2xl font-semibold">
@@ -1911,6 +1938,22 @@ export default function AdminClient() {
               title="Uses the final sold price when entered, listed price otherwise"
             >
               {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">Net</p>
+            <p
+              className="mt-1 text-2xl font-semibold text-green-400"
+              title="Sold total + shipping collected − PayPal fees − postage. Fees and postage are entered per order in the fulfillment section."
+            >
+              ${stats.netTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              ${stats.feesTotal.toFixed(2)} fees · ${stats.postageTotal.toFixed(2)}{" "}
+              postage · ${stats.shippingCharged.toFixed(2)} shipping collected
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -2340,8 +2383,10 @@ export default function AdminClient() {
           <FulfillmentPanel
             records={records.filter((r) => r.sold)}
             shipments={shipments}
+            invoices={invoices}
             supabase={supabase}
             onShipmentsChange={setShipments}
+            onInvoicesChange={setInvoices}
             onRecordPatched={(id, patch) =>
               setRecords((prev) =>
                 prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
