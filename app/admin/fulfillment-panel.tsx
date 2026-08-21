@@ -603,6 +603,19 @@ export function FulfillmentPanel({
       costEdits[`${g.key}:${field}`] ??
       (invoice?.[field] == null ? "" : String(invoice[field]));
     const groupBusy = busy === g.key;
+    // What the order was invoiced at: record sold prices plus the buyer-paid
+    // shipping once it's recorded on the invoice.
+    const recordsTotal = g.records.reduce(
+      (t, r) => t + Number(r.sold_price ?? r.price),
+      0
+    );
+    const shippingCharged =
+      invoice?.shipping_charged == null
+        ? null
+        : Number(invoice.shipping_charged);
+    const invoicedTotal = recordsTotal + (shippingCharged ?? 0);
+    const money = (n: number) =>
+      `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     const pushables = g.shipments.filter(
       (s) =>
         s.tracking_code &&
@@ -619,6 +632,18 @@ export function FulfillmentPanel({
                   <span className="font-medium">
                     {g.buyer ? `u/${g.buyer}` : "No buyer set"}
                   </span>
+                  {g.records.length > 0 ? (
+                    <span
+                      className="text-sm text-green-400"
+                      title={
+                        shippingCharged == null
+                          ? `Records ${money(recordsTotal)} — shipping not recorded yet`
+                          : `Records ${money(recordsTotal)} + shipping ${money(shippingCharged)}`
+                      }
+                    >
+                      {money(invoicedTotal)}
+                    </span>
+                  ) : null}
                   <span className="text-xs text-neutral-500">
                     {g.records.length} record{g.records.length === 1 ? "" : "s"}{" "}
                     · {g.shipments.length} parcel
