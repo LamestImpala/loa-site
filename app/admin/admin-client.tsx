@@ -239,6 +239,23 @@ function timeAgo(iso: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+// Transient feedback shown in a fixed stack near the bottom-right corner, so
+// results of an action are visible no matter how far down the page it fired.
+type Toast = {
+  id: number;
+  kind: "error" | "success" | "info";
+  text: string;
+  action?: { label: string; onClick: () => void };
+};
+let toastSeq = 0;
+
+// Commit a blur-save field with the keyboard.
+function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
+  if (e.key === "Enter") e.currentTarget.blur();
+}
+
+type SortKey = "artist" | "price-desc" | "price-asc" | "interest" | "added";
+
 export default function AdminClient() {
   const supabase = getBrowserSupabase();
 
@@ -257,10 +274,16 @@ export default function AdminClient() {
   const [runs, setRuns] = useState<PriceRun[]>([]);
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [clipboardFallback, setClipboardFallback] = useState<null | {
+    title: string;
+    text: string;
+  }>(null);
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortKey>("artist");
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
   const [buyerEdits, setBuyerEdits] = useState<Record<number, string>>({});
-  const [trackingEdits, setTrackingEdits] = useState<Record<number, string>>({});
   const [soldPriceEdits, setSoldPriceEdits] = useState<Record<number, string>>({});
   const [genreRowEdits, setGenreRowEdits] = useState<Record<number, string>>({});
   const [collectionRowEdits, setCollectionRowEdits] = useState<Record<number, string>>({});
@@ -331,6 +354,58 @@ export default function AdminClient() {
 
   const allCollapsed = SECTIONS.every((k) => collapsedSections.has(k));
 
+  // Expand a section if needed, then scroll its heading under the jump nav.
+  const jumpToSection = useCallback(
+    (key: SectionKey) => {
+      if (collapsedSections.has(key)) {
+        const next = new Set(collapsedSections);
+        next.delete(key);
+        setCollapsed(next);
+      }
+      setTimeout(() => {
+        document
+          .getElementById(`section-${key}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    },
+    [collapsedSections, setCollapsed]
+  );
+
+  const pushToast = useCallback(
+    (kind: Toast["kind"], text: string, action?: Toast["action"]) => {
+      const id = ++toastSeq;
+      setToasts((prev) => [
+        // Only one success toast at a time — rapid blur-saves shouldn't stack
+        ...(kind === "success" ? prev.filter((t) => t.kind !== "success") : prev),
+        { id, kind, text, action },
+      ]);
+      const ttl = kind === "success" ? 2500 : kind === "info" ? 8000 : 10000;
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, ttl);
+    },
+    []
+  );
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Clipboard writes fall back to a copyable modal (window.prompt truncates
+  // multi-KB markdown). Returns whether the silent copy worked.
+  const copyText = useCallback(
+    async (text: string, fallbackTitle: string): Promise<boolean> => {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        setClipboardFallback({ title: fallbackTitle, text });
+        return false;
+      }
+    },
+    []
+  );
+
   function sectionHeading(
     key: SectionKey,
     title: ReactNode,
@@ -338,7 +413,7 @@ export default function AdminClient() {
   ) {
     const open = !collapsedSections.has(key);
     return (
-      <h2 className={className}>
+      <h2 id={`section-${key}`} className={`scroll-mt-16 ${className}`}>
         <button
           type="button"
           onClick={() => toggleSection(key)}
@@ -361,12 +436,9 @@ export default function AdminClient() {
 
   async function copyRedditTable() {
     const md = redditMarkdown(records);
-    try {
-      await navigator.clipboard.writeText(md);
+    if (await copyText(md, "Copy the Reddit table")) {
       setTableCopied(true);
       setTimeout(() => setTableCopied(false), 1600);
-    } catch {
-      window.prompt("Copy the table below:", md);
     }
   }
 
@@ -378,12 +450,9 @@ export default function AdminClient() {
     const md = redditWeeklyMarkdown(picks, liveCount);
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.
-    try {
-      await navigator.clipboard.writeText(md);
+    if (await copyText(md, "Copy the weekly post")) {
       setWeeklyCopied(true);
       setTimeout(() => setWeeklyCopied(false), 1600);
-    } catch {
-      window.prompt("Copy the post below:", md);
     }
     await savePostedIds(picks.map((r) => r.id));
   }
@@ -396,7 +465,8 @@ export default function AdminClient() {
       .eq("key", "reddit_post_records")
       .select("key");
     if (error || !data?.length) {
-      setLoadError(
+      pushToast(
+        "error",
         error?.message ??
           "Couldn't save the posted record list — the reddit_post_records settings row is missing."
       );
@@ -414,12 +484,9 @@ export default function AdminClient() {
       .filter((r): r is DbRecord => Boolean(r));
     if (posted.length === 0) return;
     const md = redditUpdateMarkdown(posted);
-    try {
-      await navigator.clipboard.writeText(md);
+    if (await copyText(md, "Copy the post update")) {
       setUpdateCopied(true);
       setTimeout(() => setUpdateCopied(false), 1600);
-    } catch {
-      window.prompt("Copy the updated post below:", md);
     }
   }
 
@@ -445,12 +512,18 @@ export default function AdminClient() {
         photo_urls: [...(r.photo_urls ?? []), ...urls],
       });
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Photo upload failed");
+      pushToast("error", e instanceof Error ? e.message : "Photo upload failed");
     }
     setUploadingId(null);
   }
 
   async function removePhoto(r: DbRecord, url: string) {
+    if (
+      !window.confirm(
+        `Delete this photo of "${r.artist} — ${r.title}" permanently? It can't be undone.`
+      )
+    )
+      return;
     const path = url.split("/record-photos/")[1];
     if (path) {
       await supabase.storage
@@ -477,6 +550,7 @@ export default function AdminClient() {
 
   const loadData = useCallback(async () => {
     setLoadError("");
+    setLoading(true);
     const [
       recordsRes,
       pendingRes,
@@ -513,6 +587,7 @@ export default function AdminClient() {
           .select("*")
           .order("created_at", { ascending: false }),
       ]);
+    setLoading(false);
     if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
       setLoadError(
         recordsRes.error?.message ||
@@ -525,7 +600,13 @@ export default function AdminClient() {
     }
     setRecords((recordsRes.data ?? []) as DbRecord[]);
     // Shipments are non-fatal, like interest — an error just leaves the
-    // fulfillment panel empty.
+    // fulfillment panel empty, but say so instead of failing silently.
+    if (shipmentsRes.error) {
+      pushToast("error", `Shipments didn't load: ${shipmentsRes.error.message}`);
+    }
+    if (interestRes.error) {
+      pushToast("error", `Interest data didn't load: ${interestRes.error.message}`);
+    }
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
     setRuns((runsRes.data ?? []) as PriceRun[]);
@@ -556,7 +637,7 @@ export default function AdminClient() {
         ])
       )
     );
-  }, [supabase]);
+  }, [supabase, pushToast]);
 
   useEffect(() => {
     if (isAdmin) loadData();
@@ -622,19 +703,23 @@ export default function AdminClient() {
       .eq("id", id);
     setSavingId(null);
     if (error) {
-      setLoadError(error.message);
+      pushToast("error", `Save failed: ${error.message}`);
       return false;
     }
     setRecords((prev) =>
       prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
     );
+    pushToast("success", "Saved ✓");
     return true;
   }
 
   async function savePrice(r: DbRecord) {
     const raw = priceEdits[r.id];
     const value = Number(raw);
-    if (!raw || !Number.isFinite(value) || value < 0) return;
+    if (!raw || !Number.isFinite(value) || value < 0) {
+      pushToast("error", `"${raw}" isn't a valid price — enter 0 or more.`);
+      return;
+    }
     if (await updateRecord(r.id, { price: value, prev_price: r.price })) {
       setPriceEdits((prev) => {
         const next = { ...prev };
@@ -650,7 +735,7 @@ export default function AdminClient() {
       .update({ value: postUrl.trim() })
       .eq("key", "reddit_post_url");
     if (error) {
-      setLoadError(error.message);
+      pushToast("error", `Saving the post URL failed: ${error.message}`);
       return;
     }
     setPostUrlStatus("saved");
@@ -663,16 +748,13 @@ export default function AdminClient() {
     await updateRecord(r.id, { buyer_username: value });
   }
 
-  async function saveTracking(r: DbRecord) {
-    const value = (trackingEdits[r.id] ?? "").trim();
-    if (value === (r.tracking_number ?? "")) return;
-    await updateRecord(r.id, { tracking_number: value });
-  }
-
   async function saveSoldPrice(r: DbRecord) {
     const raw = (soldPriceEdits[r.id] ?? "").trim();
     const value = raw === "" ? null : Number(raw);
-    if (value !== null && (!Number.isFinite(value) || value < 0)) return;
+    if (value !== null && (!Number.isFinite(value) || value < 0)) {
+      pushToast("error", `"${raw}" isn't a valid sold price — enter 0 or more.`);
+      return;
+    }
     if (value === (r.sold_price ?? null)) return;
     await updateRecord(r.id, { sold_price: value });
   }
@@ -732,16 +814,21 @@ export default function AdminClient() {
   const holdActive = (r: DbRecord) =>
     !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
 
-  async function startHold(r: DbRecord) {
-    const buyer = window
-      .prompt(`Hold "${r.artist} — ${r.title}" for which Reddit user?`, r.hold_buyer ?? "")
-      ?.trim()
-      .replace(/^u\//, "");
+  // Inline hold editor (which row is asking for a buyer name, and the draft)
+  const [holdEditId, setHoldEditId] = useState<number | null>(null);
+  const [holdBuyerInput, setHoldBuyerInput] = useState("");
+
+  async function confirmHold(r: DbRecord) {
+    const buyer = holdBuyerInput.trim().replace(/^u\//, "");
     if (!buyer) return;
-    await updateRecord(r.id, {
+    const ok = await updateRecord(r.id, {
       hold_buyer: buyer,
       hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     });
+    if (ok) {
+      setHoldEditId(null);
+      setHoldBuyerInput("");
+    }
   }
 
   async function releaseHold(r: DbRecord) {
@@ -749,6 +836,14 @@ export default function AdminClient() {
   }
 
   async function markSold(r: DbRecord, sold: boolean) {
+    // Un-selling erases the sale date — make sure it's deliberate.
+    if (
+      !sold &&
+      !window.confirm(
+        `Un-mark "${r.artist} — ${r.title}" as sold? This clears its sold date.`
+      )
+    )
+      return;
     // Selling a held record carries the hold's buyer over and clears the hold
     const patch: Partial<DbRecord> = {
       sold,
@@ -775,12 +870,9 @@ export default function AdminClient() {
   async function copyConfirmation(r: DbRecord) {
     const buyer = (r.buyer_username ?? "").trim();
     const text = `Confirming my sale of ${r.artist} — ${r.title} to u/${buyer}. Thanks!`;
-    try {
-      await navigator.clipboard.writeText(text);
+    if (await copyText(text, "Copy this confirmation comment")) {
       setConfirmCopiedId(r.id);
       setTimeout(() => setConfirmCopiedId(null), 2000);
-    } catch {
-      window.prompt("Copy this confirmation comment:", text);
     }
   }
 
@@ -838,52 +930,71 @@ export default function AdminClient() {
     );
     if (!ok) return;
     setBulkPendingBusy(true);
-    try {
-      if (approve) {
-        const chunk = 10;
-        for (let i = 0; i < list.length; i += chunk) {
-          const results = await Promise.all(
-            list.slice(i, i + chunk).map((p) =>
-              supabase
-                .from("records")
-                .update({
-                  price: p.suggested_price,
-                  prev_price: p.old_price,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", p.record_id)
-            )
-          );
-          const failed = results.find((r) => r.error);
-          if (failed?.error) throw new Error(failed.error.message);
-        }
-      }
-      const ids = list.map((p) => p.id);
-      for (let i = 0; i < ids.length; i += 200) {
-        const { error } = await supabase
-          .from("pending_price_changes")
-          .update({
-            status: approve ? "approved" : "rejected",
-            resolved_at: new Date().toISOString(),
-          })
-          .in("id", ids.slice(i, i + 200));
-        if (error) throw new Error(error.message);
-      }
-      const idSet = new Set(ids);
-      setPending((prev) => prev.filter((x) => !idSet.has(x.id)));
-      if (approve) {
-        const byRecord = new Map(list.map((p) => [p.record_id, p]));
-        setRecords((prev) =>
-          prev.map((r) => {
-            const p = byRecord.get(r.id);
-            return p
-              ? { ...r, price: p.suggested_price, prev_price: p.old_price }
-              : r;
-          })
+    // Track what actually landed so the UI always matches the DB, even when
+    // a chunk fails partway through.
+    const applied: PendingPriceChange[] = [];
+    let failure: string | null = null;
+    if (approve) {
+      const chunk = 10;
+      for (let i = 0; i < list.length && !failure; i += chunk) {
+        const slice = list.slice(i, i + chunk);
+        const results = await Promise.all(
+          slice.map((p) =>
+            supabase
+              .from("records")
+              .update({
+                price: p.suggested_price,
+                prev_price: p.old_price,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", p.record_id)
+          )
         );
+        slice.forEach((p, j) => {
+          if (results[j].error) failure = failure ?? results[j].error!.message;
+          else applied.push(p);
+        });
       }
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Bulk update failed");
+    } else {
+      applied.push(...list);
+    }
+    const ids = applied.map((p) => p.id);
+    const resolvedIds: number[] = [];
+    for (let i = 0; i < ids.length && !failure; i += 200) {
+      const slice = ids.slice(i, i + 200);
+      const { error } = await supabase
+        .from("pending_price_changes")
+        .update({
+          status: approve ? "approved" : "rejected",
+          resolved_at: new Date().toISOString(),
+        })
+        .in("id", slice);
+      if (error) failure = error.message;
+      else resolvedIds.push(...slice);
+    }
+    const resolvedSet = new Set(resolvedIds);
+    setPending((prev) => prev.filter((x) => !resolvedSet.has(x.id)));
+    if (approve && applied.length > 0) {
+      const byRecord = new Map(applied.map((p) => [p.record_id, p]));
+      setRecords((prev) =>
+        prev.map((r) => {
+          const p = byRecord.get(r.id);
+          return p
+            ? { ...r, price: p.suggested_price, prev_price: p.old_price }
+            : r;
+        })
+      );
+    }
+    if (failure) {
+      pushToast(
+        "error",
+        `Bulk ${approve ? "approve" : "reject"} stopped early — ${resolvedIds.length} of ${list.length} completed: ${failure}`
+      );
+    } else {
+      pushToast(
+        "success",
+        `${approve ? "Approved" : "Rejected"} ${resolvedIds.length} price change${resolvedIds.length === 1 ? "" : "s"} ✓`
+      );
     }
     setBulkPendingBusy(false);
   }
@@ -904,7 +1015,7 @@ export default function AdminClient() {
       })
       .eq("id", p.id);
     if (error) {
-      setLoadError(error.message);
+      pushToast("error", `Couldn't resolve the price change: ${error.message}`);
       return;
     }
     setPending((prev) => prev.filter((x) => x.id !== p.id));
@@ -912,7 +1023,7 @@ export default function AdminClient() {
 
   const filteredRecords = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return records.filter((r) => {
+    let list = records.filter((r) => {
       if (genreFilter !== "all" && !(r.genres ?? []).includes(genreFilter))
         return false;
       if (collectionFilter === "none" && r.collection) return false;
@@ -943,7 +1054,32 @@ export default function AdminClient() {
         .toLowerCase()
         .includes(q);
     });
-  }, [records, search, genreFilter, collectionFilter, letterFilter, shownFilter, interestFilter, interest]);
+    if (sortBy !== "artist") {
+      const alpha = (a: DbRecord, b: DbRecord) =>
+        (a.artist + a.title).localeCompare(b.artist + b.title);
+      list = [...list].sort((a, b) => {
+        switch (sortBy) {
+          case "price-desc":
+            return b.price - a.price || alpha(a, b);
+          case "price-asc":
+            return a.price - b.price || alpha(a, b);
+          case "interest":
+            return (
+              (interest[b.id]?.interest_sessions ?? 0) -
+                (interest[a.id]?.interest_sessions ?? 0) || alpha(a, b)
+            );
+          case "added":
+            return (
+              (b.created_at ?? "").localeCompare(a.created_at ?? "") ||
+              b.id - a.id
+            );
+          default:
+            return alpha(a, b);
+        }
+      });
+    }
+    return list;
+  }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, interestFilter, interest]);
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -971,6 +1107,16 @@ export default function AdminClient() {
   );
   const saleTotals = useMemo(() => bundleBreakdown(saleRecords), [saleRecords]);
   const saleSoldCount = selectedRecords.length - saleRecords.length;
+  // Selected records the current filters are hiding — bulk actions still
+  // include them, so the sale desk calls them out.
+  const filteredIdSet = useMemo(
+    () => new Set(filteredRecords.map((r) => r.id)),
+    [filteredRecords]
+  );
+  const offFilterSelectedCount = useMemo(
+    () => selectedRecords.filter((r) => !filteredIdSet.has(r.id)).length,
+    [selectedRecords, filteredIdSet]
+  );
 
   function toggleSelected(id: number) {
     setSelectedIds((prev) => {
@@ -1013,12 +1159,9 @@ export default function AdminClient() {
     const text = `${buyer ? `Hi u/${buyer}!` : "Hi!"} Here's the breakdown for the records you asked about:\n\n${lines.join(
       "\n"
     )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
-    try {
-      await navigator.clipboard.writeText(text);
+    if (await copyText(text, "Copy this reply")) {
       setReplyCopied(true);
       setTimeout(() => setReplyCopied(false), 1600);
-    } catch {
-      window.prompt("Copy this reply:", text);
     }
   }
 
@@ -1037,13 +1180,14 @@ export default function AdminClient() {
       .in("id", ids);
     setSaleBusy(null);
     if (error) {
-      setLoadError(error.message);
+      pushToast("error", `Hold failed: ${error.message}`);
       return;
     }
     const idSet = new Set(ids);
     setRecords((prev) =>
       prev.map((r) => (idSet.has(r.id) ? { ...r, ...patch } : r))
     );
+    pushToast("success", `Held ${ids.length} record${ids.length === 1 ? "" : "s"} for 48h ✓`);
   }
 
   async function markSelectedSold() {
@@ -1072,9 +1216,12 @@ export default function AdminClient() {
           } satisfies Partial<DbRecord>,
         ])
       );
+      // Track per-record success so the UI reflects exactly what landed in
+      // the DB, even when a chunk fails partway through.
       const chunk = 10;
       const done: number[] = [];
-      for (let i = 0; i < targets.length; i += chunk) {
+      let failure: string | null = null;
+      for (let i = 0; i < targets.length && !failure; i += chunk) {
         const slice = targets.slice(i, i + chunk);
         const results = await Promise.all(
           slice.map((r) =>
@@ -1087,16 +1234,27 @@ export default function AdminClient() {
               .eq("id", r.id)
           )
         );
-        const failed = results.find((res) => res.error);
-        done.push(...slice.map((r) => r.id));
-        if (failed?.error) throw new Error(failed.error.message);
+        slice.forEach((r, j) => {
+          if (results[j].error) failure = failure ?? results[j].error!.message;
+          else done.push(r.id);
+        });
       }
       const doneSet = new Set(done);
-      setRecords((prev) =>
-        prev.map((r) =>
-          doneSet.has(r.id) ? { ...r, ...patches.get(r.id) } : r
-        )
-      );
+      if (done.length > 0) {
+        setRecords((prev) =>
+          prev.map((r) =>
+            doneSet.has(r.id) ? { ...r, ...patches.get(r.id) } : r
+          )
+        );
+      }
+      if (failure) {
+        pushToast(
+          "error",
+          `Marked ${done.length} of ${targets.length} sold before an error: ${failure}`
+        );
+        return;
+      }
+      pushToast("success", `Marked ${done.length} sold ✓`);
       // Best-effort: close loaded order requests whose records are now all
       // sold. Failures are non-fatal — the card keeps its manual buttons.
       const finished = orderRequests.filter(
@@ -1121,7 +1279,9 @@ export default function AdminClient() {
             setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
           });
       }
-      const withDiscogs = targets.filter((r) => r.discogs_release_id);
+      const withDiscogs = targets.filter(
+        (r) => doneSet.has(r.id) && r.discogs_release_id
+      );
       if (
         withDiscogs.length > 0 &&
         window.confirm(
@@ -1134,7 +1294,7 @@ export default function AdminClient() {
         }
       }
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Bulk mark-sold failed");
+      pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");
     } finally {
       setSaleBusy(null);
     }
@@ -1204,12 +1364,9 @@ export default function AdminClient() {
 
   async function copyInvoiceLink() {
     if (!saleInvoice?.url) return;
-    try {
-      await navigator.clipboard.writeText(saleInvoice.url);
+    if (await copyText(saleInvoice.url, "Copy the payment link")) {
       setInvoiceLinkCopied(true);
       setTimeout(() => setInvoiceLinkCopied(false), 1600);
-    } catch {
-      window.prompt("Copy the payment link:", saleInvoice.url);
     }
   }
 
@@ -1265,7 +1422,7 @@ export default function AdminClient() {
       return r && !r.sold;
     });
     if (available.length === 0) {
-      window.alert("None of this request's records are still available.");
+      pushToast("info", "None of this request's records are still available.");
       return;
     }
     if (!applySaleSelection(available)) return;
@@ -1291,19 +1448,40 @@ export default function AdminClient() {
       .update({ status, updated_at: new Date().toISOString() })
       .eq("id", req.id);
     if (error) {
-      setLoadError(error.message);
+      pushToast("error", `Couldn't update the request: ${error.message}`);
       return;
     }
     setOrderRequests((prev) => prev.filter((r) => r.id !== req.id));
+    // The card disappears from the open list, so offer a way back.
+    pushToast(
+      "info",
+      `Request ${req.ref_code} ${status === "dismissed" ? "dismissed" : "marked completed"}.`,
+      { label: "Undo", onClick: () => restoreRequest(req) }
+    );
+  }
+
+  async function restoreRequest(req: OrderRequest) {
+    const { error } = await supabase
+      .from("order_requests")
+      .update({ status: "new", updated_at: new Date().toISOString() })
+      .eq("id", req.id);
+    if (error) {
+      pushToast("error", `Couldn't restore the request: ${error.message}`);
+      return;
+    }
+    setOrderRequests((prev) =>
+      prev.some((r) => r.id === req.id)
+        ? prev
+        : [...prev, { ...req, status: "new" as const }].sort((a, b) =>
+            b.created_at.localeCompare(a.created_at)
+          )
+    );
   }
 
   async function copyRefCode(req: OrderRequest) {
-    try {
-      await navigator.clipboard.writeText(req.ref_code);
+    if (await copyText(req.ref_code, "Copy the ref code")) {
       setRefCopiedId(req.id);
       setTimeout(() => setRefCopiedId(null), 1600);
-    } catch {
-      window.prompt("Copy the ref code:", req.ref_code);
     }
   }
 
@@ -1329,8 +1507,8 @@ export default function AdminClient() {
   }
 
   // Records the review panel would put on the sale desk right now.
-  function parsedSelectionIds(): number[] {
-    if (!parseResult) return [];
+  const parsedIds = useMemo(() => {
+    if (!parseResult) return [] as number[];
     const ids: number[] = [];
     parseResult.rows.forEach((row, i) => {
       if (row.status === "matched" && row.match && !row.match.sold) {
@@ -1341,12 +1519,11 @@ export default function AdminClient() {
       }
     });
     return [...new Set(ids)];
-  }
+  }, [parseResult, byId]);
 
   function applyParsedSelection() {
-    const ids = parsedSelectionIds();
-    if (ids.length === 0) return;
-    if (!applySaleSelection(ids)) return;
+    if (parsedIds.length === 0) return;
+    if (!applySaleSelection(parsedIds)) return;
     setPasteText("");
     setParseResult(null);
   }
@@ -1414,9 +1591,16 @@ export default function AdminClient() {
     const releaseId = Number(match[1]);
     setFetchingRelease(true);
     try {
-      const res = await fetch(`https://api.discogs.com/releases/${releaseId}`);
-      if (!res.ok) throw new Error(`Discogs returned ${res.status}`);
+      // Server route carries the Discogs token — anonymous browser calls
+      // to api.discogs.com hit rate limits quickly.
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`/api/discogs-release?id=${releaseId}`, {
+        headers: { Authorization: `Bearer ${current?.access_token ?? ""}` },
+      });
       const rel = await res.json();
+      if (!res.ok) throw new Error(rel.error || `Discogs returned ${res.status}`);
       const label = rel.labels?.[0];
       const descriptions = (rel.formats ?? [])
         .flatMap((f: { descriptions?: string[] }) => f.descriptions ?? [])
@@ -1515,13 +1699,14 @@ export default function AdminClient() {
       .in("id", ids);
     setBulkSaving(false);
     if (error) {
-      setLoadError(error.message);
+      pushToast("error", `Bulk ${label} update failed: ${error.message}`);
       return;
     }
     const idSet = new Set(ids);
     setRecords((prev) =>
       prev.map((r) => (idSet.has(r.id) ? { ...r, ...patch } : r))
     );
+    pushToast("success", `${label} ${value ? "on" : "off"} for ${ids.length} record${ids.length === 1 ? "" : "s"} ✓`);
   }
 
   if (!authReady) {
@@ -1617,6 +1802,15 @@ export default function AdminClient() {
             <span>{session.user.email}</span>
             <button
               type="button"
+              onClick={loadData}
+              disabled={loading}
+              title="Reload everything from the database — useful after working in another tab"
+              className={buttonClass}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+            <button
+              type="button"
               onClick={() =>
                 setCollapsed(allCollapsed ? new Set() : new Set(SECTIONS))
               }
@@ -1636,12 +1830,67 @@ export default function AdminClient() {
         </div>
 
         {loadError ? (
-          <p className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {loadError}
-          </p>
+          <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <p>{loadError}</p>
+            <button
+              type="button"
+              onClick={() => setLoadError("")}
+              aria-label="Dismiss error"
+              className="text-red-300 transition hover:text-white"
+            >
+              ×
+            </button>
+          </div>
         ) : null}
 
+        {/* Section jump nav — the page is long; this stays pinned on scroll */}
+        <nav
+          aria-label="Page sections"
+          className="sticky top-0 z-20 mt-6 flex flex-wrap gap-1.5 rounded-xl border border-white/10 bg-neutral-950/95 p-2 backdrop-blur"
+        >
+          {(
+            [
+              ["reddit", "Reddit", 0],
+              ["requests", "Requests", orderRequests.length],
+              ["fulfillment", "Fulfillment", draftParcelCount],
+              ["pending", "Pending", pending.length],
+              ["add", "Add"],
+              ["listings", "Listings", records.length],
+              ["runs", "Runs"],
+              ["account", "Account"],
+            ] as [SectionKey, string, number?][]
+          ).map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => jumpToSection(key)}
+              className={`rounded-lg border border-white/10 px-2.5 py-1 text-xs transition hover:bg-white hover:text-black ${
+                key === "requests" && newRequestCount > 0
+                  ? "text-amber-300"
+                  : "text-neutral-300"
+              }`}
+            >
+              {label}
+              {count ? ` (${count})` : ""}
+            </button>
+          ))}
+        </nav>
+
         {/* Collection value summary */}
+        {loading && records.length === 0 ? (
+          <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {["For sale", "Sold", "Hidden"].map((label) => (
+              <div
+                key={label}
+                className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5"
+              >
+                <p className="text-sm text-neutral-400">{label}</p>
+                <p className="mt-2 h-7 w-24 rounded bg-white/10" />
+                <p className="mt-2 h-3 w-32 rounded bg-white/5" />
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <p className="text-sm text-neutral-400">For sale</p>
@@ -1674,6 +1923,7 @@ export default function AdminClient() {
             </p>
           </div>
         </div>
+        )}
 
         {/* Reddit tools */}
         {sectionHeading("reddit", "Reddit tools", "mt-10 text-xl font-medium")}
@@ -1987,6 +2237,7 @@ export default function AdminClient() {
                               <input
                                 type="radio"
                                 name={`ambiguous-${i}`}
+                                className="admin-radio"
                                 checked={parseResult.choices[i] === undefined}
                                 onChange={() =>
                                   setParseResult((prev) => {
@@ -2011,6 +2262,7 @@ export default function AdminClient() {
                                   <input
                                     type="radio"
                                     name={`ambiguous-${i}`}
+                                    className="admin-radio"
                                     checked={parseResult.choices[i] === c.id}
                                     onChange={() =>
                                       setParseResult((prev) =>
@@ -2061,10 +2313,10 @@ export default function AdminClient() {
                   <button
                     type="button"
                     className={buttonClass}
-                    disabled={parsedSelectionIds().length === 0}
+                    disabled={parsedIds.length === 0}
                     onClick={applyParsedSelection}
                   >
-                    Add {parsedSelectionIds().length} to sale desk
+                    Add {parsedIds.length} to sale desk
                   </button>
                 ) : null}
               </div>
@@ -2435,6 +2687,17 @@ export default function AdminClient() {
             <option value="shown">Shown only</option>
             <option value="hidden">Hidden only</option>
           </select>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="artist">Sort: Artist A–Z</option>
+            <option value="price-desc">Price high → low</option>
+            <option value="price-asc">Price low → high</option>
+            <option value="interest">Most interest</option>
+            <option value="added">Newest added</option>
+          </select>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <button
@@ -2475,7 +2738,7 @@ export default function AdminClient() {
         {selectedIds.size > 0 ? (
           <div
             id="sale-desk"
-            className="sticky top-0 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur"
+            className="sticky top-12 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-white">
@@ -2501,6 +2764,13 @@ export default function AdminClient() {
               <p className="mt-2 text-xs text-amber-400">
                 {saleSoldCount} selected record{saleSoldCount === 1 ? " is" : "s are"}{" "}
                 already sold and will be skipped.
+              </p>
+            ) : null}
+            {offFilterSelectedCount > 0 ? (
+              <p className="mt-2 text-xs text-amber-400">
+                {offFilterSelectedCount} selected record
+                {offFilterSelectedCount === 1 ? " is" : "s are"} hidden by the
+                current filters but still included in these actions.
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2615,6 +2885,12 @@ export default function AdminClient() {
                         filteredRecords.length > 0 &&
                         filteredRecords.every((r) => selectedIds.has(r.id))
                       }
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            filteredRecords.some((r) => selectedIds.has(r.id)) &&
+                            !filteredRecords.every((r) => selectedIds.has(r.id));
+                      }}
                       onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
                       className="admin-checkbox"
                     />
@@ -2633,6 +2909,12 @@ export default function AdminClient() {
                         filteredRecords.length > 0 &&
                         filteredRecords.every((r) => r.listed)
                       }
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            filteredRecords.some((r) => r.listed) &&
+                            !filteredRecords.every((r) => r.listed);
+                      }}
                       disabled={bulkSaving}
                       onChange={(e) =>
                         toggleAllFiltered("listed", e.target.checked)
@@ -2651,6 +2933,12 @@ export default function AdminClient() {
                         filteredRecords.length > 0 &&
                         filteredRecords.every((r) => r.sold)
                       }
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            filteredRecords.some((r) => r.sold) &&
+                            !filteredRecords.every((r) => r.sold);
+                      }}
                       disabled={bulkSaving}
                       onChange={(e) =>
                         toggleAllFiltered("sold", e.target.checked)
@@ -2663,6 +2951,17 @@ export default function AdminClient() {
               </tr>
             </thead>
             <tbody>
+              {filteredRecords.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-10 text-center text-sm text-neutral-500"
+                  >
+                    No records match the current filters — try clearing the
+                    search or a filter above.
+                  </td>
+                </tr>
+              ) : null}
               {filteredRecords.map((r) => {
                 const edited =
                   priceEdits[r.id] !== undefined &&
@@ -2696,6 +2995,7 @@ export default function AdminClient() {
                             }))
                           }
                           onBlur={() => saveGenres(r)}
+                          onKeyDown={blurOnEnter}
                           placeholder="Genres"
                           title="Comma-separated genres — saves when you click away"
                           className={`w-44 ${inputClass}`}
@@ -2710,6 +3010,7 @@ export default function AdminClient() {
                             }))
                           }
                           onBlur={() => saveCollection(r)}
+                          onKeyDown={blurOnEnter}
                           placeholder="Collection"
                           title="Collection tag like VMP or IVC — saves when you click away"
                           className={`w-28 ${inputClass}`}
@@ -2838,6 +3139,9 @@ export default function AdminClient() {
                               [r.id]: e.target.value,
                             }))
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && edited) savePrice(r);
+                          }}
                           className={`w-20 ${inputClass}`}
                         />
                         {edited ? (
@@ -2940,6 +3244,7 @@ export default function AdminClient() {
                                 }))
                               }
                               onBlur={() => saveBuyer(r)}
+                              onKeyDown={blurOnEnter}
                               placeholder="buyer"
                               className={`w-28 ${inputClass}`}
                             />
@@ -2977,24 +3282,29 @@ export default function AdminClient() {
                                 }))
                               }
                               onBlur={() => saveSoldPrice(r)}
+                              onKeyDown={blurOnEnter}
                               placeholder="sold for"
                               className={`w-24 ${inputClass}`}
                             />
-                            <input
-                              type="text"
-                              value={
-                                trackingEdits[r.id] ?? r.tracking_number ?? ""
-                              }
-                              onChange={(e) =>
-                                setTrackingEdits((prev) => ({
-                                  ...prev,
-                                  [r.id]: e.target.value,
-                                }))
-                              }
-                              onBlur={() => saveTracking(r)}
-                              placeholder="tracking #"
-                              className={`w-40 ${inputClass}`}
-                            />
+                            {/* Tracking lives on parcels in Fulfillment —
+                                shown read-only here so the two can't disagree */}
+                            {r.tracking_number ? (
+                              <span
+                                className="font-mono text-xs text-neutral-400"
+                                title="Tracking number, managed per parcel in the Fulfillment section"
+                              >
+                                {r.tracking_number}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => jumpToSection("fulfillment")}
+                                title="Tracking numbers are managed per parcel in the Fulfillment section"
+                                className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                              >
+                                add tracking in Fulfillment
+                              </button>
+                            )}
                           </div>
                           {r.discogs_release_id ? (
                             <div className="flex items-center gap-2 text-xs">
@@ -3033,10 +3343,45 @@ export default function AdminClient() {
                             Release hold
                           </button>
                         </div>
+                      ) : holdEditId === r.id ? (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-neutral-500">u/</span>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={holdBuyerInput}
+                            onChange={(e) => setHoldBuyerInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") confirmHold(r);
+                              if (e.key === "Escape") setHoldEditId(null);
+                            }}
+                            placeholder="reddit buyer"
+                            className={`w-28 ${inputClass}`}
+                          />
+                          <button
+                            type="button"
+                            disabled={!holdBuyerInput.trim() || savingId === r.id}
+                            onClick={() => confirmHold(r)}
+                            className="rounded-lg border border-white/15 px-2 py-1 text-white transition hover:bg-white hover:text-black disabled:opacity-40"
+                          >
+                            Hold 48h
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoldEditId(null)}
+                            aria-label="Cancel hold"
+                            className="text-neutral-500 transition hover:text-white"
+                          >
+                            ×
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
-                          onClick={() => startHold(r)}
+                          onClick={() => {
+                            setHoldEditId(r.id);
+                            setHoldBuyerInput(r.hold_buyer ?? "");
+                          }}
                           title="Reserve for a buyer for 48 hours — the public card shows On hold"
                           className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                         >
@@ -3109,6 +3454,9 @@ export default function AdminClient() {
                                 above cheapest Discogs listing
                                 {s.for_sale != null
                                   ? ` · ${s.for_sale} for sale`
+                                  : ""}
+                                {s.ebay_median != null
+                                  ? ` · eBay median $${s.ebay_median}`
                                   : ""}{" "}
                                 — approve the cut under Pending price changes
                               </span>
@@ -3124,6 +3472,9 @@ export default function AdminClient() {
                                 auto-undercut cheapest listing
                                 {s.for_sale != null
                                   ? ` · ${s.for_sale} for sale`
+                                  : ""}
+                                {s.ebay_median != null
+                                  ? ` · eBay median $${s.ebay_median}`
                                   : ""}
                               </span>
                             </>
@@ -3142,6 +3493,9 @@ export default function AdminClient() {
                                 {s.action === "applied"
                                   ? "auto-applied"
                                   : "flagged for approval"}
+                                {s.ebay_median != null
+                                  ? ` · eBay median $${s.ebay_median}`
+                                  : ""}
                               </span>
                             </>
                           )}
@@ -3190,6 +3544,85 @@ export default function AdminClient() {
           </>
         )}
       </section>
+
+      {/* Toast stack — action feedback that's visible from anywhere on the page */}
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed bottom-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+      >
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur ${
+              t.kind === "error"
+                ? "border-red-500/40 bg-red-950/90 text-red-200"
+                : t.kind === "success"
+                  ? "border-emerald-500/40 bg-emerald-950/90 text-emerald-200"
+                  : "border-white/20 bg-neutral-900/95 text-neutral-200"
+            }`}
+          >
+            <span>{t.text}</span>
+            <span className="flex shrink-0 items-center gap-2">
+              {t.action ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    t.action!.onClick();
+                    dismissToast(t.id);
+                  }}
+                  className="rounded-md border border-white/25 px-2 py-0.5 text-xs text-white transition hover:bg-white hover:text-black"
+                >
+                  {t.action.label}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => dismissToast(t.id)}
+                aria-label="Dismiss"
+                className="text-current opacity-60 transition hover:opacity-100"
+              >
+                ×
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Clipboard fallback — shown when navigator.clipboard is unavailable */}
+      {clipboardFallback ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setClipboardFallback(null)}
+        >
+          <div
+            role="dialog"
+            aria-label={clipboardFallback.title}
+            className="w-full max-w-2xl rounded-2xl border border-white/15 bg-neutral-950 p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm text-neutral-300">
+              {clipboardFallback.title} — automatic copy was blocked, so select
+              and copy it from here:
+            </p>
+            <textarea
+              readOnly
+              autoFocus
+              value={clipboardFallback.text}
+              onFocus={(e) => e.currentTarget.select()}
+              rows={12}
+              className={`mt-3 w-full resize-y ${inputClass} font-mono text-xs`}
+            />
+            <button
+              type="button"
+              onClick={() => setClipboardFallback(null)}
+              className={`mt-3 ${buttonClass}`}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -27,3 +27,37 @@
   opacity: 0.4;
   cursor: default;
 }
+.admin-checkbox:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+.admin-checkbox:indeterminate {
+  background-color: rgba(255, 255, 255, 0.7);
+  border-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23000' stroke-width='3.5' stroke-linecap='round' d='M3.5 8h9'/%3E%3C/svg%3E");
+  background-size: 0.8rem;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Admin radios: same white-on-dark treatment as the checkboxes */
+.admin-radio {
+  appearance: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+.admin-radio:checked {
+  border-color: #fff;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='%23000'/%3E%3C/svg%3E");
+  background-size: 100%;
+}
+.admin-radio:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}

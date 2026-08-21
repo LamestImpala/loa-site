@@ -515,6 +515,7 @@ export function FulfillmentPanel({
                         >
                           <input
                             type="checkbox"
+                            className="admin-checkbox"
                             checked={(selected[g.key] ?? []).includes(r.id)}
                             onChange={(e) =>
                               setSelected((prev) => {
