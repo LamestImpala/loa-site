@@ -76,12 +76,18 @@ export type InvoiceResult = {
   warning?: string;
 };
 
-// Reads a paid invoice's PayPal transaction id. Invoices marked paid
-// offline (cash/Venmo recorded by hand) have no transaction, so tracking
-// can't be attached to them — callers must handle transactionId: null.
-export async function getInvoicePayment(
-  invoiceId: string
-): Promise<{ status: string; transactionId: string | null }> {
+// Reads a paid invoice's PayPal transaction id, plus the shipping the
+// buyer was charged (off the invoice's amount breakdown) and the payment
+// date (which scopes the Transaction Search window for the fee lookup).
+// Invoices marked paid offline (cash/Venmo recorded by hand) have no
+// transaction, so tracking can't be attached to them — callers must
+// handle transactionId: null.
+export async function getInvoicePayment(invoiceId: string): Promise<{
+  status: string;
+  transactionId: string | null;
+  shippingCharged: number | null;
+  paymentDate: string | null; // "2026-08-20"
+}> {
   const token = await getPayPalAccessToken();
   const res = await fetch(
     `${paypalBase()}/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}`,
@@ -94,13 +100,69 @@ export async function getInvoicePayment(
     );
   }
   const invoice = await res.json().catch(() => ({}));
-  const transactions: { payment_id?: string; type?: string }[] =
-    invoice?.payments?.transactions ?? [];
+  const transactions: {
+    payment_id?: string;
+    type?: string;
+    payment_date?: string;
+  }[] = invoice?.payments?.transactions ?? [];
   const withId = transactions.find((t) => t.payment_id);
+  const shippingRaw = invoice?.amount?.breakdown?.shipping?.amount?.value;
+  const shipping = shippingRaw == null ? NaN : Number(shippingRaw);
   return {
     status: invoice?.status ?? "UNKNOWN",
     transactionId: withId?.payment_id ?? null,
+    shippingCharged: Number.isFinite(shipping) ? shipping : null,
+    paymentDate: withId?.payment_date ?? null,
   };
+}
+
+// The seller fee PayPal took on a transaction, via the Transaction Search
+// API (requires the "Transaction Search" feature on the PayPal app).
+// Transactions surface there a few hours after payment, so null means
+// "not published yet — retry later", while a disabled feature throws.
+export async function getTransactionFee(
+  transactionId: string,
+  paymentDate: string | null
+): Promise<number | null> {
+  const token = await getPayPalAccessToken();
+  // Search windows are mandatory: bracket the payment date, or fall back
+  // to the last 30 days (the API caps windows at 31 days).
+  const day = 24 * 3600 * 1000;
+  const anchor = paymentDate ? new Date(`${paymentDate}T00:00:00Z`) : null;
+  const start =
+    anchor && !Number.isNaN(anchor.getTime())
+      ? new Date(anchor.getTime() - day)
+      : new Date(Date.now() - 30 * day);
+  const end =
+    anchor && !Number.isNaN(anchor.getTime())
+      ? new Date(anchor.getTime() + 2 * day)
+      : new Date();
+  const fmt = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "-0000");
+  const res = await fetch(
+    `${paypalBase()}/v1/reporting/transactions?transaction_id=${encodeURIComponent(
+      transactionId
+    )}&fields=transaction_info&start_date=${encodeURIComponent(
+      fmt(start)
+    )}&end_date=${encodeURIComponent(fmt(end))}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (res.status === 403) {
+    throw new Error(
+      "Transaction Search isn't active on the PayPal app yet — it can take a few hours after enabling."
+    );
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `PayPal transaction lookup failed (${res.status}) ${detail.slice(0, 300)}`
+    );
+  }
+  const body = await res.json().catch(() => ({}));
+  const feeRaw =
+    body?.transaction_details?.[0]?.transaction_info?.fee_amount?.value;
+  if (feeRaw == null) return null;
+  const fee = Math.abs(Number(feeRaw)); // reported as a negative amount
+  return Number.isFinite(fee) ? fee : null;
 }
 
 // Trackers already attached to a transaction — e.g. from shipping labels

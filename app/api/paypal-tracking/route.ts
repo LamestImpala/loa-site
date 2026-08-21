@@ -10,6 +10,7 @@ import {
   addTrackers,
   cancelTracker,
   getInvoicePayment,
+  getTransactionFee,
   listTrackers,
   paypalConfigured,
   type TrackerInput,
@@ -91,7 +92,8 @@ export async function POST(req: NextRequest) {
 }
 
 async function pull(supabase: SupabaseClient, invoiceId: string) {
-  const { status, transactionId } = await getInvoicePayment(invoiceId);
+  const { status, transactionId, shippingCharged, paymentDate } =
+    await getInvoicePayment(invoiceId);
   if (!PAID_STATUSES.has(status)) {
     return NextResponse.json({
       error: `Invoice isn't paid yet (${status}) — sync again after payment.`,
@@ -181,11 +183,44 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     }
   }
 
+  // Auto-fill the invoice's money facts: shipping charged comes straight
+  // off the invoice, the fee from Transaction Search (which publishes a
+  // few hours after payment — null means try again later). Only known
+  // values are written, so a pending fee never clobbers a typed one.
+  let paypalFee: number | null = null;
+  let feeNote: string | null = null;
+  try {
+    paypalFee = await getTransactionFee(transactionId, paymentDate);
+    if (paypalFee == null) {
+      feeNote = "PayPal hasn't published the fee yet — sync again later.";
+    }
+  } catch (e) {
+    feeNote = e instanceof Error ? e.message : "Fee lookup failed.";
+  }
+  let invoiceRow: unknown = null;
+  if (shippingCharged != null || paypalFee != null) {
+    const patch: Record<string, unknown> = {
+      paypal_invoice_id: invoiceId,
+      updated_at: new Date().toISOString(),
+    };
+    if (shippingCharged != null) patch.shipping_charged = shippingCharged;
+    if (paypalFee != null) patch.paypal_fee = paypalFee;
+    const { data, error } = await supabase
+      .from("invoices")
+      .upsert(patch)
+      .select()
+      .single();
+    if (error) feeNote = `Saving invoice costs failed: ${error.message}`;
+    else invoiceRow = data;
+  }
+
   return NextResponse.json({
     transactionId,
     trackersFound: trackers.length,
     created,
     shipments: [...shipments, ...created],
+    invoice: invoiceRow,
+    feeNote,
   });
 }
 
