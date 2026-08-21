@@ -466,12 +466,41 @@ export function FulfillmentPanel({
             onRecordPatched(id, { tracking_number: s.tracking_code });
         }
       }
+      // The route also reads the invoice's shipping charge and (via
+      // Transaction Search) the PayPal fee — reflect what it recorded.
+      const inv = (body.invoice ?? null) as Invoice | null;
+      if (inv) {
+        onInvoicesChange((prev) => [
+          inv,
+          ...prev.filter(
+            (x) => x.paypal_invoice_id !== inv.paypal_invoice_id
+          ),
+        ]);
+        setCostEdits((prev) => {
+          const next = { ...prev };
+          delete next[`${g.key}:paypal_fee`];
+          delete next[`${g.key}:shipping_charged`];
+          return next;
+        });
+      }
+      const costBits = [
+        inv?.paypal_fee != null ? `fee $${inv.paypal_fee}` : null,
+        inv?.shipping_charged != null
+          ? `shipping $${inv.shipping_charged}`
+          : null,
+      ].filter(Boolean);
       const created = ((body.created ?? []) as Shipment[]).length;
       note(
         g.key,
-        `Found ${body.trackersFound ?? 0} tracking number${
-          body.trackersFound === 1 ? "" : "s"
-        } in PayPal${created ? `, ${created} new` : ""}.`
+        [
+          `Found ${body.trackersFound ?? 0} tracking number${
+            body.trackersFound === 1 ? "" : "s"
+          } in PayPal${created ? `, ${created} new` : ""}.`,
+          costBits.length ? `Recorded ${costBits.join(" · ")}.` : null,
+          (body.feeNote as string | null) ?? null,
+        ]
+          .filter(Boolean)
+          .join(" ")
       );
     } catch (e) {
       note(g.key, e instanceof Error ? e.message : "Sync failed");
@@ -674,7 +703,7 @@ export function FulfillmentPanel({
                     type="button"
                     onClick={() => syncFromPayPal(g)}
                     disabled={!invoiceValue.trim() || groupBusy}
-                    title="Read tracking numbers from labels bought inside PayPal on this invoice"
+                    title="Record the invoice's PayPal fee and shipping charge, and read tracking from labels bought via the transaction page (PayPal Shipping labels don't appear — mark those parcels 'PayPal label')"
                     className={buttonClass}
                   >
                     {groupBusy ? "Working…" : "Sync from PayPal"}
