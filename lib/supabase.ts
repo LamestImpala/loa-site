@@ -72,6 +72,8 @@ export type Invoice = {
   paypal_invoice_id: string;
   paypal_fee: number | null; // PayPal's transaction fee (a cost)
   shipping_charged: number | null; // shipping the buyer paid (income)
+  paid_at: string | null; // set by the pull sync once PayPal reports the invoice paid
+  reddit_thread_url: string | null; // per-sale confirmation thread; blank = the saved sale post
   created_at: string;
   updated_at: string;
 };
