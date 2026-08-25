@@ -99,10 +99,24 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
       error: `Invoice isn't paid yet (${status}) — sync again after payment.`,
     });
   }
+  // Payment confirmed — record it so the paid state survives reloads
+  // (PayPal is the only source of truth for it).
+  const paidAt = paymentDate ?? new Date().toISOString();
   if (!transactionId) {
+    const { data: offlineRow } = await supabase
+      .from("invoices")
+      .upsert({
+        paypal_invoice_id: invoiceId,
+        paid_at: paidAt,
+        ...(shippingCharged != null ? { shipping_charged: shippingCharged } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
     return NextResponse.json({
       error:
         "Invoice was marked paid outside PayPal — no transaction to read tracking from.",
+      invoice: offlineRow ?? null,
     });
   }
 
@@ -198,9 +212,10 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     feeNote = e instanceof Error ? e.message : "Fee lookup failed.";
   }
   let invoiceRow: unknown = null;
-  if (shippingCharged != null || paypalFee != null) {
+  {
     const patch: Record<string, unknown> = {
       paypal_invoice_id: invoiceId,
+      paid_at: paidAt,
       updated_at: new Date().toISOString(),
     };
     if (shippingCharged != null) patch.shipping_charged = shippingCharged;

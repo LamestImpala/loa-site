@@ -56,6 +56,38 @@ const needsRepush = (s: Shipment) =>
 const pushNotNeeded = (s: Shipment) =>
   s.mode === "paypal" && !s.paypal_tracker_id;
 
+// r/VinylCollectors trade confirmations: u/VinylSwapBot only reads plain-text
+// u/ mentions (hyperlinked tags are invisible to it) and only counts NEW
+// top-level comments on the thread the sale came from — edits don't register.
+// Credit lands once the buyer replies to the comment.
+const SWAP_BOT = "u/VinylSwapBot";
+
+function confirmationComment(buyer: string, records: DbRecord[]) {
+  const list = [...records].sort((a, b) =>
+    `${a.artist} ${a.title}`.localeCompare(`${b.artist} ${b.title}`)
+  );
+  return [
+    SWAP_BOT,
+    "",
+    `Confirming my sale to u/${buyer}:`,
+    "",
+    ...list.map((r) => `- ${r.artist} — ${r.title}`),
+    "",
+    `Thanks for a smooth transaction, u/${buyer}! Please reply to this comment to confirm so the bot credits us both.`,
+  ].join("\n");
+}
+
+function buyerNudge(buyer: string, threadUrl: string) {
+  const where = threadUrl
+    ? `here: ${threadUrl}`
+    : "on the r/VinylCollectors post the sale came from";
+  return [
+    `Hey u/${buyer} — thanks again for the order! I posted our trade confirmation ${where}`,
+    "",
+    `When you get a minute, could you reply to my comment there (a quick "Confirmed" is perfect)? That way ${SWAP_BOT} counts the trade for both of us. Cheers!`,
+  ].join("\n");
+}
+
 type Group = {
   key: string;
   buyer: string;
@@ -76,6 +108,8 @@ export function FulfillmentPanel({
   onInvoicesChange,
   onRecordPatched,
   getAccessToken,
+  copyText,
+  defaultThreadUrl,
 }: {
   records: DbRecord[]; // sold records only
   shipments: Shipment[];
@@ -87,6 +121,9 @@ export function FulfillmentPanel({
   onInvoicesChange: (update: (prev: Invoice[]) => Invoice[]) => void;
   onRecordPatched: (id: number, patch: Partial<DbRecord>) => void;
   getAccessToken: () => Promise<string>;
+  // Shared clipboard helper — falls back to a copy-by-hand modal upstream.
+  copyText: (text: string, fallbackTitle: string) => Promise<boolean>;
+  defaultThreadUrl: string; // the saved sale-post URL (settings reddit_post_url)
 }) {
   const [showDone, setShowDone] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -96,6 +133,9 @@ export function FulfillmentPanel({
   const [postageEdits, setPostageEdits] = useState<Record<number, string>>({});
   // Keyed `${group key}:paypal_fee` / `${group key}:shipping_charged`.
   const [costEdits, setCostEdits] = useState<Record<string, string>>({});
+  const [threadEdits, setThreadEdits] = useState<Record<string, string>>({});
+  // `${group key}:confirm` / `${group key}:nudge` — transient "Copied!" label.
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // group key or `ship-${id}`
   const [notes, setNotes] = useState<Record<string, string>>({}); // group key or shipment id -> status text
 
@@ -358,6 +398,79 @@ export function FulfillmentPanel({
     note(g.key, "");
   }
 
+  async function saveThreadUrl(g: Group) {
+    const raw = threadEdits[g.key];
+    if (raw === undefined) return;
+    const invoiceId = (invoiceEdits[g.key] ?? g.invoiceId).trim();
+    if (!invoiceId) return;
+    const value = raw.trim();
+    const stored = invoiceById.get(invoiceId)?.reddit_thread_url ?? "";
+    if (value === stored) return;
+    const { data, error } = await supabase
+      .from("invoices")
+      .upsert({
+        paypal_invoice_id: invoiceId,
+        reddit_thread_url: value || null,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) {
+      note(g.key, `Saving the thread URL failed: ${error.message}`);
+      return;
+    }
+    const saved = data as Invoice;
+    onInvoicesChange((prev) => [
+      saved,
+      ...prev.filter((inv) => inv.paypal_invoice_id !== invoiceId),
+    ]);
+    setThreadEdits((prev) => {
+      const next = { ...prev };
+      delete next[g.key];
+      return next;
+    });
+    note(g.key, "");
+  }
+
+  function threadUrlFor(g: Group, invoice: Invoice | undefined) {
+    return (
+      (threadEdits[g.key] ?? invoice?.reddit_thread_url ?? "").trim() ||
+      defaultThreadUrl.trim()
+    );
+  }
+
+  function flashCopied(key: string) {
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
+  }
+
+  async function copyTradeConfirmation(g: Group, invoice: Invoice | undefined) {
+    // Copy before anything else — Safari only allows clipboard writes in the
+    // synchronous part of the click gesture.
+    const ok = await copyText(
+      confirmationComment(g.buyer, g.records),
+      "Copy the trade confirmation comment"
+    );
+    if (ok) flashCopied(`${g.key}:confirm`);
+    const url = threadUrlFor(g, invoice);
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      note(
+        g.key,
+        "No thread URL — save the sale post in the Reddit section or type one here."
+      );
+    }
+  }
+
+  async function copyBuyerNudge(g: Group, invoice: Invoice | undefined) {
+    const ok = await copyText(
+      buyerNudge(g.buyer, threadUrlFor(g, invoice)),
+      "Copy the buyer nudge"
+    );
+    if (ok) flashCopied(`${g.key}:nudge`);
+  }
+
   async function toggleMember(s: Shipment, recordId: number, add: boolean) {
     const current = s.record_ids ?? [];
     const next = add
@@ -443,6 +556,25 @@ export function FulfillmentPanel({
     note(g.key, "Syncing…");
     try {
       const body = await callApi({ action: "pull", invoiceId });
+      // The route reads the invoice's paid date, shipping charge and (via
+      // Transaction Search) the PayPal fee — reflect what it recorded. This
+      // runs before the error return: an invoice marked paid offline still
+      // comes back with a row so the confirmation buttons appear.
+      const inv = (body.invoice ?? null) as Invoice | null;
+      if (inv) {
+        onInvoicesChange((prev) => [
+          inv,
+          ...prev.filter(
+            (x) => x.paypal_invoice_id !== inv.paypal_invoice_id
+          ),
+        ]);
+        setCostEdits((prev) => {
+          const next = { ...prev };
+          delete next[`${g.key}:paypal_fee`];
+          delete next[`${g.key}:shipping_charged`];
+          return next;
+        });
+      }
       if (body.error) {
         note(g.key, String(body.error));
         return;
@@ -465,23 +597,6 @@ export function FulfillmentPanel({
           if (s.tracking_code)
             onRecordPatched(id, { tracking_number: s.tracking_code });
         }
-      }
-      // The route also reads the invoice's shipping charge and (via
-      // Transaction Search) the PayPal fee — reflect what it recorded.
-      const inv = (body.invoice ?? null) as Invoice | null;
-      if (inv) {
-        onInvoicesChange((prev) => [
-          inv,
-          ...prev.filter(
-            (x) => x.paypal_invoice_id !== inv.paypal_invoice_id
-          ),
-        ]);
-        setCostEdits((prev) => {
-          const next = { ...prev };
-          delete next[`${g.key}:paypal_fee`];
-          delete next[`${g.key}:shipping_charged`];
-          return next;
-        });
       }
       const costBits = [
         inv?.paypal_fee != null ? `fee $${inv.paypal_fee}` : null,
@@ -652,6 +767,7 @@ export function FulfillmentPanel({
         !inPayPal(s) &&
         !pushNotNeeded(s)
     );
+    const paid = !!invoice?.paid_at;
     return (
               <div
                 key={g.key}
@@ -678,6 +794,15 @@ export function FulfillmentPanel({
                     · {g.shipments.length} parcel
                     {g.shipments.length === 1 ? "" : "s"}
                   </span>
+                  {paid ? (
+                    <span
+                      className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-400"
+                      title="PayPal reported this invoice paid on the last sync"
+                    >
+                      Paid{" "}
+                      {new Date(invoice!.paid_at!).toLocaleDateString()}
+                    </span>
+                  ) : null}
                   {g.done ? (
                     <span className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-400">
                       Fulfilled
@@ -718,6 +843,54 @@ export function FulfillmentPanel({
                     >
                       Push {pushables.length} to PayPal
                     </button>
+                  ) : null}
+                  {paid && g.records.length > 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => copyTradeConfirmation(g, invoice)}
+                        disabled={!g.buyer}
+                        title={
+                          g.buyer
+                            ? "Copies the r/VinylCollectors confirmation comment (plain-text u/ tags — the bot can't read links) and opens the thread. Paste it as a NEW top-level comment; editing an old comment doesn't count."
+                            : "Set the buyer's Reddit username on the records first."
+                        }
+                        className={buttonClass}
+                      >
+                        {copiedKey === `${g.key}:confirm`
+                          ? "Copied!"
+                          : "Copy trade confirmation"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyBuyerNudge(g, invoice)}
+                        disabled={!g.buyer}
+                        title="Copies a DM asking the buyer to reply to the confirmation comment so the bot credits the trade"
+                        className={buttonClass}
+                      >
+                        {copiedKey === `${g.key}:nudge`
+                          ? "Copied!"
+                          : "Copy buyer nudge"}
+                      </button>
+                      <input
+                        type="text"
+                        value={
+                          threadEdits[g.key] ??
+                          invoice?.reddit_thread_url ??
+                          ""
+                        }
+                        onChange={(e) =>
+                          setThreadEdits((prev) => ({
+                            ...prev,
+                            [g.key]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => saveThreadUrl(g)}
+                        placeholder="confirmation thread URL (this sale)"
+                        title="Used instead of the saved sale-post URL for this sale — e.g. when it came from a weekly post. Blank = default."
+                        className={`w-72 ${inputClass}`}
+                      />
+                    </>
                   ) : null}
                   {invoiceValue.trim() ? (
                     <>

@@ -2443,6 +2443,8 @@ export default function AdminClient() {
               } = await supabase.auth.getSession();
               return current?.access_token ?? "";
             }}
+            copyText={copyText}
+            defaultThreadUrl={postUrl}
           />
         )}
 
