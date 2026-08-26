@@ -38,8 +38,8 @@ export type DbRecord = {
 };
 
 // One parcel of a sale. mode "manual" = tracking typed in the admin,
-// "paypal" = tracking pulled from a label bought inside PayPal. The
-// easypost_* / label columns belong to a future label-buying flow.
+// "paypal" = tracking pulled from a label bought inside PayPal — all
+// labels are bought through PayPal.
 export type Shipment = {
   id: number;
   created_at: string;
@@ -50,8 +50,6 @@ export type Shipment = {
   address_verified: boolean | null;
   parcel: Record<string, unknown>;
   paypal_invoice_id: string | null;
-  easypost_shipment_id: string | null;
-  easypost_rate_id: string | null;
   rate_amount: number | null;
   service: string | null;
   label_url: string | null;
