@@ -14,6 +14,7 @@ import {
   SELLER_INFO,
   artistLetter,
   bundleBreakdown,
+  makeRefCode,
 } from "@/lib/records";
 import {
   ADMIN_EMAIL,
@@ -230,6 +231,9 @@ const buttonClass =
 function pct(n: number) {
   return `${n > 0 ? "+" : ""}${(n * 100).toFixed(1)}%`;
 }
+
+const holdActive = (r: DbRecord) =>
+  !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -864,9 +868,6 @@ export default function AdminClient() {
     }
   }
 
-  const holdActive = (r: DbRecord) =>
-    !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
-
   // Inline hold editor (which row is asking for a buyer name, and the draft)
   const [holdEditId, setHoldEditId] = useState<number | null>(null);
   const [holdBuyerInput, setHoldBuyerInput] = useState("");
@@ -1438,6 +1439,31 @@ export default function AdminClient() {
     rows: LineMatch[];
     choices: Record<number, number>; // row index -> chosen record id
   }>(null);
+  const [saveParsedChecked, setSaveParsedChecked] = useState(true);
+
+  // Orders in progress that have no inbox card: unsold records with an
+  // active hold, grouped per buyer.
+  const activeHolds = useMemo(() => {
+    const groups = new Map<string, DbRecord[]>();
+    for (const r of records) {
+      if (r.sold || !holdActive(r)) continue;
+      const buyer = (r.hold_buyer ?? "").trim() || "(no buyer name)";
+      const list = groups.get(buyer);
+      if (list) list.push(r);
+      else groups.set(buyer, [r]);
+    }
+    return [...groups.entries()]
+      .map(([buyer, recs]) => ({
+        buyer,
+        recs,
+        // Holds in a group can expire at different times; show the soonest.
+        until: recs.reduce(
+          (min, r) => Math.min(min, new Date(r.hold_until!).getTime()),
+          Infinity
+        ),
+      }))
+      .sort((a, b) => a.until - b.until);
+  }, [records]);
 
   // Replace the sale-desk selection (with confirmation when it differs),
   // open the Listings section, and scroll to the sticky bar.
@@ -1490,6 +1516,40 @@ export default function AdminClient() {
         );
       }
     }
+  }
+
+  function loadHoldIntoSaleDesk(group: { buyer: string; recs: DbRecord[] }) {
+    if (!applySaleSelection(group.recs.map((r) => r.id))) return;
+    // Seed the buyer field like a row-toggle would, without clobbering a
+    // name the admin already typed.
+    setSaleBuyer((prev) =>
+      prev.trim() || group.buyer.startsWith("(") ? prev : group.buyer
+    );
+  }
+
+  // Track a paste-parsed order in the inbox like any buyer-submitted request.
+  // The insert goes through the same validation trigger, so ids are
+  // revalidated and totals recomputed server-side.
+  async function saveParsedRequest(ids: number[]) {
+    const { data, error } = await supabase
+      .from("order_requests")
+      .insert({ ref_code: makeRefCode(), record_ids: ids })
+      .select()
+      .single();
+    if (error || !data) {
+      console.warn("could not save parsed order as request:", error?.message);
+      return;
+    }
+    // It's going straight onto the sale desk, so it starts out loaded.
+    const { error: statusError } = await supabase
+      .from("order_requests")
+      .update({ status: "loaded", updated_at: new Date().toISOString() })
+      .eq("id", data.id);
+    const saved = {
+      ...(data as OrderRequest),
+      status: statusError ? "new" : "loaded",
+    } as OrderRequest;
+    setOrderRequests((prev) => [saved, ...prev]);
   }
 
   async function updateRequestStatus(
@@ -1577,6 +1637,11 @@ export default function AdminClient() {
   function applyParsedSelection() {
     if (parsedIds.length === 0) return;
     if (!applySaleSelection(parsedIds)) return;
+    // Don't double-track: a DM whose ref matched a saved request is already
+    // in the inbox.
+    if (saveParsedChecked && !parseResult?.refRequest) {
+      void saveParsedRequest(parsedIds);
+    }
     setPasteText("");
     setParseResult(null);
   }
@@ -2215,6 +2280,73 @@ export default function AdminClient() {
               </div>
             )}
 
+            {activeHolds.length > 0 ? (
+              <>
+                <h3 className="mt-8 text-lg font-medium">Active holds</h3>
+                <p className="mt-1 text-sm text-neutral-400">
+                  Records currently held for a buyer — orders in progress even
+                  when there&rsquo;s no request card above. Holds expire on
+                  their own; when payment lands, load one and mark it sold.
+                </p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {activeHolds.map((group) => {
+                    const totals = bundleBreakdown(group.recs);
+                    const hoursLeft = Math.max(
+                      0,
+                      Math.round((group.until - Date.now()) / 3600000)
+                    );
+                    return (
+                      <div
+                        key={group.buyer}
+                        className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-white">
+                            {group.buyer.startsWith("(")
+                              ? group.buyer
+                              : `u/${group.buyer}`}
+                          </span>
+                          <span className="rounded-full border border-amber-400/40 px-2 py-0.5 text-xs text-amber-300">
+                            on hold
+                          </span>
+                          <span className="ml-auto text-xs text-neutral-500">
+                            ~{hoursLeft}h left
+                          </span>
+                        </div>
+                        <ul className="mt-3 space-y-1 text-sm">
+                          {group.recs.map((r) => (
+                            <li key={r.id}>
+                              {r.artist} — {r.title}{" "}
+                              <span className="text-neutral-500">
+                                {r.media}/{r.sleeve}
+                              </span>{" "}
+                              — ${r.price}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-sm text-neutral-400">
+                          Subtotal ${totals.subtotal} · Shipping $
+                          {totals.shipping} ·{" "}
+                          <span className="font-medium text-white">
+                            Total ${totals.total}
+                          </span>
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            onClick={() => loadHoldIntoSaleDesk(group)}
+                          >
+                            Load into sale desk
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
             <h3 className="mt-8 text-lg font-medium">Paste a DM</h3>
             <p className="mt-1 text-sm text-neutral-400">
               Paste the buyer&rsquo;s message — even edited — and it&rsquo;s
@@ -2398,14 +2530,27 @@ export default function AdminClient() {
                   })
                 )}
                 {parseResult.rows.length > 0 ? (
-                  <button
-                    type="button"
-                    className={buttonClass}
-                    disabled={parsedIds.length === 0}
-                    onClick={applyParsedSelection}
-                  >
-                    Add {parsedIds.length} to sale desk
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      disabled={parsedIds.length === 0}
+                      onClick={applyParsedSelection}
+                    >
+                      Add {parsedIds.length} to sale desk
+                    </button>
+                    {!parseResult.refRequest ? (
+                      <label className="flex items-center gap-2 text-sm text-neutral-400">
+                        <input
+                          type="checkbox"
+                          checked={saveParsedChecked}
+                          onChange={(e) => setSaveParsedChecked(e.target.checked)}
+                          className="admin-checkbox"
+                        />
+                        Also save to Incoming requests
+                      </label>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ) : null}
