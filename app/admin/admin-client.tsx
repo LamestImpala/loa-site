@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -302,6 +303,9 @@ export default function AdminClient() {
   >("all");
   const [letterFilter, setLetterFilter] = useState<string | null>(null);
   const [shownFilter, setShownFilter] = useState<"all" | "shown" | "hidden">(
+    "all"
+  );
+  const [soldFilter, setSoldFilter] = useState<"all" | "sold" | "unsold">(
     "all"
   );
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
@@ -843,9 +847,11 @@ export default function AdminClient() {
     await updateRecord(r.id, { notes: value });
   }
 
-  async function removeFromDiscogs(r: DbRecord) {
-    if (!r.discogs_release_id) return;
-    setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
+  // Shared by the per-record flow and the bulk "remove all sold" button.
+  // "gone" means Discogs already doesn't have it — success for our purposes.
+  async function discogsRemoveRequest(
+    releaseId: number
+  ): Promise<{ outcome: "removed" | "gone" | "failed"; error?: string }> {
     try {
       const {
         data: { session: current },
@@ -856,16 +862,109 @@ export default function AdminClient() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${current?.access_token ?? ""}`,
         },
-        body: JSON.stringify({ releaseId: r.discogs_release_id }),
+        body: JSON.stringify({ releaseId }),
       });
+      if (res.ok) return { outcome: "removed" };
       const body = await res.json();
-      setDiscogsStatus((prev) => ({
-        ...prev,
-        [r.id]: res.ok ? "Removed from Discogs ✓" : body.error || "Failed",
-      }));
+      if (res.status === 404) return { outcome: "gone", error: body.error };
+      return { outcome: "failed", error: body.error || "Failed" };
     } catch {
-      setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Request failed" }));
+      return { outcome: "failed", error: "Request failed" };
     }
+  }
+
+  // Persists that the copy is out of the Discogs collection so the bulk
+  // button can skip it on later runs. Deliberately quiet — no toast, and a
+  // failure just means the record gets retried (and 404s) next time.
+  async function flagDiscogsRemoved(id: number) {
+    const { error } = await supabase
+      .from("records")
+      .update({ discogs_removed: true, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (!error) {
+      setRecords((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, discogs_removed: true } : r))
+      );
+    }
+  }
+
+  async function removeFromDiscogs(r: DbRecord) {
+    if (!r.discogs_release_id) return;
+    setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
+    const { outcome, error } = await discogsRemoveRequest(r.discogs_release_id);
+    setDiscogsStatus((prev) => ({
+      ...prev,
+      [r.id]:
+        outcome === "removed"
+          ? "Removed from Discogs ✓"
+          : outcome === "gone"
+            ? "Already gone from Discogs ✓"
+            : error || "Failed",
+    }));
+    if (outcome !== "failed") await flagDiscogsRemoved(r.id);
+  }
+
+  const [discogsBulkBusy, setDiscogsBulkBusy] = useState(false);
+  const [discogsBulkStatus, setDiscogsBulkStatus] = useState("");
+  const discogsBulkCancel = useRef(false);
+
+  async function removeAllSoldFromDiscogs() {
+    const targets = records.filter(
+      (r) => r.sold && r.discogs_release_id && !r.discogs_removed
+    );
+    if (targets.length === 0) return;
+    if (
+      !window.confirm(
+        `Remove ${targets.length} sold record${targets.length === 1 ? "" : "s"} from your Discogs collection? This paces itself for Discogs' rate limit, so it takes about 2 seconds per record.`
+      )
+    )
+      return;
+    setDiscogsBulkBusy(true);
+    discogsBulkCancel.current = false;
+    let removed = 0;
+    let gone = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        if (discogsBulkCancel.current) break;
+        const r = targets[i];
+        setDiscogsBulkStatus(
+          `Removing ${i + 1}/${targets.length}: ${r.artist} — ${r.title}`
+        );
+        setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
+        const { outcome, error } = await discogsRemoveRequest(
+          r.discogs_release_id!
+        );
+        if (outcome === "removed") removed++;
+        else if (outcome === "gone") gone++;
+        else failed++;
+        setDiscogsStatus((prev) => ({
+          ...prev,
+          [r.id]:
+            outcome === "removed"
+              ? "Removed from Discogs ✓"
+              : outcome === "gone"
+                ? "Already gone from Discogs ✓"
+                : error || "Failed",
+        }));
+        if (outcome !== "failed") await flagDiscogsRemoved(r.id);
+        // Each removal is two Discogs API calls; ~2s keeps us under the
+        // 60-requests-per-minute token limit.
+        if (i < targets.length - 1 && !discogsBulkCancel.current) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+    } finally {
+      setDiscogsBulkBusy(false);
+      setDiscogsBulkStatus("");
+    }
+    const parts = [
+      `${removed} removed`,
+      ...(gone > 0 ? [`${gone} already gone`] : []),
+      ...(failed > 0 ? [`${failed} failed`] : []),
+      ...(discogsBulkCancel.current ? ["stopped early"] : []),
+    ];
+    pushToast(failed > 0 ? "error" : "success", `Discogs cleanup: ${parts.join(", ")}.`);
   }
 
   // Inline hold editor (which row is asking for a buyer name, and the draft)
@@ -911,7 +1010,7 @@ export default function AdminClient() {
       patch.hold_until = null;
     }
     const ok = await updateRecord(r.id, patch);
-    if (!ok || !sold || !r.discogs_release_id) return;
+    if (!ok || !sold || !r.discogs_release_id || r.discogs_removed) return;
     if (
       window.confirm(
         `Also remove "${r.artist} — ${r.title}" from your Discogs collection?`
@@ -1090,6 +1189,8 @@ export default function AdminClient() {
       if (letterFilter && artistLetter(r.artist) !== letterFilter) return false;
       if (shownFilter === "shown" && !r.listed) return false;
       if (shownFilter === "hidden" && r.listed) return false;
+      if (soldFilter === "sold" && !r.sold) return false;
+      if (soldFilter === "unsold" && r.sold) return false;
       if (interestFilter === "clicked-no-request") {
         const i = interest[r.id];
         const held =
@@ -1133,7 +1234,7 @@ export default function AdminClient() {
       });
     }
     return list;
-  }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, interestFilter, interest]);
+  }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest]);
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -1334,7 +1435,7 @@ export default function AdminClient() {
           });
       }
       const withDiscogs = targets.filter(
-        (r) => doneSet.has(r.id) && r.discogs_release_id
+        (r) => doneSet.has(r.id) && r.discogs_release_id && !r.discogs_removed
       );
       if (
         withDiscogs.length > 0 &&
@@ -2925,6 +3026,17 @@ export default function AdminClient() {
             <option value="hidden">Hidden only</option>
           </select>
           <select
+            value={soldFilter}
+            onChange={(e) =>
+              setSoldFilter(e.target.value as "all" | "sold" | "unsold")
+            }
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="all">Sold: All</option>
+            <option value="sold">Sold only</option>
+            <option value="unsold">Unsold only</option>
+          </select>
+          <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
             className={`${inputClass} [&>option]:bg-neutral-900`}
@@ -2969,9 +3081,42 @@ export default function AdminClient() {
             );
           })}
         </div>
-        <p className="mt-2 text-sm text-neutral-500">
-          {filteredRecords.length} of {records.length} records
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-neutral-500">
+            {filteredRecords.length} of {records.length} records
+          </p>
+          {(() => {
+            const soldOnDiscogs = records.filter(
+              (r) => r.sold && r.discogs_release_id && !r.discogs_removed
+            ).length;
+            if (soldOnDiscogs === 0 && !discogsBulkBusy) return null;
+            return discogsBulkBusy ? (
+              <>
+                <span className="text-sm text-amber-400">
+                  {discogsBulkStatus}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    discogsBulkCancel.current = true;
+                  }}
+                  className="text-xs text-neutral-500 underline transition hover:text-white"
+                >
+                  Stop
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={removeAllSoldFromDiscogs}
+                title="Removes every sold record that has a Discogs release id from your Discogs collection"
+                className={buttonClass}
+              >
+                Remove {soldOnDiscogs} sold from Discogs
+              </button>
+            );
+          })()}
+        </div>
         {selectedIds.size > 0 ? (
           <div
             id="sale-desk"
@@ -3108,10 +3253,14 @@ export default function AdminClient() {
             ) : null}
           </div>
         ) : null}
-        <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+        <div className="mt-4 max-h-[75vh] overflow-auto rounded-2xl border border-white/10">
           <table className="w-full min-w-[700px] text-sm">
-            <thead>
-              <tr className="border-b border-white/10 bg-white/5 text-left text-neutral-400">
+            {/* Sticky header: the wrapper is the scroll container, so the th
+                cells pin to its top. The bottom border lives in a shadow
+                because collapsed-table borders don't travel with sticky
+                cells in Chrome. */}
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-neutral-900 [&_th]:shadow-[inset_0_-1px_0_rgba(255,255,255,0.15)]">
+              <tr className="text-left text-neutral-400">
                 <th className="px-3 py-3 text-center font-medium">
                   <div className="flex flex-col items-center gap-1">
                     Sel
@@ -3554,13 +3703,19 @@ export default function AdminClient() {
                           </div>
                           {r.discogs_release_id ? (
                             <div className="flex items-center gap-2 text-xs">
-                              <button
-                                type="button"
-                                onClick={() => removeFromDiscogs(r)}
-                                className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
-                              >
-                                Remove from Discogs collection
-                              </button>
+                              {r.discogs_removed && !discogsStatus[r.id] ? (
+                                <span className="text-green-400">
+                                  Removed from Discogs ✓
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => removeFromDiscogs(r)}
+                                  className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                                >
+                                  Remove from Discogs collection
+                                </button>
+                              )}
                               {discogsStatus[r.id] ? (
                                 <span
                                   className={
