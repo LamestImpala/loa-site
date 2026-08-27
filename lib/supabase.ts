@@ -19,6 +19,7 @@ export type DbRecord = {
   notes: string;
   photos: string;
   discogs_release_id: number | null;
+  discogs_removed?: boolean; // copy already removed from the owner's Discogs collection
   cover_image: string;
   genres: string[]; // from Discogs release data, e.g. ["Rock", "Jazz"]
   collection: string | null; // curated series like "VMP" or "IVC"
