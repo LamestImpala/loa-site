@@ -472,6 +472,7 @@ export default function AdminClient() {
     const rest = pool.filter((r) => lastPosted.has(r.id));
     const picks = [...shuffle(fresh), ...shuffle(rest)].slice(0, 10);
     setSelectedIds(new Set(picks.map((r) => r.id)));
+    setSelectionMode("weekly");
   }
 
   const [weeklyCopied, setWeeklyCopied] = useState(false);
@@ -1260,6 +1261,11 @@ export default function AdminClient() {
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Why records are currently selected: the sale desk (default) or the
+  // weekly Reddit post. Weekly mode swaps the sticky sale-desk box for a
+  // slim picks bar so random picks don't look like a pending sale. Only
+  // explicit actions change the mode — checkbox toggles keep it.
+  const [selectionMode, setSelectionMode] = useState<"sale" | "weekly">("sale");
   const [saleBuyer, setSaleBuyer] = useState("");
   const [saleEmail, setSaleEmail] = useState("");
   const [saleBusy, setSaleBusy] = useState<null | "hold" | "sold" | "invoice">(null);
@@ -1323,6 +1329,7 @@ export default function AdminClient() {
 
   function clearSaleDesk() {
     setSelectedIds(new Set());
+    setSelectionMode("sale");
     setSaleBuyer("");
     setSaleEmail("");
     setSaleStatus("");
@@ -1604,6 +1611,7 @@ export default function AdminClient() {
         return false;
     }
     setSelectedIds(next);
+    setSelectionMode("sale");
     if (collapsedSections.has("listings")) {
       const opened = new Set(collapsedSections);
       opened.delete("listings");
@@ -2207,11 +2215,12 @@ export default function AdminClient() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column (shared with the sale desk) — start with
-          &ldquo;Pick 10 at random&rdquo; and adjust the checkboxes, or pick by
-          hand. Copy, and the list is remembered so you can post an update
-          later with sold records crossed out (no price shown). &ldquo;Copy
-          Reddit table&rdquo; is still the full catalog.
+          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 10 at random&rdquo;
+          (a weekly-post bar appears above the listings instead of the sale
+          desk) and adjust the checkboxes, or pick by hand. Copy, and the list
+          is remembered so you can post an update later with sold records
+          crossed out (no price shown). &ldquo;Copy Reddit table&rdquo; is
+          still the full catalog.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={copyRedditTable} className={buttonClass}>
@@ -3148,7 +3157,58 @@ export default function AdminClient() {
             );
           })()}
         </div>
-        {selectedIds.size > 0 ? (
+        {selectedIds.size > 0 && selectionMode === "weekly" ? (
+          <div
+            id="sale-desk"
+            className="sticky top-12 z-10 mt-4 rounded-2xl border border-neutral-700 bg-neutral-950/95 p-4 backdrop-blur"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-white">
+                <span className="font-medium">
+                  {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
+                </span>{" "}
+                <span className="text-neutral-400">
+                  picked for the weekly post — adjust with the Sel checkboxes.
+                </span>
+              </p>
+              <button
+                type="button"
+                onClick={clearSaleDesk}
+                className="text-xs text-neutral-500 underline transition hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+            {offFilterSelectedCount > 0 ? (
+              <p className="mt-2 text-xs text-amber-400">
+                {offFilterSelectedCount} pick
+                {offFilterSelectedCount === 1 ? " is" : "s are"} hidden by the
+                current filters — clear filters to see them all.
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={copyWeeklyPost}
+                className={buttonClass}
+                disabled={saleRecords.length === 0}
+              >
+                {weeklyCopied
+                  ? "Copied!"
+                  : `Copy weekly post (${saleRecords.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectionMode("sale")}
+                className={buttonClass}
+                title="Treat this selection as a sale instead — opens the sale desk"
+              >
+                Open sale desk
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {selectedIds.size > 0 && selectionMode === "sale" ? (
           <div
             id="sale-desk"
             className="sticky top-12 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur"
