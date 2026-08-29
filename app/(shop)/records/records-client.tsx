@@ -15,6 +15,9 @@ import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
+// Grid density: full cards or a compact covers grid. `null` = auto, which
+// resolves to compact on phones once the viewport is known.
+type ViewOption = "full" | "compact";
 
 const SORT_OPTIONS: SortOption[] = [
   "artist",
@@ -206,6 +209,9 @@ export default function RecordsClient({
   const [combinedMessageCopied, setCombinedMessageCopied] = useState(false);
   const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
+  const [detail, setDetail] = useState<DbRecord | null>(null);
+  const [view, setView] = useState<ViewOption | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [stuck, setStuck] = useState(false);
   const [liveMessage, setLiveMessage] = useState("");
@@ -213,6 +219,7 @@ export default function RecordsClient({
   const controlsRef = useRef<HTMLElement | null>(null);
   const buyDialogRef = useRef<HTMLDialogElement | null>(null);
   const lightboxRef = useRef<HTMLDialogElement | null>(null);
+  const detailDialogRef = useRef<HTMLDialogElement | null>(null);
   const highlightTimer = useRef<number | undefined>(undefined);
   const urlSynced = useRef(false);
   const touchX = useRef<number | null>(null);
@@ -372,6 +379,18 @@ export default function RecordsClient({
     collection !== null ||
     letter !== null;
 
+  // Explicit choice wins; auto = compact on phones, full cards on desktop.
+  const effectiveView: ViewOption = view ?? (isMobile ? "compact" : "full");
+
+  function chooseView(v: ViewOption) {
+    setView(v);
+    try {
+      localStorage.setItem("cr_view", v);
+    } catch {
+      // The toggle still works for this visit.
+    }
+  }
+
   // "178 records" when nothing narrows the list; the fuller breakdown only
   // when it would differ.
   const countLabel = hasFilters
@@ -455,6 +474,24 @@ export default function RecordsClient({
     return () => window.clearTimeout(t);
   }, [query, sort, genre, avail, collection, letter]);
 
+  // Stored view choice wins; otherwise the matchMedia effect below decides.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("cr_view");
+      if (stored === "full" || stored === "compact") setView(stored);
+    } catch {
+      // Private mode etc. — fall back to auto.
+    }
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
   // Condensed sticky bar once the full controls scroll out of view.
   useEffect(() => {
     const el = controlsRef.current;
@@ -484,6 +521,14 @@ export default function RecordsClient({
     else if (!lightbox && d.open) d.close();
   }, [lightbox]);
 
+  // …and the compact-view record detail popup.
+  useEffect(() => {
+    const d = detailDialogRef.current;
+    if (!d) return;
+    if (detail && !d.open) d.showModal();
+    else if (!detail && d.open) d.close();
+  }, [detail]);
+
   // A bundle sheet with nothing left in it has nothing to sell.
   useEffect(() => {
     if (buySheet?.kind === "bundle" && selectedRecords.length === 0) {
@@ -512,11 +557,140 @@ export default function RecordsClient({
     if (e.target === e.currentTarget) close();
   }
 
+  // Tags, notes, price row, and buy actions — shared between the full record
+  // card and the compact view's detail popup.
+  function recordDetails(r: DbRecord) {
+    const held = isOnHold(r) && !r.sold;
+    const reduced = isReduced(r) && !r.sold;
+    return (
+      <>
+        <div className="record-tags">
+          <span className="tag tag-outline">Media: {r.media}</span>
+          <span className="tag tag-outline">Sleeve: {r.sleeve}</span>
+          {r.photo_urls?.length ? (
+            <span className="tag tag-neutral">Actual copy pictured</span>
+          ) : null}
+          {reduced ? (
+            <span className="tag tag-accent-2">Drink me · ↓ {dropPct(r)}%</span>
+          ) : null}
+        </div>
+
+        {r.notes ? <p className="record-notes">{r.notes}</p> : null}
+
+        <div className="record-price-row">
+          {reduced ? (
+            <span className="record-prev-price">${r.prev_price}</span>
+          ) : null}
+          <span className="record-price">${r.price}</span>
+          <a
+            href={discogsUrl(r)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => track(r.id, "discogs_click")}
+          >
+            Discogs ↗
+          </a>
+        </div>
+
+        {r.sold ? (
+          <button className="btn btn-secondary btn-block" disabled>
+            Sold — gone down the rabbit hole
+          </button>
+        ) : held ? (
+          <p className="record-hold-note">
+            On hold — the White Rabbit&rsquo;s watch is ticking. Check back in
+            case it falls through.
+          </p>
+        ) : SELLER_INFO.redditUsername ? (
+          <>
+            <button
+              type="button"
+              className={`record-select ${selected.has(r.id) ? "is-selected" : ""}`}
+              aria-pressed={selected.has(r.id)}
+              onClick={() => {
+                if (!selected.has(r.id)) track(r.id, "bundle_add");
+                toggleSelected(r.id);
+              }}
+            >
+              {selected.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              onClick={() => {
+                setDetail(null);
+                setBuySheet({ kind: "single", record: r });
+              }}
+            >
+              Request to buy
+            </button>
+          </>
+        ) : null}
+      </>
+    );
+  }
+
   function recordCard(r: DbRecord) {
     const cover = r.photo_urls?.[0] || r.cover_image;
     const held = isOnHold(r) && !r.sold;
     const reduced = isReduced(r) && !r.sold;
     const tint = tintFor(r.artist);
+    if (effectiveView === "compact") {
+      return (
+        <button
+          key={r.id}
+          id={`r-${r.id}`}
+          type="button"
+          className={`card elev-sm record-compact ${r.sold ? "is-sold" : ""} ${
+            selected.has(r.id) && !r.sold && !held ? "is-selected" : ""
+          } ${highlightId === r.id ? "is-highlighted" : ""}`}
+          aria-label={`${r.artist} — ${r.title}, $${r.price}${
+            r.sold ? ", sold" : held ? ", on hold" : ""
+          }`}
+          onClick={() => setDetail(r)}
+        >
+          <span
+            className="record-compact-cover"
+            style={cover ? undefined : { background: tint.bg }}
+          >
+            {cover ? (
+              <Image
+                src={cover}
+                alt=""
+                width={300}
+                height={300}
+                sizes="(min-width: 640px) 160px, 33vw"
+              />
+            ) : (
+              <span className="initials" style={{ color: tint.text }}>
+                {initials(r.artist)}
+              </span>
+            )}
+            {r.sold ? (
+              <span
+                className="tag record-mini-badge"
+                style={{
+                  background: "var(--color-neutral-800)",
+                  color: "var(--color-neutral-100)",
+                }}
+              >
+                SOLD
+              </span>
+            ) : held ? (
+              <span className="tag tag-accent record-mini-badge">HOLD</span>
+            ) : reduced ? (
+              <span className="tag tag-accent-2 record-mini-badge">
+                ↓ {dropPct(r)}%
+              </span>
+            ) : null}
+          </span>
+          <span className="record-compact-title">
+            {r.artist} — {r.title}
+          </span>
+          <span className="record-compact-price">${r.price}</span>
+        </button>
+      );
+    }
     return (
       <article
         key={r.id}
@@ -610,66 +784,32 @@ export default function RecordsClient({
           </div>
         </div>
 
-        <div className="record-tags">
-          <span className="tag tag-outline">Media: {r.media}</span>
-          <span className="tag tag-outline">Sleeve: {r.sleeve}</span>
-          {r.photo_urls?.length ? (
-            <span className="tag tag-neutral">Actual copy pictured</span>
-          ) : null}
-          {reduced ? (
-            <span className="tag tag-accent-2">Drink me · ↓ {dropPct(r)}%</span>
-          ) : null}
-        </div>
-
-        {r.notes ? <p className="record-notes">{r.notes}</p> : null}
-
-        <div className="record-price-row">
-          {reduced ? (
-            <span className="record-prev-price">${r.prev_price}</span>
-          ) : null}
-          <span className="record-price">${r.price}</span>
-          <a
-            href={discogsUrl(r)}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => track(r.id, "discogs_click")}
-          >
-            Discogs ↗
-          </a>
-        </div>
-
-        {r.sold ? (
-          <button className="btn btn-secondary btn-block" disabled>
-            Sold — gone down the rabbit hole
-          </button>
-        ) : held ? (
-          <p className="record-hold-note">
-            On hold — the White Rabbit&rsquo;s watch is ticking. Check back in
-            case it falls through.
-          </p>
-        ) : SELLER_INFO.redditUsername ? (
-          <>
-            <button
-              type="button"
-              className={`record-select ${selected.has(r.id) ? "is-selected" : ""}`}
-              aria-pressed={selected.has(r.id)}
-              onClick={() => {
-                if (!selected.has(r.id)) track(r.id, "bundle_add");
-                toggleSelected(r.id);
-              }}
-            >
-              {selected.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              onClick={() => setBuySheet({ kind: "single", record: r })}
-            >
-              Request to buy
-            </button>
-          </>
-        ) : null}
+        {recordDetails(r)}
       </article>
+    );
+  }
+
+  // Rendered in the controls row and again in the sticky bar.
+  function viewToggle() {
+    return (
+      <div className="seg" role="group" aria-label="View density">
+        {(
+          [
+            ["full", "Cards"],
+            ["compact", "Covers"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className="seg-opt"
+            aria-pressed={effectiveView === value}
+            onClick={() => chooseView(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     );
   }
 
@@ -787,6 +927,7 @@ export default function RecordsClient({
               </button>
             ))}
           </div>
+          {viewToggle()}
         </div>
 
         {collections.length > 0 ? (
@@ -878,6 +1019,7 @@ export default function RecordsClient({
               <option value="newest">Newest arrivals</option>
             </select>
             <span className="shop-muted shop-sticky-count">{countLabel}</span>
+            {viewToggle()}
             <button type="button" className="btn btn-ghost" onClick={scrollToTop}>
               ↑ Top
             </button>
@@ -887,7 +1029,9 @@ export default function RecordsClient({
 
       <div className="shop-shell shop-main">
         {visible.length > 0 ? (
-          <div className="shop-grid">{visible.map(recordCard)}</div>
+          <div className={`shop-grid view-${effectiveView}`}>
+            {visible.map(recordCard)}
+          </div>
         ) : (
           <div className="card shop-empty">
             <div className="shop-empty-title">
@@ -1112,6 +1256,99 @@ export default function RecordsClient({
                       ))}
                     </div>
                   ) : null}
+                </div>
+              );
+            })()
+          : null}
+      </dialog>
+
+      <dialog
+        ref={detailDialogRef}
+        className="shop-dialog shop-detail"
+        aria-label="Record details"
+        onClose={() => setDetail(null)}
+        onClick={(e) => onBackdropClick(e, () => setDetail(null))}
+      >
+        {detail
+          ? (() => {
+              const r = detail;
+              const cover = r.photo_urls?.[0] || r.cover_image;
+              const tint = tintFor(r.artist);
+              return (
+                <div className="shop-dialog-body">
+                  <div className="shop-dialog-head">
+                    <h3 className="shop-detail-title">
+                      {r.artist} — {r.title}
+                    </h3>
+                    <button
+                      type="button"
+                      className="shop-dialog-close"
+                      aria-label="Close"
+                      onClick={() => setDetail(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div
+                    className="record-cover shop-detail-cover"
+                    style={cover ? undefined : { background: tint.bg }}
+                  >
+                    {cover ? (
+                      r.photo_urls?.length ? (
+                        <button
+                          type="button"
+                          className="record-cover-btn"
+                          onClick={() => openLightbox(r, 0)}
+                          aria-label={`View photos of ${r.artist} — ${r.title}`}
+                        >
+                          <Image
+                            src={cover}
+                            alt={`${r.artist} — ${r.title}`}
+                            width={600}
+                            height={600}
+                            sizes="(min-width: 640px) 480px, 100vw"
+                          />
+                        </button>
+                      ) : (
+                        <Image
+                          src={cover}
+                          alt={`${r.artist} — ${r.title}`}
+                          width={600}
+                          height={600}
+                          sizes="(min-width: 640px) 480px, 100vw"
+                        />
+                      )
+                    ) : (
+                      <span className="initials" style={{ color: tint.text }}>
+                        {initials(r.artist)}
+                      </span>
+                    )}
+                  </div>
+                  {r.photo_urls?.length > 1 ? (
+                    <div className="record-thumbs">
+                      {r.photo_urls.slice(1, 5).map((url, i) => (
+                        <button
+                          key={url}
+                          type="button"
+                          onClick={() => openLightbox(r, i + 1)}
+                          aria-label={`View photo ${i + 2} of ${r.artist} — ${r.title}`}
+                        >
+                          <Image
+                            src={url}
+                            alt=""
+                            width={150}
+                            height={150}
+                            sizes="110px"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="record-meta">
+                    {r.pressing}
+                    {r.collection ? ` · ${r.collection}` : ""}
+                  </div>
+                  {recordDetails(r)}
                 </div>
               );
             })()
