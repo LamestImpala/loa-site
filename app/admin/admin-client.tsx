@@ -72,7 +72,7 @@ function redditMarkdown(records: DbRecord[]) {
     const title = r.photos
       ? `[${cell(r.title)}](${r.photos.trim()})`
       : cell(r.title);
-    return `| ${cell(r.artist)} | ${title} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | $${r.price} | ${cell(r.notes)} |`;
+    return `| ${cell(r.artist)} | ${title} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`;
   });
   const series = topCollections(list, 3);
   const title = `[For Sale] ${list.length} vinyl records — collection sale, audiophile pressings${series.length ? ` (${series.join(", ")})` : ""} — PayPal G&S`;
@@ -87,7 +87,7 @@ function redditMarkdown(records: DbRecord[]) {
     "",
     `**Shipping:** ${SELLER_INFO.shipping}`,
     "",
-    "| Artist | Title | Pressing | Media | Sleeve | Price | Notes |",
+    "| Artist | Title | Price | Pressing | Media | Sleeve | Notes |",
     "|---|---|---|---|---|---|---|",
     ...rows,
     "",
@@ -97,12 +97,13 @@ function redditMarkdown(records: DbRecord[]) {
 
 // Weekly post is built from the hand-picked records ("Sel" column), not the
 // whole catalog, and never shows an old price — steep markdowns read as
-// suspicious to buyers.
+// suspicious to buyers. Price sits right after Title so mobile readers see
+// it without scrolling the table sideways.
 const weeklyRow = (r: DbRecord) =>
-  `| ${cell(r.artist)} | ${cell(r.title)} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | $${r.price} |`;
+  `| ${cell(r.artist)} | ${cell(r.title)} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} |`;
 
 const REDDIT_TABLE_HEADER = [
-  "| Artist | Title | Pressing | Grade (M/S) | Price |",
+  "| Artist | Title | Price | Pressing | Grade (M/S) |",
   "|---|---|---|---|---|",
 ];
 
@@ -139,7 +140,7 @@ function redditUpdateMarkdown(posted: DbRecord[]) {
   const openCount = list.filter((r) => !r.sold).length;
   const row = (r: DbRecord) =>
     r.sold
-      ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | **SOLD** |`
+      ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} |`
       : weeklyRow(r);
   return [
     `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
@@ -235,6 +236,16 @@ function pct(n: number) {
 
 const holdActive = (r: DbRecord) =>
   !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
+
+// Fisher–Yates; returns a new array.
+function shuffle<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 function timeAgo(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -450,6 +461,17 @@ export default function AdminClient() {
       setTableCopied(true);
       setTimeout(() => setTableCopied(false), 1600);
     }
+  }
+
+  // Seed the weekly post with 10 random picks — rotate stock by preferring
+  // records that weren't in the last posted set, backfilling if short.
+  function randomizeWeeklyPicks() {
+    const pool = records.filter((r) => r.listed && !r.sold && !holdActive(r));
+    const lastPosted = new Set(postedInfo.ids);
+    const fresh = pool.filter((r) => !lastPosted.has(r.id));
+    const rest = pool.filter((r) => lastPosted.has(r.id));
+    const picks = [...shuffle(fresh), ...shuffle(rest)].slice(0, 10);
+    setSelectedIds(new Set(picks.map((r) => r.id)));
   }
 
   const [weeklyCopied, setWeeklyCopied] = useState(false);
@@ -2185,14 +2207,23 @@ export default function AdminClient() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column (shared with the sale desk) — pick 15&ndash;20,
-          copy, and the list is remembered so you can post an update later with
-          sold records crossed out (no price shown). &ldquo;Copy Reddit
-          table&rdquo; is still the full catalog.
+          &ldquo;Sel&rdquo; column (shared with the sale desk) — start with
+          &ldquo;Pick 10 at random&rdquo; and adjust the checkboxes, or pick by
+          hand. Copy, and the list is remembered so you can post an update
+          later with sold records crossed out (no price shown). &ldquo;Copy
+          Reddit table&rdquo; is still the full catalog.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={copyRedditTable} className={buttonClass}>
             {tableCopied ? "Copied!" : "Copy Reddit table"}
+          </button>
+          <button
+            type="button"
+            onClick={randomizeWeeklyPicks}
+            className={buttonClass}
+            title="Selects 10 random listed records (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
+          >
+            Pick 10 at random
           </button>
           <button
             type="button"
@@ -2222,9 +2253,9 @@ export default function AdminClient() {
           </button>
         </div>
         {saleRecords.length > 0 &&
-        (saleRecords.length < 15 || saleRecords.length > 20) ? (
+        (saleRecords.length < 10 || saleRecords.length > 20) ? (
           <p className="mt-2 text-xs text-amber-400">
-            Tip: 15&ndash;20 records works well for a weekly post — you have{" "}
+            Tip: 10&ndash;20 records works well for a weekly post — you have{" "}
             {saleRecords.length} selected.
           </p>
         ) : null}
