@@ -1029,8 +1029,28 @@ export default function RecordsClient({
 
       <div className="shop-shell shop-main">
         {visible.length > 0 ? (
-          <div className={`shop-grid view-${effectiveView}`}>
-            {visible.map(recordCard)}
+          <div
+            className={`shop-grid view-${effectiveView} ${stuck ? "has-sticky-bar" : ""}`}
+          >
+            {sort === "artist"
+              ? // Letter separators only make sense alphabetically; they stick
+                // below the condensed bar so the current letter stays visible.
+                visible.flatMap((r, i) => {
+                  const l = artistLetter(r.artist);
+                  const prev =
+                    i > 0 ? artistLetter(visible[i - 1].artist) : null;
+                  const nodes =
+                    l !== prev
+                      ? [
+                          <h3 key={`sep-${l}`} className="shop-letter-sep">
+                            {l}
+                          </h3>,
+                        ]
+                      : [];
+                  nodes.push(recordCard(r));
+                  return nodes;
+                })
+              : visible.map(recordCard)}
           </div>
         ) : (
           <div className="card shop-empty">

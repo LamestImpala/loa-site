@@ -740,6 +740,35 @@ html:has(.shop) {
   margin: 0;
 }
 
+/* — letter separators (artist sort only) — */
+.shop .shop-letter-sep {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 calc(var(--space-2) * -0.5);
+  font-size: 22px;
+  color: var(--color-accent-700);
+  /* Stick to the top edge so the current letter reads as "you are here";
+     .has-sticky-bar drops it below the condensed search bar. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding-block: var(--space-1);
+  background: var(--color-bg);
+}
+.shop-grid.has-sticky-bar .shop-letter-sep {
+  top: 56px;
+}
+.shop .shop-letter-sep::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-divider);
+}
+.shop .shop-letter-sep:first-child {
+  margin-top: 0;
+}
+
 /* — compact "covers" view — */
 .shop-grid.view-compact {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
