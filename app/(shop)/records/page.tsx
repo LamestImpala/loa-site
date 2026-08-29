@@ -47,6 +47,7 @@ export default async function RecordsPage() {
   return (
     <>
       <header className="shop-shell shop-hero">
+        <span className="shop-hero-shooting-star" aria-hidden="true" />
         <div className="shop-hero-copy">
           <div className="tag tag-accent-2" style={{ marginBottom: "var(--space-4)" }}>
             Phoenix, Arizona · one-person shop
