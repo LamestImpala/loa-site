@@ -347,8 +347,15 @@ export default function RecordsClient({
     return list;
   }, [records, query, sort, avail, genre, collection, letter]);
 
+  // The rail only features drops worth a look (≥5% or ≥$5); smaller overnight
+  // ticks still get the per-card "Drink me" tag but don't headline a section.
   const drops = useMemo(
-    () => records.filter((r) => isReduced(r) && !r.sold),
+    () =>
+      records.filter((r) => {
+        if (r.sold || !isReduced(r)) return false;
+        const delta = Number(r.prev_price) - r.price;
+        return delta >= 5 || dropPct(r) >= 5;
+      }),
     [records]
   );
 
@@ -825,8 +832,10 @@ export default function RecordsClient({
       {drops.length > 0 ? (
         <section className="shop-shell shop-section">
           <div className="shop-section-head">
-            <h2>Drink me — today&rsquo;s shrinking prices</h2>
-            <span className="shop-muted">vs. yesterday&rsquo;s Discogs price</span>
+            <h2>Drink me — overnight price drops</h2>
+            <span className="shop-muted">
+              prices track Discogs daily — these fell overnight
+            </span>
           </div>
           <div className="shop-drops">
             {drops.map((r) => {
