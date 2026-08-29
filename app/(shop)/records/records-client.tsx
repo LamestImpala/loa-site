@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   LETTERS,
@@ -15,6 +15,15 @@ import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
+
+const SORT_OPTIONS: SortOption[] = [
+  "artist",
+  "price-asc",
+  "price-desc",
+  "discount",
+  "newest",
+];
+const AVAIL_OPTIONS: AvailOption[] = ["all", "open", "sold"];
 
 const NEW_WINDOW_DAYS = 14;
 // Was-prices and discount badges clear from view a day after the change.
@@ -167,6 +176,17 @@ function persistOrderRequest(refCode: string, ids: number[]) {
     });
 }
 
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+// What the buyer is asking to purchase: one record from a card, or the bundle.
+type BuySheet = { kind: "single"; record: DbRecord } | { kind: "bundle" };
+type LightboxState = { record: DbRecord; index: number };
+
 export default function RecordsClient({
   records,
   redditPostUrl,
@@ -184,6 +204,18 @@ export default function RecordsClient({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [combinedCommentCopied, setCombinedCommentCopied] = useState(false);
   const [combinedMessageCopied, setCombinedMessageCopied] = useState(false);
+  const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null);
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [stuck, setStuck] = useState(false);
+  const [liveMessage, setLiveMessage] = useState("");
+
+  const controlsRef = useRef<HTMLElement | null>(null);
+  const buyDialogRef = useRef<HTMLDialogElement | null>(null);
+  const lightboxRef = useRef<HTMLDialogElement | null>(null);
+  const highlightTimer = useRef<number | undefined>(undefined);
+  const urlSynced = useRef(false);
+  const touchX = useRef<number | null>(null);
 
   function toggleSelected(id: number) {
     setSelected((prev) => {
@@ -203,11 +235,16 @@ export default function RecordsClient({
     setLetter(null);
   }
 
+  function announce(message: string) {
+    setLiveMessage(message);
+  }
+
   async function copyCommentAndOpenPost(r: DbRecord) {
     const comment = `Sent you a DM about ${r.artist} — ${r.title}!`;
     try {
       await navigator.clipboard.writeText(comment);
       setCommentCopiedId(r.id);
+      announce("Comment copied to clipboard.");
       setTimeout(() => setCommentCopiedId(null), 2500);
     } catch {
       window.prompt("Copy this comment, then paste it on the post:", comment);
@@ -249,6 +286,7 @@ export default function RecordsClient({
     try {
       await navigator.clipboard.writeText(message);
       setCombinedMessageCopied(true);
+      announce("Message copied — paste it into the Reddit DM.");
       setTimeout(() => setCombinedMessageCopied(false), 2500);
     } catch {
       window.prompt("Copy this message, then paste it into the DM:", message);
@@ -268,6 +306,7 @@ export default function RecordsClient({
     try {
       await navigator.clipboard.writeText(comment);
       setCombinedCommentCopied(true);
+      announce("Comment copied to clipboard.");
       setTimeout(() => setCombinedCommentCopied(false), 2500);
     } catch {
       window.prompt("Copy this comment, then paste it on the post:", comment);
@@ -333,9 +372,144 @@ export default function RecordsClient({
     collection !== null ||
     letter !== null;
 
-  function focusDrop(r: DbRecord) {
-    clearFilters();
-    setQuery(r.title);
+  // "178 records" when nothing narrows the list; the fuller breakdown only
+  // when it would differ.
+  const countLabel = hasFilters
+    ? `${visible.length} of ${records.length} records`
+    : available === records.length
+      ? `${records.length} records`
+      : `${available} available of ${records.length} records`;
+
+  function scrollToRecord(id: number) {
+    const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
+    const go = () => {
+      const el = document.getElementById(`r-${id}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior, block: "center" });
+      setHighlightId(id);
+      window.clearTimeout(highlightTimer.current);
+      highlightTimer.current = window.setTimeout(
+        () => setHighlightId(null),
+        2400
+      );
+    };
+    if (document.getElementById(`r-${id}`)) {
+      go();
+    } else {
+      // The card is filtered out — reset filters, then jump after re-render.
+      clearFilters();
+      window.setTimeout(go, 80);
+    }
+  }
+
+  function scrollToTop() {
+    window.scrollTo({
+      top: 0,
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  }
+
+  // ── URL state: read once on mount (?q=&sort=&genre=&avail=&coll=&letter=
+  // plus #r-<id> deep links) …
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (q) setQuery(q);
+    const s = params.get("sort") as SortOption | null;
+    if (s && SORT_OPTIONS.includes(s)) setSort(s);
+    const a = params.get("avail") as AvailOption | null;
+    if (a && AVAIL_OPTIONS.includes(a)) setAvail(a);
+    const g = params.get("genre");
+    if (g) setGenre(g);
+    const c = params.get("coll");
+    if (c) setCollection(c);
+    const l = params.get("letter");
+    if (l && LETTERS.includes(l)) setLetter(l);
+    const m = window.location.hash.match(/^#r-(\d+)$/);
+    if (m) {
+      const id = Number(m[1]);
+      window.setTimeout(() => scrollToRecord(id), 120);
+    }
+    urlSynced.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // … and write back (debounced — Safari rate-limits replaceState).
+  useEffect(() => {
+    if (!urlSynced.current) return;
+    const t = window.setTimeout(() => {
+      const p = new URLSearchParams();
+      if (query.trim()) p.set("q", query.trim());
+      if (sort !== "artist") p.set("sort", sort);
+      if (genre !== "all") p.set("genre", genre);
+      if (avail !== "all") p.set("avail", avail);
+      if (collection) p.set("coll", collection);
+      if (letter) p.set("letter", letter);
+      const qs = p.toString();
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+      );
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [query, sort, genre, avail, collection, letter]);
+
+  // Condensed sticky bar once the full controls scroll out of view.
+  useEffect(() => {
+    const el = controlsRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) =>
+        setStuck(!entry.isIntersecting && entry.boundingClientRect.top < 0),
+      { threshold: 0 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  // Native <dialog> drives focus trapping and Esc for the buy sheet…
+  useEffect(() => {
+    const d = buyDialogRef.current;
+    if (!d) return;
+    if (buySheet && !d.open) d.showModal();
+    else if (!buySheet && d.open) d.close();
+  }, [buySheet]);
+
+  // …and the photo lightbox.
+  useEffect(() => {
+    const d = lightboxRef.current;
+    if (!d) return;
+    if (lightbox && !d.open) d.showModal();
+    else if (!lightbox && d.open) d.close();
+  }, [lightbox]);
+
+  // A bundle sheet with nothing left in it has nothing to sell.
+  useEffect(() => {
+    if (buySheet?.kind === "bundle" && selectedRecords.length === 0) {
+      setBuySheet(null);
+    }
+  }, [buySheet, selectedRecords]);
+
+  function openLightbox(r: DbRecord, index: number) {
+    track(r.id, "photo_open");
+    setLightbox({ record: r, index });
+  }
+
+  function stepLightbox(delta: number) {
+    setLightbox((l) => {
+      if (!l) return l;
+      const photos = l.record.photo_urls ?? [];
+      if (photos.length < 2) return l;
+      return { ...l, index: (l.index + delta + photos.length) % photos.length };
+    });
+  }
+
+  function onBackdropClick(
+    e: React.MouseEvent<HTMLDialogElement>,
+    close: () => void
+  ) {
+    if (e.target === e.currentTarget) close();
   }
 
   function recordCard(r: DbRecord) {
@@ -346,9 +520,10 @@ export default function RecordsClient({
     return (
       <article
         key={r.id}
+        id={`r-${r.id}`}
         className={`card elev-sm record-card ${r.sold ? "is-sold" : ""} ${
           selected.has(r.id) && !r.sold && !held ? "is-selected" : ""
-        }`}
+        } ${highlightId === r.id ? "is-highlighted" : ""}`}
       >
         <div className="record-cover-wrap">
           <div
@@ -357,12 +532,11 @@ export default function RecordsClient({
           >
             {cover ? (
               r.photo_urls?.length ? (
-                <a
-                  href={r.photo_urls[0]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ display: "block", width: "100%", height: "100%" }}
-                  onClick={() => track(r.id, "photo_open")}
+                <button
+                  type="button"
+                  className="record-cover-btn"
+                  onClick={() => openLightbox(r, 0)}
+                  aria-label={`View photos of ${r.artist} — ${r.title}`}
                 >
                   <Image
                     src={cover}
@@ -371,7 +545,7 @@ export default function RecordsClient({
                     height={600}
                     sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 100vw"
                   />
-                </a>
+                </button>
               ) : (
                 <Image
                   src={cover}
@@ -407,22 +581,21 @@ export default function RecordsClient({
 
         {r.photo_urls?.length > 1 ? (
           <div className="record-thumbs">
-            {r.photo_urls.slice(1, 5).map((url) => (
-              <a
+            {r.photo_urls.slice(1, 5).map((url, i) => (
+              <button
                 key={url}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => track(r.id, "photo_open")}
+                type="button"
+                onClick={() => openLightbox(r, i + 1)}
+                aria-label={`View photo ${i + 2} of ${r.artist} — ${r.title}`}
               >
                 <Image
                   src={url}
-                  alt={`${r.artist} — ${r.title} photo`}
+                  alt=""
                   width={150}
                   height={150}
                   sizes="(min-width: 640px) 90px, 25vw"
                 />
-              </a>
+              </button>
             ))}
           </div>
         ) : null}
@@ -487,31 +660,25 @@ export default function RecordsClient({
             >
               {selected.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
             </button>
-            <a
+            <button
+              type="button"
               className="btn btn-primary btn-block"
-              href={requestToBuyUrl(r, Boolean(redditPostUrl))}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => track(r.id, "buy_request")}
+              onClick={() => setBuySheet({ kind: "single", record: r })}
             >
-              {redditPostUrl ? "1. Request to buy" : "Request to buy"}
-            </a>
-            {redditPostUrl ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-block"
-                onClick={() => copyCommentAndOpenPost(r)}
-              >
-                {commentCopiedId === r.id
-                  ? "Comment copied!"
-                  : "2. Comment on the post"}
-              </button>
-            ) : null}
+              Request to buy
+            </button>
           </>
         ) : null}
       </article>
     );
   }
+
+  // The buy sheet quotes one card's record or the whole bundle with the same
+  // math the DM itself uses.
+  const sheetItems =
+    buySheet?.kind === "single" ? [buySheet.record] : selectedRecords;
+  const sheetQuote = bundleBreakdown(sheetItems);
+  const hasPost = Boolean(redditPostUrl);
 
   return (
     <>
@@ -530,7 +697,7 @@ export default function RecordsClient({
                   key={r.id}
                   type="button"
                   className="shop-drop-chip"
-                  onClick={() => focusDrop(r)}
+                  onClick={() => scrollToRecord(r.id)}
                 >
                   <span
                     className="thumb"
@@ -558,17 +725,23 @@ export default function RecordsClient({
         </section>
       ) : null}
 
-      <section className="shop-shell shop-section shop-controls">
+      <section
+        id="records"
+        ref={controlsRef}
+        className="shop-shell shop-section shop-controls"
+      >
         <div className="shop-controls-row">
           <input
             type="search"
             className="input search"
+            aria-label="Search records"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="What are you curious about? Artist, title, label…"
           />
           <select
             className="input"
+            aria-label="Sort records"
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
             style={{ width: "auto" }}
@@ -582,6 +755,7 @@ export default function RecordsClient({
           {genres.length > 0 ? (
             <select
               className="input"
+              aria-label="Filter by genre"
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
               style={{ width: "auto" }}
@@ -594,7 +768,7 @@ export default function RecordsClient({
               ))}
             </select>
           ) : null}
-          <div className="seg">
+          <div className="seg" role="group" aria-label="Availability">
             {(
               [
                 ["all", "All"],
@@ -616,7 +790,7 @@ export default function RecordsClient({
         </div>
 
         {collections.length > 0 ? (
-          <div className="shop-chip-row">
+          <div className="shop-chip-row" role="group" aria-label="Collections">
             <span className="shop-muted">Collections:</span>
             <button
               type="button"
@@ -639,51 +813,81 @@ export default function RecordsClient({
         ) : null}
 
         <div className="shop-letter-row">
-          <button
-            type="button"
-            className="shop-letter"
-            aria-pressed={letter === null}
-            onClick={() => setLetter(null)}
+          <div
+            className="shop-letters"
+            role="group"
+            aria-label="Browse by artist letter"
           >
-            All
-          </button>
-          {LETTERS.map((l) => (
             <button
-              key={l}
               type="button"
               className="shop-letter"
-              aria-pressed={letter === l}
-              disabled={!activeLetters.has(l)}
-              onClick={() => setLetter(letter === l ? null : l)}
+              aria-pressed={letter === null}
+              onClick={() => setLetter(null)}
             >
-              {l}
+              All
             </button>
-          ))}
-          <span className="shop-muted">
-            {visible.length} shown · {available} available of {records.length}{" "}
-            listed
-          </span>
+            {LETTERS.map((l) => (
+              <button
+                key={l}
+                type="button"
+                className="shop-letter"
+                aria-pressed={letter === l}
+                disabled={!activeLetters.has(l)}
+                onClick={() => setLetter(letter === l ? null : l)}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <span className="shop-muted">{countLabel}</span>
           {hasFilters ? (
             <button type="button" className="btn btn-ghost" onClick={clearFilters}>
               Clear filters
             </button>
           ) : null}
         </div>
+
+        <p className="shop-controls-note">
+          Records are claimed by Reddit DM — no account needed on this site.
+          Bundle up: shipping is $6 per parcel of up to {RECORDS_PER_PARCEL}{" "}
+          records.
+        </p>
       </section>
 
-      <main className="shop-shell shop-main">
+      {stuck ? (
+        <div className="shop-sticky-bar">
+          <div className="shop-shell shop-sticky-inner">
+            <input
+              type="search"
+              className="input search"
+              aria-label="Search records"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search records…"
+            />
+            <select
+              className="input shop-sticky-sort"
+              aria-label="Sort records"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortOption)}
+            >
+              <option value="artist">Sort: Artist A–Z</option>
+              <option value="price-asc">Price: low → high</option>
+              <option value="price-desc">Price: high → low</option>
+              <option value="discount">Biggest discount</option>
+              <option value="newest">Newest arrivals</option>
+            </select>
+            <span className="shop-muted shop-sticky-count">{countLabel}</span>
+            <button type="button" className="btn btn-ghost" onClick={scrollToTop}>
+              ↑ Top
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="shop-shell shop-main">
         {visible.length > 0 ? (
-          <>
-            <div className="shop-grid">{visible.map(recordCard)}</div>
-            <p className="shop-grid-hint">
-              {redditPostUrl
-                ? "Step 1 opens a pre-filled Reddit message you can edit before sending. Step 2 copies a “Sent you a DM” comment and opens the Reddit post — paste it there per sub rules."
-                : "“Request to buy” opens a pre-filled Reddit message you can edit before sending."}{" "}
-              After several? “Add to bundle” collects records into one combined
-              request — shipping is $6 per parcel of up to {RECORDS_PER_PARCEL}{" "}
-              records.
-            </p>
-          </>
+          <div className="shop-grid">{visible.map(recordCard)}</div>
         ) : (
           <div className="card shop-empty">
             <div className="shop-empty-title">
@@ -694,12 +898,12 @@ export default function RecordsClient({
             </button>
           </div>
         )}
-      </main>
+      </div>
 
       {selectedRecords.length > 0 ? (
         <div className="shop-bundle-bar" role="region" aria-label="Your bundle">
           <div className="shop-shell shop-bundle-inner">
-            <span className="shop-bundle-summary">
+            <span className="shop-bundle-summary" aria-live="polite">
               {selectedRecords.length} record
               {selectedRecords.length === 1 ? "" : "s"} · ${bundleSubtotal} + $
               {bundleShipping} shipping{" "}
@@ -711,25 +915,10 @@ export default function RecordsClient({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={sendCombinedRequest}
+              onClick={() => setBuySheet({ kind: "bundle" })}
             >
-              {combinedMessageCopied
-                ? "Message copied — paste into the DM"
-                : redditPostUrl
-                  ? `1. Request to buy ${selectedRecords.length}`
-                  : `Request to buy ${selectedRecords.length}`}
+              Request to buy {selectedRecords.length}
             </button>
-            {redditPostUrl ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={copyCombinedCommentAndOpenPost}
-              >
-                {combinedCommentCopied
-                  ? "Comment copied!"
-                  : "2. Comment on the post"}
-              </button>
-            ) : null}
             <button
               type="button"
               className="btn btn-ghost"
@@ -740,6 +929,198 @@ export default function RecordsClient({
           </div>
         </div>
       ) : null}
+
+      <dialog
+        ref={buyDialogRef}
+        className="shop-dialog"
+        aria-label="Request to buy"
+        onClose={() => setBuySheet(null)}
+        onClick={(e) => onBackdropClick(e, () => setBuySheet(null))}
+      >
+        {buySheet && sheetItems.length > 0 ? (
+          <div className="shop-dialog-body">
+            <div className="shop-dialog-head">
+              <h3>Request to buy</h3>
+              <button
+                type="button"
+                className="shop-dialog-close"
+                aria-label="Close"
+                onClick={() => setBuySheet(null)}
+              >
+                ×
+              </button>
+            </div>
+            <ul className="shop-dialog-items">
+              {sheetItems.map((r) => (
+                <li key={r.id}>
+                  <span>
+                    {r.artist} — {r.title}
+                  </span>
+                  <span>${r.price}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="shop-dialog-total">
+              <span>
+                ${sheetQuote.subtotal} + ${sheetQuote.shipping} shipping
+              </span>
+              <strong>= ${sheetQuote.total}</strong>
+            </div>
+            <p className="shop-dialog-hint">
+              {hasPost
+                ? "Two quick steps, per subreddit rules: open the pre-filled Reddit DM (edit anything before sending), then paste the copied comment on the sale post."
+                : "This opens a pre-filled Reddit DM — edit anything before sending."}{" "}
+              Everything happens on Reddit; no account needed here.
+            </p>
+            {buySheet.kind === "single" ? (
+              <a
+                className="btn btn-primary btn-block"
+                href={requestToBuyUrl(buySheet.record, hasPost)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => track(buySheet.record.id, "buy_request")}
+              >
+                {hasPost ? "1. Open the pre-filled DM ↗" : "Open the pre-filled DM ↗"}
+              </a>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                onClick={sendCombinedRequest}
+              >
+                {combinedMessageCopied
+                  ? "Message copied — paste into the DM"
+                  : hasPost
+                    ? "1. Open the pre-filled DM ↗"
+                    : "Open the pre-filled DM ↗"}
+              </button>
+            )}
+            {hasPost ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-block"
+                onClick={() =>
+                  buySheet.kind === "single"
+                    ? copyCommentAndOpenPost(buySheet.record)
+                    : copyCombinedCommentAndOpenPost()
+                }
+              >
+                {(
+                  buySheet.kind === "single"
+                    ? commentCopiedId === buySheet.record.id
+                    : combinedCommentCopied
+                )
+                  ? "Comment copied!"
+                  : "2. Copy comment & open the post"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </dialog>
+
+      <dialog
+        ref={lightboxRef}
+        className="shop-lightbox"
+        aria-label="Record photos"
+        onClose={() => setLightbox(null)}
+        onClick={(e) => onBackdropClick(e, () => setLightbox(null))}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight") stepLightbox(1);
+          if (e.key === "ArrowLeft") stepLightbox(-1);
+        }}
+      >
+        {lightbox
+          ? (() => {
+              const photos = lightbox.record.photo_urls ?? [];
+              const src = photos[lightbox.index];
+              if (!src) return null;
+              return (
+                <div
+                  className="shop-lightbox-body"
+                  onTouchStart={(e) => {
+                    touchX.current = e.touches[0]?.clientX ?? null;
+                  }}
+                  onTouchEnd={(e) => {
+                    const start = touchX.current;
+                    touchX.current = null;
+                    if (start == null) return;
+                    const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+                    if (Math.abs(dx) > 40) stepLightbox(dx < 0 ? 1 : -1);
+                  }}
+                >
+                  <div className="shop-lightbox-top">
+                    <span className="shop-lightbox-title">
+                      {lightbox.record.artist} — {lightbox.record.title}
+                    </span>
+                    <span className="shop-lightbox-count">
+                      {lightbox.index + 1} / {photos.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="shop-dialog-close"
+                      aria-label="Close photos"
+                      onClick={() => setLightbox(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="shop-lightbox-stage">
+                    {photos.length > 1 ? (
+                      <button
+                        type="button"
+                        className="shop-lightbox-nav"
+                        aria-label="Previous photo"
+                        onClick={() => stepLightbox(-1)}
+                      >
+                        ‹
+                      </button>
+                    ) : null}
+                    <Image
+                      key={src}
+                      src={src}
+                      alt={`${lightbox.record.artist} — ${lightbox.record.title}, photo ${lightbox.index + 1} of ${photos.length}`}
+                      width={1200}
+                      height={1200}
+                      sizes="100vw"
+                      className="shop-lightbox-img"
+                    />
+                    {photos.length > 1 ? (
+                      <button
+                        type="button"
+                        className="shop-lightbox-nav"
+                        aria-label="Next photo"
+                        onClick={() => stepLightbox(1)}
+                      >
+                        ›
+                      </button>
+                    ) : null}
+                  </div>
+                  {photos.length > 1 ? (
+                    <div className="shop-lightbox-thumbs">
+                      {photos.map((u, i) => (
+                        <button
+                          key={u}
+                          type="button"
+                          className={i === lightbox.index ? "is-active" : ""}
+                          aria-label={`Photo ${i + 1}`}
+                          onClick={() =>
+                            setLightbox((l) => (l ? { ...l, index: i } : l))
+                          }
+                        >
+                          <Image src={u} alt="" width={80} height={80} />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()
+          : null}
+      </dialog>
+
+      <span className="visually-hidden" aria-live="polite">
+        {liveMessage}
+      </span>
     </>
   );
 }

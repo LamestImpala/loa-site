@@ -1,6 +1,23 @@
 import type { MetadataRoute } from "next";
+import { headers } from "next/headers";
+import { SHOP_HOST, matchesHost } from "@/lib/hosts";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+// headers() makes this dynamic so each host serves its own sitemap: the shop
+// is a single page at the domain root; everything else is the LOA site.
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const host = (await headers()).get("host")?.split(":")[0] ?? "";
+
+  if (matchesHost(host, SHOP_HOST)) {
+    return [
+      {
+        url: `https://${SHOP_HOST}`,
+        lastModified: new Date(),
+        changeFrequency: "daily",
+        priority: 1,
+      },
+    ];
+  }
+
   const base = "https://lateonsetaudiophile.com";
 
   return [
