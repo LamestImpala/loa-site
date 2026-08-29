@@ -147,6 +147,15 @@ export type RecordInterest = {
   last_event_at: string;
 };
 
+// Raw shopper click event (record_events table); RLS only lets the admin
+// read these. Powers the day-by-day interest breakdown in the admin.
+export type RecordEventRow = {
+  record_id: number;
+  event_type: "photo_open" | "discogs_click" | "bundle_add" | "buy_request";
+  session_id: string;
+  created_at: string;
+};
+
 // Server-side client for the public /records page (anon role: RLS only
 // exposes listed records).
 export function createServerSupabase(): SupabaseClient {

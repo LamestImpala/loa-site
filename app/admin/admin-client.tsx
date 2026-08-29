@@ -25,6 +25,7 @@ import {
   type OrderRequest,
   type PendingPriceChange,
   type PriceRun,
+  type RecordEventRow,
   type RecordInterest,
   type Shipment,
 } from "@/lib/supabase";
@@ -271,6 +272,60 @@ function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
   if (e.key === "Enter") e.currentTarget.blur();
 }
 
+// One local-calendar-day slice of shopper activity; "looked"/"asked" count
+// distinct anonymous sessions, "clicks" counts raw events. Days are bucketed
+// in the browser's timezone so late-evening visits don't roll into tomorrow.
+type DayBucket = {
+  key: string; // local yyyy-mm-dd, sorts chronologically
+  label: string; // e.g. "Aug 27"
+  clicks: number;
+  looked: number;
+  asked: number;
+};
+
+function localDayKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function dayLabel(key: string) {
+  return new Date(`${key}T12:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function bucketEventsByDay(events: RecordEventRow[]): DayBucket[] {
+  const days = new Map<
+    string,
+    { clicks: number; look: Set<string>; ask: Set<string> }
+  >();
+  for (const e of events) {
+    const key = localDayKey(new Date(e.created_at));
+    let day = days.get(key);
+    if (!day) {
+      day = { clicks: 0, look: new Set(), ask: new Set() };
+      days.set(key, day);
+    }
+    if (e.event_type === "buy_request") {
+      day.ask.add(e.session_id);
+    } else {
+      day.clicks += 1;
+      day.look.add(e.session_id);
+    }
+  }
+  return [...days.entries()]
+    .map(([key, d]) => ({
+      key,
+      label: dayLabel(key),
+      clicks: d.clicks,
+      looked: d.look.size,
+      asked: d.ask.size,
+    }))
+    .sort((a, b) => (a.key < b.key ? 1 : -1)); // newest first
+}
+
 type SortKey = "artist" | "price-desc" | "price-asc" | "interest" | "added";
 
 export default function AdminClient() {
@@ -309,6 +364,10 @@ export default function AdminClient() {
   const [genreFilter, setGenreFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
   const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
+  // Raw click events from the last 60 days, for the day-by-day breakdowns.
+  const [events, setEvents] = useState<RecordEventRow[]>([]);
+  // Record whose Interest cell is expanded to show its daily history.
+  const [interestDetailId, setInterestDetailId] = useState<number | null>(null);
   const [interestFilter, setInterestFilter] = useState<
     "all" | "clicked-no-request"
   >("all");
@@ -636,6 +695,7 @@ export default function AdminClient() {
       settingsRes,
       requestsRes,
       interestRes,
+      eventsRes,
       shipmentsRes,
       invoicesRes,
     ] = await Promise.all([
@@ -662,6 +722,15 @@ export default function AdminClient() {
           .limit(50),
         supabase.from("record_interest").select("*"),
         supabase
+          .from("record_events")
+          .select("record_id,event_type,session_id,created_at")
+          .gte(
+            "created_at",
+            new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+          )
+          .order("created_at", { ascending: false })
+          .limit(5000),
+        supabase
           .from("shipments")
           .select("*")
           .order("created_at", { ascending: false }),
@@ -686,6 +755,12 @@ export default function AdminClient() {
     }
     if (interestRes.error) {
       pushToast("error", `Interest data didn't load: ${interestRes.error.message}`);
+    }
+    if (eventsRes.error) {
+      pushToast(
+        "error",
+        `Interest history didn't load: ${eventsRes.error.message}`
+      );
     }
     if (invoicesRes.error) {
       pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
@@ -721,6 +796,7 @@ export default function AdminClient() {
         ])
       )
     );
+    setEvents((eventsRes.data ?? []) as RecordEventRow[]);
   }, [supabase, pushToast]);
 
   useEffect(() => {
@@ -1070,6 +1146,40 @@ export default function AdminClient() {
     }
     return m;
   }, [runs]);
+
+  // Site-wide daily activity for the "Interest by day" strip: a contiguous
+  // run of the last 14 local days, zero-filled so quiet days show as gaps.
+  const dailyStrip = useMemo(() => {
+    const byKey = new Map(bucketEventsByDay(events).map((d) => [d.key, d]));
+    const out: DayBucket[] = [];
+    const now = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const key = localDayKey(d);
+      out.push(
+        byKey.get(key) ?? {
+          key,
+          label: dayLabel(key),
+          clicks: 0,
+          looked: 0,
+          asked: 0,
+        }
+      );
+    }
+    return out;
+  }, [events]);
+  const stripMax = Math.max(1, ...dailyStrip.map((d) => d.looked));
+
+  // Daily history for the one record whose Interest cell is expanded.
+  const interestDetailDays = useMemo(
+    () =>
+      interestDetailId == null
+        ? []
+        : bucketEventsByDay(
+            events.filter((e) => e.record_id === interestDetailId)
+          ),
+    [interestDetailId, events]
+  );
 
   // Same heuristic as the email: a cut worth acting on is modest (≤30%)
   // with several copies competing; everything else is likely condition
@@ -2208,6 +2318,52 @@ export default function AdminClient() {
           </div>
         </div>
         )}
+
+        {/* Interest by day — daily distinct shoppers across all listings */}
+        {events.length > 0 ? (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm text-neutral-400">Interest by day</p>
+              <p className="text-xs text-neutral-500">
+                {dailyStrip.reduce((n, d) => n + d.looked, 0)} looked ·{" "}
+                {dailyStrip.reduce((n, d) => n + d.asked, 0)} asked in the last
+                14 days · <span className="text-green-400">●</span> = buy
+                request
+              </p>
+            </div>
+            <div className="mt-3 flex items-end gap-1.5">
+              {dailyStrip.map((d) => (
+                <div
+                  key={d.key}
+                  className="flex min-w-0 flex-1 flex-col items-center gap-1"
+                  title={`${d.label} · ${d.looked} looked · ${d.clicks} clicks · ${d.asked} asked`}
+                >
+                  <div className="flex h-16 w-full max-w-8 items-end">
+                    <div
+                      className={`w-full rounded-t ${
+                        d.looked > 0 ? "bg-neutral-300" : "bg-white/10"
+                      }`}
+                      style={{
+                        height:
+                          d.looked > 0
+                            ? `${Math.max(10, (d.looked / stripMax) * 100)}%`
+                            : "2px",
+                      }}
+                    />
+                  </div>
+                  <div className="h-1.5">
+                    {d.asked > 0 ? (
+                      <div className="mx-auto h-1.5 w-1.5 rounded-full bg-green-400" />
+                    ) : null}
+                  </div>
+                  <p className="text-[10px] leading-none text-neutral-500">
+                    {d.key.slice(8).replace(/^0/, "")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {/* Reddit tools */}
         {sectionHeading("reddit", "Reddit tools", "mt-10 text-xl font-medium")}
@@ -3677,20 +3833,62 @@ export default function AdminClient() {
                         </p>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 whitespace-nowrap align-top">
                       {interest[r.id] ? (
-                        <span
-                          className="text-neutral-300"
-                          title={`${interest[r.id].interest_events} clicks · ${interest[r.id].request_events} requests · last ${new Date(interest[r.id].last_event_at).toLocaleDateString()}`}
-                        >
-                          {interest[r.id].interest_sessions} looked
-                          {interest[r.id].request_sessions > 0 ? (
-                            <span className="text-green-400">
-                              {" "}
-                              · {interest[r.id].request_sessions} asked
-                            </span>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setInterestDetailId((prev) =>
+                                prev === r.id ? null : r.id
+                              )
+                            }
+                            className="text-neutral-300 underline decoration-white/30 decoration-dotted underline-offset-4 transition hover:text-white"
+                            title={`${interest[r.id].interest_events} clicks · ${interest[r.id].request_events} requests · last ${new Date(interest[r.id].last_event_at).toLocaleDateString()} — click for the day-by-day history`}
+                          >
+                            {interest[r.id].interest_sessions} looked
+                            {interest[r.id].request_sessions > 0 ? (
+                              <span className="text-green-400">
+                                {" "}
+                                · {interest[r.id].request_sessions} asked
+                              </span>
+                            ) : null}
+                          </button>
+                          {interestDetailId === r.id ? (
+                            <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2 text-xs">
+                              <p className="text-[10px] uppercase tracking-wide text-neutral-500">
+                                By day · last 60 days
+                              </p>
+                              {interestDetailDays.length === 0 ? (
+                                <p className="mt-1 text-neutral-500">
+                                  No activity in the last 60 days
+                                </p>
+                              ) : (
+                                <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto pr-1">
+                                  {interestDetailDays.map((d) => (
+                                    <li
+                                      key={d.key}
+                                      className="whitespace-nowrap text-neutral-400"
+                                    >
+                                      <span className="text-neutral-300">
+                                        {d.label}
+                                      </span>
+                                      {d.looked > 0
+                                        ? ` · ${d.looked} looked (${d.clicks} click${d.clicks === 1 ? "" : "s"})`
+                                        : ""}
+                                      {d.asked > 0 ? (
+                                        <span className="text-green-400">
+                                          {" "}
+                                          · {d.asked} asked
+                                        </span>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
                           ) : null}
-                        </span>
+                        </>
                       ) : (
                         <span className="text-neutral-600">—</span>
                       )}
