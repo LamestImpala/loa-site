@@ -82,6 +82,16 @@
   min-height: 100dvh;
 }
 
+/* The root layout paints the LOA site's near-black body; on shop pages the
+   overscroll/browser chrome should be parchment instead. */
+html:has(.shop),
+body:has(.shop) {
+  background: #f8f1e4;
+}
+html:has(.shop) {
+  scroll-behavior: smooth;
+}
+
 .shop h1,
 .shop h2,
 .shop h3,
@@ -294,6 +304,22 @@
   padding-inline: var(--space-8);
 }
 
+/* Visually hidden until keyboard focus. */
+.shop-skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 60;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-radius: 0 0 var(--radius-sm) 0;
+  text-decoration: none;
+}
+.shop-skip-link:focus-visible {
+  left: 0;
+  top: 0;
+}
+
 .shop-nav {
   display: flex;
   align-items: center;
@@ -395,6 +421,24 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: none;
 }
+/* Desktop shows the static info card; phones get the collapsed <details>.
+   (.shop .card.shop-hero-info sets display, so match its specificity.) */
+.shop .card.shop-hero-info-details {
+  display: none;
+}
+.shop-hero-info-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  list-style-position: inside;
+}
+.shop-hero-info-detail-body {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.shop .shop-hero-cta {
+  margin-top: var(--space-4);
+}
 .shop-hero-logo {
   width: 280px;
   height: 280px;
@@ -494,6 +538,11 @@
   display: grid;
   gap: var(--space-4);
 }
+/* Grid items default to min-width:auto; the nowrap letter scroller would
+   otherwise widen the whole controls column past the viewport on phones. */
+.shop-controls > * {
+  min-width: 0;
+}
 .shop-controls-row {
   display: flex;
   gap: var(--space-3);
@@ -514,6 +563,14 @@
   gap: 6px;
   flex-wrap: wrap;
   align-items: center;
+}
+.shop-letters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 /* Keep the result count out of the letter chips — right-aligned on its own. */
 .shop-letter-row .shop-muted {
@@ -556,8 +613,22 @@
   gap: var(--space-3);
   animation: curiofade 0.35s ease both;
 }
-.record-card.is-sold {
-  opacity: 0.55;
+/* Sold: mute the artwork, keep the words legible. */
+.record-card.is-sold .record-cover,
+.record-card.is-sold .record-thumbs {
+  filter: grayscale(1) opacity(0.7);
+}
+.record-card.is-sold .record-price {
+  color: var(--color-neutral-600);
+}
+/* Landing spot for "Drink me" chips and #r-<id> deep links. */
+.record-card.is-highlighted {
+  box-shadow:
+    0 0 0 3px var(--color-accent-2),
+    var(--shadow-md);
+}
+.record-card {
+  scroll-margin-top: 84px;
 }
 .record-cover-wrap {
   position: relative;
@@ -574,6 +645,24 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* Cover and thumbs are lightbox buttons, not links to raw image files. */
+.record-cover-btn {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+.record-thumbs button {
+  display: block;
+  width: 25%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
 }
 .record-cover .initials {
   font-family: var(--font-heading);
@@ -593,10 +682,6 @@
 .record-thumbs {
   display: flex;
   gap: var(--space-2);
-}
-.record-thumbs a {
-  display: block;
-  width: 25%;
 }
 .record-thumbs img {
   aspect-ratio: 1;
@@ -666,10 +751,251 @@
   margin-bottom: var(--space-2);
 }
 
-.shop-grid-hint {
+.shop-controls-note {
   font-size: 13px;
   color: var(--color-neutral-700);
-  margin-top: var(--space-6);
+  margin: 0;
+}
+
+/* — condensed sticky controls (appear once the full bar scrolls away) — */
+.shop-sticky-bar {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 45;
+  background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-divider);
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--color-text) 8%, transparent);
+  padding-block: var(--space-2);
+  animation: curiofade 0.2s ease both;
+}
+.shop-sticky-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.shop-sticky-inner .search {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.shop-sticky-count {
+  white-space: nowrap;
+}
+
+/* — buy sheet & lightbox dialogs — */
+.shop dialog {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text);
+  max-width: none;
+  max-height: none;
+}
+.shop dialog::backdrop {
+  background: color-mix(in srgb, #1e1430 62%, transparent);
+  backdrop-filter: blur(3px);
+}
+.shop-dialog {
+  margin: auto;
+  width: min(480px, calc(100vw - var(--space-6)));
+}
+.shop-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.shop-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.shop-dialog-head h3 {
+  font-size: 24px;
+  margin: 0;
+}
+.shop-dialog-close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--color-divider);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+}
+.shop-dialog-close:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.shop-dialog-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-2);
+}
+.shop-dialog-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+.shop-dialog-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.shop-dialog-total strong {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
+}
+.shop-dialog-hint {
+  font-size: 13.5px;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+.shop-lightbox {
+  margin: auto;
+  width: min(920px, 100vw);
+}
+.shop-lightbox-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  color: var(--color-ink-text);
+}
+.shop-lightbox-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.shop-lightbox-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shop-lightbox-count {
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+.shop-lightbox .shop-dialog-close {
+  border-color: color-mix(in srgb, var(--color-ink-text) 35%, transparent);
+  color: var(--color-ink-text);
+}
+.shop-lightbox-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.shop-lightbox-img {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: auto;
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+.shop-lightbox-nav {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--color-ink-text) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink) 60%, transparent);
+  color: var(--color-ink-text);
+}
+.shop-lightbox-nav:hover {
+  border-color: var(--color-accent-2);
+  color: var(--color-accent-2-200);
+}
+.shop-lightbox-thumbs {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.shop-lightbox-thumbs button {
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.shop-lightbox-thumbs button.is-active {
+  border-color: var(--color-accent-2);
+}
+.shop-lightbox-thumbs img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* — loading skeletons — */
+@keyframes curioshimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.shop-skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    100deg,
+    var(--color-neutral-200) 40%,
+    var(--color-neutral-100) 50%,
+    var(--color-neutral-200) 60%
+  );
+  background-size: 200% 100%;
+  animation: curioshimmer 1.4s linear infinite;
 }
 
 .shop-main {
@@ -797,13 +1123,44 @@
   .shop-footer {
     padding-inline: var(--space-4);
   }
-  .shop-hero-logo {
-    width: 200px;
-    height: 200px;
+  /* Compact hero: records should surface within ~1.5 screens. The logo is
+     already in the nav; the buying details collapse into a <details>. */
+  .shop-hero {
+    padding: var(--space-6) var(--space-4);
+    gap: var(--space-4);
+  }
+  .shop-hero h1 {
+    font-size: clamp(30px, 8.5vw, 36px);
+  }
+  .shop-hero-lede {
+    font-size: 16px;
+    margin-bottom: var(--space-4);
+  }
+  .shop-hero > div:last-child {
+    display: none;
+  }
+  .shop .card.shop-hero-info-static {
+    display: none;
+  }
+  .shop .card.shop-hero-info-details {
+    display: block;
   }
   .shop-letter {
     min-width: 44px;
     height: 44px;
+  }
+  /* One scrollable row of letters instead of four wrapped rows. */
+  .shop-letters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    flex-basis: 100%;
+    padding-bottom: var(--space-1);
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-neutral-400) transparent;
+  }
+  .shop-sticky-sort,
+  .shop-sticky-count {
+    display: none;
   }
   .shop-bundle-summary {
     flex-basis: 100%;
@@ -820,8 +1177,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html:has(.shop) {
+    scroll-behavior: auto;
+  }
   .shop-hero-logo,
-  .record-card {
+  .record-card,
+  .shop-sticky-bar,
+  .shop-skeleton {
     animation: none;
   }
 }

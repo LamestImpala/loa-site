@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Alice, Rye } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
@@ -30,13 +30,31 @@ export const metadata: Metadata = {
     siteName: "Curiouser Records",
     locale: "en_US",
     type: "website",
+    images: [
+      {
+        url: "/images/curiouserlogo.png",
+        width: 892,
+        height: 892,
+        alt: "Curiouser Records — the White Rabbit logo",
+      },
+    ],
   },
   twitter: {
     card: "summary",
     title: "Curiouser Records",
     description:
       "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
+    images: ["/images/curiouserlogo.png"],
   },
+};
+
+// The root layout declares a near-black themeColor for the dark LOA site;
+// the shop is parchment, so mobile browser chrome should match it.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#f8f1e4",
 };
 
 const redditProfile = `https://www.reddit.com/user/${SELLER_INFO.redditUsername}`;
@@ -48,6 +66,9 @@ export default function ShopLayout({
 }>) {
   return (
     <div className={`shop ${rye.variable} ${alice.variable}`}>
+      <a className="shop-skip-link" href="#records">
+        Skip to the records
+      </a>
       <nav className="shop-nav">
         <Link href="/" aria-label="Curiouser Records home">
           <Image

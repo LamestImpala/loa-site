@@ -12,6 +12,22 @@ export const metadata: Metadata = {
 
 export const revalidate = 60;
 
+function SellerInfoLines() {
+  return (
+    <>
+      <div>
+        <strong>Contact:</strong> {SELLER_INFO.contact}
+      </div>
+      <div>
+        <strong>Payment:</strong> {SELLER_INFO.payment}
+      </div>
+      <div>
+        <strong>Shipping:</strong> {SELLER_INFO.shipping}
+      </div>
+    </>
+  );
+}
+
 export default async function RecordsPage() {
   const supabase = createServerSupabase();
   const [{ data, error }, { data: settingsData }] = await Promise.all([
@@ -48,17 +64,20 @@ export default async function RecordsPage() {
             , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
             That&rsquo;s a real price drop since yesterday.
           </p>
-          <div className="card elev-sm shop-hero-info">
-            <div>
-              <strong>Contact:</strong> {SELLER_INFO.contact}
-            </div>
-            <div>
-              <strong>Payment:</strong> {SELLER_INFO.payment}
-            </div>
-            <div>
-              <strong>Shipping:</strong> {SELLER_INFO.shipping}
-            </div>
+          {/* Same info twice: an always-open card on desktop, a collapsed
+              <details> on phones so records surface within ~1.5 screens. */}
+          <div className="card elev-sm shop-hero-info shop-hero-info-static">
+            <SellerInfoLines />
           </div>
+          <details className="card elev-sm shop-hero-info shop-hero-info-details">
+            <summary>How buying works — payment &amp; shipping</summary>
+            <div className="shop-hero-info-detail-body">
+              <SellerInfoLines />
+            </div>
+          </details>
+          <a className="btn btn-primary shop-hero-cta" href="#records">
+            Browse the records ↓
+          </a>
         </div>
         <div>
           <Image
