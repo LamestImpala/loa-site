@@ -22,6 +22,7 @@ import {
   getBrowserSupabase,
   type DbRecord,
   type Invoice,
+  type MarketSnapshotRow,
   type OrderRequest,
   type PendingPriceChange,
   type PriceRun,
@@ -100,26 +101,55 @@ function redditMarkdown(records: DbRecord[]) {
 // whole catalog, and never shows an old price — steep markdowns read as
 // suspicious to buyers. Price sits right after Title so mobile readers see
 // it without scrolling the table sideways.
-const weeklyRow = (r: DbRecord) =>
-  `| ${cell(r.artist)} | ${cell(r.title)} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} |`;
+
+// A record counts as "scarce" when this few (or fewer) copies are listed
+// on Discogs — the weekly post calls those out to give buyers urgency.
+const SCARCE_MAX = 10;
+
+// Latest known Discogs for-sale count per record id (from market_snapshots).
+type ScarcityMap = Record<number, number>;
+
+// for_sale counts copies OTHER sellers have listed on Discogs — ours
+// isn't there — so 0 means Discogs has none at all.
+const scarcityCell = (forSale: number | undefined) =>
+  forSale === undefined || forSale > SCARCE_MAX
+    ? ""
+    : forSale === 0
+      ? "**none on Discogs**"
+      : forSale === 1
+        ? "**only 1 on Discogs**"
+        : `only ${forSale} on Discogs`;
+
+const weeklyRow = (r: DbRecord, scarcity: ScarcityMap) =>
+  `| ${cell(r.artist)} | ${cell(r.title)} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | ${scarcityCell(scarcity[r.id])} |`;
 
 const REDDIT_TABLE_HEADER = [
-  "| Artist | Title | Price | Pressing | Grade (M/S) |",
-  "|---|---|---|---|---|",
+  "| Artist | Title | Price | Pressing | Grade (M/S) | Scarcity |",
+  "|---|---|---|---|---|---|",
 ];
 
-function redditWeeklyMarkdown(selected: DbRecord[], liveCount: number) {
+const scarceCount = (list: DbRecord[], scarcity: ScarcityMap) =>
+  list.filter((r) => (scarcity[r.id] ?? Infinity) <= SCARCE_MAX).length;
+
+function redditWeeklyMarkdown(
+  selected: DbRecord[],
+  liveCount: number,
+  scarcity: ScarcityMap
+) {
   const list = [...selected].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
-  const title = `[For Sale] Weekly update — ${list.length} picks from a ${liveCount}-record collection sale — PayPal G&S`;
+  const scarce = scarceCount(list, scarcity);
+  const title = `[For Sale] Weekly update — ${list.length} picks from a ${liveCount}-record collection sale${
+    scarce > 0 ? `, ${scarce} with ${SCARCE_MAX} or fewer copies on Discogs` : ""
+  } — PayPal G&S`;
   return [
     title,
     "",
     `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
     ...REDDIT_TABLE_HEADER,
-    ...list.map(weeklyRow),
+    ...list.map((r) => weeklyRow(r, scarcity)),
     "",
     `**Location:** ${SELLER_INFO.location}`,
     "",
@@ -134,15 +164,15 @@ function redditWeeklyMarkdown(selected: DbRecord[], liveCount: number) {
 // Body-only refresh of the live weekly post (Reddit titles can't be edited,
 // so there's no title line — paste this over the existing post body). Sold
 // records stay visible as struck-through rows with the price hidden.
-function redditUpdateMarkdown(posted: DbRecord[]) {
+function redditUpdateMarkdown(posted: DbRecord[], scarcity: ScarcityMap) {
   const list = [...posted].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
   const openCount = list.filter((r) => !r.sold).length;
   const row = (r: DbRecord) =>
     r.sold
-      ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} |`
-      : weeklyRow(r);
+      ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | |`
+      : weeklyRow(r, scarcity);
   return [
     `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
     "",
@@ -391,6 +421,9 @@ export default function AdminClient() {
   }>({ ids: [], posted_at: null });
   const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
   const [tableCopied, setTableCopied] = useState(false);
+  // Latest Discogs for-sale count per record, from the daily snapshots —
+  // powers the scarcity picks and the "only N on Discogs" post column.
+  const [scarcity, setScarcity] = useState<ScarcityMap>({});
 
   const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(
     () => {
@@ -522,14 +555,25 @@ export default function AdminClient() {
     }
   }
 
-  // Seed the weekly post with 10 random picks — rotate stock by preferring
-  // records that weren't in the last posted set, backfilling if short.
+  // Seed the weekly post with the scarcest picks — fewest copies listed on
+  // Discogs first, since "only 3 on Discogs" is the traction hook. Stock
+  // still rotates: records from the last posted set only backfill when the
+  // fresh pool runs short. Shuffling before the stable sort randomizes
+  // ties (and records with no snapshot data) between clicks.
+  const WEEKLY_PICK_COUNT = 20;
   function randomizeWeeklyPicks() {
+    const byScarcity = (pool: DbRecord[]) =>
+      shuffle(pool).sort(
+        (a, b) => (scarcity[a.id] ?? Infinity) - (scarcity[b.id] ?? Infinity)
+      );
     const pool = records.filter((r) => r.listed && !r.sold && !holdActive(r));
     const lastPosted = new Set(postedInfo.ids);
     const fresh = pool.filter((r) => !lastPosted.has(r.id));
     const rest = pool.filter((r) => lastPosted.has(r.id));
-    const picks = [...shuffle(fresh), ...shuffle(rest)].slice(0, 10);
+    const picks = [...byScarcity(fresh), ...byScarcity(rest)].slice(
+      0,
+      WEEKLY_PICK_COUNT
+    );
     setSelectedIds(new Set(picks.map((r) => r.id)));
     setSelectionMode("weekly");
   }
@@ -539,7 +583,7 @@ export default function AdminClient() {
     const picks = records.filter((r) => selectedIds.has(r.id) && !r.sold);
     if (picks.length === 0) return;
     const liveCount = records.filter((r) => r.listed && !r.sold).length;
-    const md = redditWeeklyMarkdown(picks, liveCount);
+    const md = redditWeeklyMarkdown(picks, liveCount, scarcity);
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.
     if (await copyText(md, "Copy the weekly post")) {
@@ -575,7 +619,7 @@ export default function AdminClient() {
       .map((id) => lookup.get(id))
       .filter((r): r is DbRecord => Boolean(r));
     if (posted.length === 0) return;
-    const md = redditUpdateMarkdown(posted);
+    const md = redditUpdateMarkdown(posted, scarcity);
     if (await copyText(md, "Copy the post update")) {
       setUpdateCopied(true);
       setTimeout(() => setUpdateCopied(false), 1600);
@@ -698,6 +742,7 @@ export default function AdminClient() {
       eventsRes,
       shipmentsRes,
       invoicesRes,
+      snapshotsRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
@@ -735,6 +780,18 @@ export default function AdminClient() {
           .select("*")
           .order("created_at", { ascending: false }),
         supabase.from("invoices").select("*"),
+        // Last week of snapshots, newest first — reduced below to the
+        // newest for-sale count per record (runs can skip a day).
+        supabase
+          .from("market_snapshots")
+          .select("record_id,snapped_on,for_sale")
+          .gte(
+            "snapped_on",
+            new Date(Date.now() - 7 * 24 * 3600 * 1000)
+              .toISOString()
+              .slice(0, 10)
+          )
+          .order("snapped_on", { ascending: false }),
       ]);
     setLoading(false);
     if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
@@ -765,6 +822,21 @@ export default function AdminClient() {
     if (invoicesRes.error) {
       pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
     }
+    // Scarcity is non-fatal — without it, picks fall back to random order
+    // and the post just omits the scarcity callouts.
+    if (snapshotsRes.error) {
+      pushToast(
+        "error",
+        `Scarcity data didn't load: ${snapshotsRes.error.message}`
+      );
+    }
+    const latestForSale: ScarcityMap = {};
+    for (const s of (snapshotsRes.data ?? []) as MarketSnapshotRow[]) {
+      if (s.for_sale !== null && !(s.record_id in latestForSale)) {
+        latestForSale[s.record_id] = s.for_sale;
+      }
+    }
+    setScarcity(latestForSale);
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setInvoices((invoicesRes.data ?? []) as Invoice[]);
     setPending((pendingRes.data ?? []) as PendingPriceChange[]);
@@ -2371,12 +2443,14 @@ export default function AdminClient() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 10 at random&rdquo;
-          (a weekly-post bar appears above the listings instead of the sale
-          desk) and adjust the checkboxes, or pick by hand. Copy, and the list
-          is remembered so you can post an update later with sold records
-          crossed out (no price shown). &ldquo;Copy Reddit table&rdquo; is
-          still the full catalog.
+          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20 scarcest&rdquo;
+          (fewest copies for sale on Discogs first; a weekly-post bar appears
+          above the listings instead of the sale desk) and adjust the
+          checkboxes, or pick by hand. Records with {SCARCE_MAX} or fewer
+          copies get an &ldquo;only N on Discogs&rdquo; callout in the post.
+          Copy, and the list is remembered so you can post an update later
+          with sold records crossed out (no price shown). &ldquo;Copy Reddit
+          table&rdquo; is still the full catalog.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={copyRedditTable} className={buttonClass}>
@@ -2386,9 +2460,9 @@ export default function AdminClient() {
             type="button"
             onClick={randomizeWeeklyPicks}
             className={buttonClass}
-            title="Selects 10 random listed records (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
+            title="Selects the 20 listed records with the fewest copies for sale on Discogs (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
           >
-            Pick 10 at random
+            Pick 20 scarcest
           </button>
           <button
             type="button"
@@ -3324,7 +3398,11 @@ export default function AdminClient() {
                   {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
                 </span>{" "}
                 <span className="text-neutral-400">
-                  picked for the weekly post — adjust with the Sel checkboxes.
+                  picked for the weekly post
+                  {scarceCount(saleRecords, scarcity) > 0
+                    ? ` (${scarceCount(saleRecords, scarcity)} with ≤${SCARCE_MAX} copies on Discogs)`
+                    : ""}{" "}
+                  — adjust with the Sel checkboxes.
                 </span>
               </p>
               <button
