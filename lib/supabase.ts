@@ -156,6 +156,21 @@ export type RecordEventRow = {
   created_at: string;
 };
 
+// One generated Reddit sale post, archived at copy time (r/vinylcollectors
+// forbids deleting posts, so old ones get retired with a pointer to the
+// newest post instead). Update repastes are child rows via parent_id.
+export type RedditPost = {
+  id: number;
+  kind: "full" | "weekly" | "update";
+  parent_id: number | null;
+  title: string | null; // null for body-only update repastes
+  body: string; // exact markdown that was copied
+  record_ids: number[];
+  reddit_url: string | null; // pasted in after posting
+  retired_at: string | null; // set when a retire body is copied
+  created_at: string;
+};
+
 // Server-side client for the public /records page (anon role: RLS only
 // exposes listed records).
 export function createServerSupabase(): SupabaseClient {
