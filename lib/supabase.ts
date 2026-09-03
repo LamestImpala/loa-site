@@ -137,8 +137,8 @@ export type PriceRun = {
 };
 
 // One day's market snapshot for a record, written by the daily price run.
-// The admin only reads the newest row per record: for_sale drives the
-// scarcity callouts, want/have the demand ranking of weekly picks.
+// The admin only reads the newest row per record: want/have rank the weekly
+// picks by demand, for_sale breaks ties (nothing is shown to buyers).
 export type MarketSnapshotRow = {
   record_id: number;
   snapped_on: string; // YYYY-MM-DD
