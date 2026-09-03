@@ -7,8 +7,15 @@
  * automatically; bigger moves are queued in pending_price_changes for
  * approval on /admin. No price is ever applied OR recommended below
  * FLOOR_FACTOR × the grade suggestion — Discogs' lowest listing is
- * condition-blind, so junk copies can't drag prices down. Each run is logged to price_runs, and an email report
- * is sent via Resend when anything was flagged (if RESEND_API_KEY is set).
+ * condition-blind, so junk copies can't drag prices down. Two market
+ * checks pull the target lower than the suggestion alone would:
+ *   - Stocked releases (STOCKED_MIN+ copies for sale): the cheapest
+ *     listing is real competition, not a fluke, so it is chased down to a
+ *     lower STOCKED_FLOOR_FACTOR floor instead of being ignored.
+ *   - eBay: when the exact pressing (UPC match) has EBAY_MIN_EXACT+ used
+ *     listings, the target is capped at their median asking price.
+ * Each run is logged to price_runs, and an email report is sent via
+ * Resend when anything was flagged (if RESEND_API_KEY is set).
  *
  * Required env: DISCOGS_TOKEN, SUPABASE_SERVICE_ROLE_KEY
  * Optional env: RESEND_API_KEY
@@ -22,6 +29,14 @@ const THRESHOLD = 0.05; // auto-apply moves within ±5%
 const UNDERCUT_BY = 1; // competitive price = $1 below the cheapest listing
 const MAX_AUTO_CUT = 0.1; // auto-apply competitive cuts up to 10%
 const FLOOR_FACTOR = 0.7; // never recommend below 70% of the grade suggestion
+// With this many copies for sale, the cheapest listing is what buyers
+// actually compare against (the Discogs page we link to shows it), so the
+// floor relaxes to STOCKED_FLOOR_FACTOR and the listing is chased down to it.
+const STOCKED_MIN = 30;
+const STOCKED_FLOOR_FACTOR = 0.5;
+// Only exact-pressing (UPC) eBay matches are trusted as a price cap —
+// fuzzy title matches mix every pressing of an album together.
+const EBAY_MIN_EXACT = 3;
 
 const GRADE_KEY = {
   M: "Mint (M)",
@@ -356,22 +371,47 @@ async function main() {
 
       // Discogs' lowest_price is condition-blind: it's the cheapest listing
       // of the release in ANY grade, from any seller, before shipping — so a
-      // trashed copy at $0.99 must never drag our price down. A competitive
-      // price below the floor (FLOOR_FACTOR × grade suggestion) is treated
-      // as condition noise and ignored entirely.
-      const floor = Math.round(suggestion * FLOOR_FACTOR);
+      // trashed copy at $0.99 must never drag our price down. On a sparsely
+      // listed release a competitive price below the floor (FLOOR_FACTOR ×
+      // grade suggestion) is treated as condition noise and ignored. On a
+      // stocked release (STOCKED_MIN+ copies) the cheapest listing is real
+      // competition, so we follow it down as far as the lower stocked floor.
+      const stocked = forSale !== null && forSale >= STOCKED_MIN;
+      const floor = Math.round(
+        suggestion * (stocked ? STOCKED_FLOOR_FACTOR : FLOOR_FACTOR)
+      );
       const rawCompetitive = lowest
         ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
         : null;
       const competitive =
-        rawCompetitive !== null && rawCompetitive >= floor
-          ? rawCompetitive
+        rawCompetitive === null
+          ? null
+          : rawCompetitive >= floor
+            ? rawCompetitive
+            : stocked
+              ? floor
+              : null;
+
+      // Exact-pressing eBay asks are the same product buyers cross-shop;
+      // their median caps the target (it may sit below the floor — that's
+      // real market data for this pressing, not condition noise).
+      const ebayCap =
+        ebay?.exact && ebay.count >= EBAY_MIN_EXACT && ebay.median
+          ? Math.round(ebay.median)
           : null;
 
       let price = r.price; // tracks changes made within this iteration
 
       let target = Math.round(suggestion * PRICE_FACTOR);
-      if (competitive !== null) target = Math.min(target, competitive);
+      let reason = "suggestion";
+      if (competitive !== null && competitive < target) {
+        target = competitive;
+        reason = stocked ? "stocked" : "lowest";
+      }
+      if (ebayCap !== null && ebayCap < target) {
+        target = ebayCap;
+        reason = "ebay";
+      }
       if (target >= 1 && target !== price) {
         const entry = {
           record_id: r.id,
@@ -379,6 +419,10 @@ async function main() {
           title: r.title,
           old_price: price,
           new_price: target,
+          reason,
+          lowest: lowest ? Math.round(lowest) : null,
+          for_sale: forSale,
+          ebay_median: ebay?.median ?? null,
         };
 
         if (price === 0) {
@@ -506,12 +550,18 @@ async function main() {
     (flagged > 0 || undercuts > 0 || pendingCuts.length > 0) &&
     process.env.RESEND_API_KEY
   ) {
+    const REASON_LABEL = {
+      suggestion: "85% of grade suggestion",
+      lowest: "$1 under cheapest listing",
+      stocked: "stocked release — chasing cheapest listing",
+      ebay: "capped at eBay median for this pressing",
+    };
     const suggestionRows = (action) =>
       summary
         .filter((s) => s.action === action)
         .map(
           (s) =>
-            `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td></tr>`
+            `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${REASON_LABEL[s.reason] ?? "—"}</td><td>${s.lowest != null ? `$${s.lowest}` : "—"}</td><td>${s.for_sale ?? "?"}</td><td>${s.ebay_median != null ? `$${s.ebay_median}` : "—"}</td></tr>`
         )
         .join("");
     const demand = (s) =>
@@ -527,16 +577,19 @@ async function main() {
         ? `<p>These moved more than ±5% on the Discogs suggestion and are waiting for your approval at
 <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
 <table border="1" cellpadding="6" cellspacing="0">
-<tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th></tr>
+<tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th><th>Why</th><th>Lowest listing</th><th>Copies for sale</th><th>eBay median (used)</th></tr>
 ${suggestionRows("flagged")}
 </table>`
         : "";
 
     // Sort pending cuts biggest-gap-first, then split into ones worth
-    // acting on vs. likely condition noise (big gap or scarce copies).
+    // acting on vs. likely condition noise (big gap or scarce copies). A
+    // stocked release is always worth acting on, however big the gap.
     const sortedCuts = [...pendingCuts].sort((a, b) => a.pct - b.pct);
     const actionable = sortedCuts.filter(
-      (s) => Math.abs(s.pct) <= 0.3 && (s.for_sale ?? 0) >= 3
+      (s) =>
+        (s.for_sale ?? 0) >= STOCKED_MIN ||
+        (Math.abs(s.pct) <= 0.3 && (s.for_sale ?? 0) >= 3)
     );
     const noise = sortedCuts.filter((s) => !actionable.includes(s));
     const cutsSection =
