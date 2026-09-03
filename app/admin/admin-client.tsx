@@ -22,6 +22,7 @@ import {
   getBrowserSupabase,
   type DbRecord,
   type Invoice,
+  type MarketSnapshotRow,
   type OrderRequest,
   type PendingPriceChange,
   type PriceRun,
@@ -101,26 +102,78 @@ function redditMarkdown(records: DbRecord[]) {
 // whole catalog, and never shows an old price — steep markdowns read as
 // suspicious to buyers. Price sits right after Title so mobile readers see
 // it without scrolling the table sideways.
-const weeklyRow = (r: DbRecord) =>
-  `| ${cell(r.artist)} | ${cell(r.title)} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} |`;
+
+// A record counts as "scarce" when this few (or fewer) copies are listed
+// on Discogs — the weekly post calls those out to give buyers urgency.
+const SCARCE_MAX = 10;
+// A want count this high (top quarter of the catalog) earns an
+// "N want it" callout — the raw count impresses where the want/have
+// ratio wouldn't (nothing in the catalog has more wants than haves).
+const WANT_HOT = 500;
+
+// Latest known Discogs market stats per record id (from market_snapshots).
+type MarketStats = {
+  forSale: number | null;
+  want: number | null;
+  have: number | null;
+};
+type MarketMap = Record<number, MarketStats>;
+
+// Relative demand for ranking picks: wants per existing copy. Not shown
+// to buyers — a ratio below 1 reads as weak even when it's the best.
+const demandRatio = (s: MarketStats | undefined) =>
+  s && s.want !== null && s.have !== null ? s.want / Math.max(s.have, 1) : null;
+
+// for_sale counts copies OTHER sellers have listed on Discogs — ours
+// isn't there — so 0 means Discogs has none at all.
+const marketCell = (s: MarketStats | undefined) => {
+  if (!s) return "";
+  const parts: string[] = [];
+  if (s.forSale !== null && s.forSale <= SCARCE_MAX) {
+    parts.push(
+      s.forSale === 0
+        ? "**none on Discogs**"
+        : s.forSale === 1
+          ? "**only 1 on Discogs**"
+          : `only ${s.forSale} on Discogs`
+    );
+  }
+  if (s.want !== null && s.want >= WANT_HOT) {
+    parts.push(`${s.want.toLocaleString("en-US")} want it`);
+  }
+  return parts.join(" · ");
+};
+
+const weeklyRow = (r: DbRecord, market: MarketMap) =>
+  `| ${cell(r.artist)} | ${cell(r.title)} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | ${marketCell(market[r.id])} |`;
 
 const REDDIT_TABLE_HEADER = [
-  "| Artist | Title | Price | Pressing | Grade (M/S) |",
-  "|---|---|---|---|---|",
+  "| Artist | Title | Price | Pressing | Grade (M/S) | Scarcity / Demand |",
+  "|---|---|---|---|---|---|",
 ];
 
-function redditWeeklyMarkdown(selected: DbRecord[], liveCount: number) {
+const hotCount = (list: DbRecord[], market: MarketMap) =>
+  list.filter((r) => marketCell(market[r.id]) !== "").length;
+
+function redditWeeklyMarkdown(
+  selected: DbRecord[],
+  liveCount: number,
+  market: MarketMap
+) {
   const list = [...selected].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
-  const title = `[For Sale] Weekly update — ${list.length} picks from a ${liveCount}-record collection sale — PayPal G&S`;
+  const hot = hotCount(list, market);
+  const title = `[For Sale] Weekly update — ${list.length} picks from a ${liveCount}-record collection sale${
+    hot > 0 ? `, ${hot} scarce or heavily wanted on Discogs` : ""
+  } — PayPal G&S`;
   return [
     title,
     "",
     `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
     ...REDDIT_TABLE_HEADER,
-    ...list.map(weeklyRow),
+    ...list.map((r) => weeklyRow(r, market)),
     "",
     `**Location:** ${SELLER_INFO.location}`,
     "",
@@ -133,14 +186,14 @@ function redditWeeklyMarkdown(selected: DbRecord[], liveCount: number) {
 }
 
 // Sold records stay visible as struck-through rows with the price hidden.
-const updateRow = (r: DbRecord) =>
+const updateRow = (r: DbRecord, market: MarketMap) =>
   r.sold
-    ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} |`
-    : weeklyRow(r);
+    ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${cell(r.pressing)} | ${cell(r.media)}/${cell(r.sleeve)} | |`
+    : weeklyRow(r, market);
 
 // Body-only refresh of the live weekly post (Reddit titles can't be edited,
 // so there's no title line — paste this over the existing post body).
-function redditUpdateMarkdown(posted: DbRecord[]) {
+function redditUpdateMarkdown(posted: DbRecord[], market: MarketMap) {
   const list = [...posted].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
@@ -149,7 +202,7 @@ function redditUpdateMarkdown(posted: DbRecord[]) {
     `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
     "",
     ...REDDIT_TABLE_HEADER,
-    ...list.map(updateRow),
+    ...list.map((r) => updateRow(r, market)),
     "",
     `**Location:** ${SELLER_INFO.location}`,
     "",
@@ -171,7 +224,8 @@ const REDDIT_BODY_LIMIT = 40000;
 function redditStaleMarkdown(
   post: RedditPost,
   posted: DbRecord[],
-  newestUrl: string
+  newestUrl: string,
+  market: MarketMap
 ) {
   const list = [...posted].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
@@ -193,7 +247,7 @@ function redditStaleMarkdown(
           "|---|---|---|---|---|---|---|",
           ...list.map(fullRow),
         ]
-      : [...REDDIT_TABLE_HEADER, ...list.map(updateRow)];
+      : [...REDDIT_TABLE_HEADER, ...list.map((r) => updateRow(r, market))];
   return [
     `**⚠️ This post is outdated — see my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_URL}.**`,
     "",
@@ -441,6 +495,9 @@ export default function AdminClient() {
   }>({ ids: [], posted_at: null });
   const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
   const [tableCopied, setTableCopied] = useState(false);
+  // Latest Discogs market stats per record, from the daily snapshots —
+  // powers the demand-ranked picks and the Scarcity/Demand post column.
+  const [market, setMarket] = useState<MarketMap>({});
   // Archived Reddit posts (newest first) and per-row URL drafts.
   const [redditPosts, setRedditPosts] = useState<RedditPost[]>([]);
   const [archiveUrlEdits, setArchiveUrlEdits] = useState<
@@ -631,14 +688,32 @@ export default function AdminClient() {
     await archivePost("full", md.split("\n")[0], md, listedIds);
   }
 
-  // Seed the weekly post with 10 random picks — rotate stock by preferring
-  // records that weren't in the last posted set, backfilling if short.
+  // Seed the weekly post with the most in-demand picks — highest Discogs
+  // want/have ratio first (wants per existing copy), scarcest copies
+  // breaking ties. Stock still rotates: records from the last posted set
+  // only backfill when the fresh pool runs short. Shuffling before the
+  // stable sort randomizes exact ties (and records with no snapshot
+  // data) between clicks.
+  const WEEKLY_PICK_COUNT = 20;
   function randomizeWeeklyPicks() {
+    const byDemand = (pool: DbRecord[]) =>
+      shuffle(pool).sort((a, b) => {
+        const d =
+          (demandRatio(market[b.id]) ?? -1) - (demandRatio(market[a.id]) ?? -1);
+        if (d !== 0) return d;
+        return (
+          (market[a.id]?.forSale ?? Infinity) -
+          (market[b.id]?.forSale ?? Infinity)
+        );
+      });
     const pool = records.filter((r) => r.listed && !r.sold && !holdActive(r));
     const lastPosted = new Set(postedInfo.ids);
     const fresh = pool.filter((r) => !lastPosted.has(r.id));
     const rest = pool.filter((r) => lastPosted.has(r.id));
-    const picks = [...shuffle(fresh), ...shuffle(rest)].slice(0, 10);
+    const picks = [...byDemand(fresh), ...byDemand(rest)].slice(
+      0,
+      WEEKLY_PICK_COUNT
+    );
     setSelectedIds(new Set(picks.map((r) => r.id)));
     setSelectionMode("weekly");
   }
@@ -648,7 +723,7 @@ export default function AdminClient() {
     const picks = records.filter((r) => selectedIds.has(r.id) && !r.sold);
     if (picks.length === 0) return;
     const liveCount = records.filter((r) => r.listed && !r.sold).length;
-    const md = redditWeeklyMarkdown(picks, liveCount);
+    const md = redditWeeklyMarkdown(picks, liveCount, market);
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.
     if (await copyText(md, "Copy the weekly post")) {
@@ -696,7 +771,7 @@ export default function AdminClient() {
   async function copyUpdatePost() {
     const posted = resolvePostedRecords(postedInfo.ids);
     if (posted.length === 0) return;
-    const md = redditUpdateMarkdown(posted);
+    const md = redditUpdateMarkdown(posted, market);
     if (await copyText(md, "Copy the post update")) {
       setUpdateCopied(true);
       setTimeout(() => setUpdateCopied(false), 1600);
@@ -732,7 +807,7 @@ export default function AdminClient() {
   async function copyRetireBody(post: RedditPost) {
     const posted = resolvePostedRecords(post.record_ids);
     if (posted.length === 0 || !newestUrl) return;
-    const md = redditStaleMarkdown(post, posted, newestUrl);
+    const md = redditStaleMarkdown(post, posted, newestUrl, market);
     if (await copyText(md, "Copy the retire body")) {
       flashArchiveCopied(`retire-${post.id}`);
     }
@@ -755,7 +830,7 @@ export default function AdminClient() {
   async function copyArchivedUpdateBody(post: RedditPost) {
     const posted = resolvePostedRecords(post.record_ids);
     if (posted.length === 0) return;
-    const md = redditUpdateMarkdown(posted);
+    const md = redditUpdateMarkdown(posted, market);
     if (await copyText(md, "Copy the update body")) {
       flashArchiveCopied(`update-${post.id}`);
     }
@@ -910,6 +985,7 @@ export default function AdminClient() {
       eventsRes,
       shipmentsRes,
       invoicesRes,
+      snapshotsRes,
       redditPostsRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
@@ -948,6 +1024,18 @@ export default function AdminClient() {
           .select("*")
           .order("created_at", { ascending: false }),
         supabase.from("invoices").select("*"),
+        // Last week of snapshots, newest first — reduced below to the
+        // newest row per record (runs can skip a day).
+        supabase
+          .from("market_snapshots")
+          .select("record_id,snapped_on,for_sale,want,have")
+          .gte(
+            "snapped_on",
+            new Date(Date.now() - 7 * 24 * 3600 * 1000)
+              .toISOString()
+              .slice(0, 10)
+          )
+          .order("snapped_on", { ascending: false }),
         supabase
           .from("reddit_posts")
           .select("*")
@@ -982,6 +1070,25 @@ export default function AdminClient() {
     if (invoicesRes.error) {
       pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
     }
+    // Market data is non-fatal — without it, picks fall back to random
+    // order and the post just omits the scarcity/demand callouts.
+    if (snapshotsRes.error) {
+      pushToast(
+        "error",
+        `Market data didn't load: ${snapshotsRes.error.message}`
+      );
+    }
+    const latestMarket: MarketMap = {};
+    for (const s of (snapshotsRes.data ?? []) as MarketSnapshotRow[]) {
+      if (!(s.record_id in latestMarket)) {
+        latestMarket[s.record_id] = {
+          forSale: s.for_sale,
+          want: s.want,
+          have: s.have,
+        };
+      }
+    }
+    setMarket(latestMarket);
     if (redditPostsRes.error) {
       pushToast(
         "error",
@@ -2595,12 +2702,15 @@ export default function AdminClient() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 10 at random&rdquo;
-          (a weekly-post bar appears above the listings instead of the sale
-          desk) and adjust the checkboxes, or pick by hand. Copy, and the list
-          is remembered so you can post an update later with sold records
-          crossed out (no price shown). &ldquo;Copy Reddit table&rdquo; is
-          still the full catalog.
+          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20 in demand&rdquo;
+          (highest Discogs want/have ratio first, scarcest breaking ties; a
+          weekly-post bar appears above the listings instead of the sale
+          desk) and adjust the checkboxes, or pick by hand. The post calls
+          out records with {SCARCE_MAX} or fewer copies for sale (&ldquo;only
+          N on Discogs&rdquo;) and {WANT_HOT}+ wants (&ldquo;N want
+          it&rdquo;). Copy, and the list is remembered so you can post an
+          update later with sold records crossed out (no price shown).
+          &ldquo;Copy Reddit table&rdquo; is still the full catalog.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={copyRedditTable} className={buttonClass}>
@@ -2610,9 +2720,9 @@ export default function AdminClient() {
             type="button"
             onClick={randomizeWeeklyPicks}
             className={buttonClass}
-            title="Selects 10 random listed records (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
+            title="Selects the 20 listed records with the highest Discogs want/have ratio, scarcest first on ties (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
           >
-            Pick 10 at random
+            Pick 20 in demand
           </button>
           <button
             type="button"
@@ -3674,7 +3784,11 @@ export default function AdminClient() {
                   {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
                 </span>{" "}
                 <span className="text-neutral-400">
-                  picked for the weekly post — adjust with the Sel checkboxes.
+                  picked for the weekly post
+                  {hotCount(saleRecords, market) > 0
+                    ? ` (${hotCount(saleRecords, market)} scarce or heavily wanted on Discogs)`
+                    : ""}{" "}
+                  — adjust with the Sel checkboxes.
                 </span>
               </p>
               <button

@@ -136,6 +136,17 @@ export type PriceRun = {
   }[];
 };
 
+// One day's market snapshot for a record, written by the daily price run.
+// The admin only reads the newest row per record: for_sale drives the
+// scarcity callouts, want/have the demand ranking of weekly picks.
+export type MarketSnapshotRow = {
+  record_id: number;
+  snapped_on: string; // YYYY-MM-DD
+  for_sale: number | null;
+  want: number | null; // Discogs community want count
+  have: number | null; // Discogs community have count
+};
+
 // Per-record aggregate of shopper click events (record_interest view);
 // "sessions" are distinct anonymous visitors, "events" are raw clicks.
 export type RecordInterest = {
