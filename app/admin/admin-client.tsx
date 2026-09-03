@@ -2702,7 +2702,7 @@ export default function AdminClient() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20 in demand&rdquo;
+          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20 at random&rdquo;
           (highest Discogs want/have ratio first, scarcest breaking ties; a
           weekly-post bar appears above the listings instead of the sale
           desk) and adjust the checkboxes, or pick by hand. The post calls
@@ -2722,7 +2722,7 @@ export default function AdminClient() {
             className={buttonClass}
             title="Selects the 20 listed records with the highest Discogs want/have ratio, scarcest first on ties (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
           >
-            Pick 20 in demand
+            Pick 20 at random
           </button>
           <button
             type="button"
