@@ -1486,13 +1486,16 @@ export default function AdminClient() {
   );
 
   // Same heuristic as the email: a cut worth acting on is modest (≤30%)
-  // with several copies competing; everything else is likely condition
-  // noise, a scarce copy, or a suggestion-based increase.
+  // with several copies competing, or any cut on a stocked release (30+
+  // copies — the price run chases the cheapest listing there); everything
+  // else is likely condition noise, a scarce copy, or a suggestion-based
+  // increase.
   const isActionable = useCallback(
-    (p: PendingPriceChange) =>
-      p.pct_change < 0 &&
-      Math.abs(p.pct_change) <= 0.3 &&
-      (forSaleById.get(p.record_id) ?? 0) >= 3,
+    (p: PendingPriceChange) => {
+      if (p.pct_change >= 0) return false;
+      const forSale = forSaleById.get(p.record_id) ?? 0;
+      return forSale >= 30 || (Math.abs(p.pct_change) <= 0.3 && forSale >= 3);
+    },
     [forSaleById]
   );
 
@@ -4615,6 +4618,19 @@ export default function AdminClient() {
                                 {s.action === "applied"
                                   ? "auto-applied"
                                   : "flagged for approval"}
+                                {s.reason === "stocked"
+                                  ? " · stocked release, chasing cheapest listing"
+                                  : s.reason === "ebay"
+                                    ? " · capped at eBay median for this pressing"
+                                    : s.reason === "lowest"
+                                      ? " · $1 under cheapest listing"
+                                      : ""}
+                                {s.lowest != null
+                                  ? ` · lowest listing $${s.lowest}`
+                                  : ""}
+                                {s.for_sale != null
+                                  ? ` · ${s.for_sale} for sale`
+                                  : ""}
                                 {s.ebay_median != null
                                   ? ` · eBay median $${s.ebay_median}`
                                   : ""}
