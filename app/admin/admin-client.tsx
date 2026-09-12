@@ -32,6 +32,7 @@ import {
   type Shipment,
 } from "@/lib/supabase";
 import { FulfillmentPanel } from "./fulfillment-panel";
+import { PickemPanel } from "./pickem-panel";
 import {
   extractRefCode,
   matchLines,
@@ -3381,6 +3382,9 @@ export default function AdminClient() {
             ) : null}
           </>
         )}
+
+        {/* Pick'em jobs: refresh lines, generate house picks */}
+        <PickemPanel supabase={supabase} />
 
         {/* Fulfillment: parcels + tracking for sold records */}
         {sectionHeading(
