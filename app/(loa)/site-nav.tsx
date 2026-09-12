@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { href: "/vinyl-collection", label: "Vinyl Collection" },
   { href: "/mysystem", label: "My System" },
   { href: "/music", label: "Music" },
+  { href: "/pickem", label: "Pick'em" },
   { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
 ];
