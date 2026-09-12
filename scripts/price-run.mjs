@@ -2,41 +2,65 @@
  * Daily Discogs price run.
  *
  * For every listed, unsold record with a Discogs release ID, fetches the
- * Discogs price suggestion for its media grade and computes a target price
- * of round(suggestion * PRICE_FACTOR). Moves within ±THRESHOLD apply
- * automatically; bigger moves are queued in pending_price_changes for
- * approval on /admin. No price is ever applied OR recommended below
- * FLOOR_FACTOR × the grade suggestion — Discogs' lowest listing is
- * condition-blind, so junk copies can't drag prices down. Two market
- * checks pull the target lower than the suggestion alone would:
- *   - Stocked releases (STOCKED_MIN+ copies for sale): the cheapest
- *     listing is real competition, not a fluke, so it is chased down to a
- *     lower STOCKED_FLOOR_FACTOR floor instead of being ignored.
+ * Discogs price suggestions (all grades) and the release's market stats,
+ * then plans a target price with planPrice():
+ *
+ *   - Tier factor on the grade suggestion. Scarce-and-wanted releases
+ *     (≤SCARCE_MAX_FOR_SALE copies, want/have ≥ SCARCE_MIN_DEMAND) ask the
+ *     full suggestion; stocked releases (STOCKED_MIN+ copies) ask
+ *     STOCKED_FACTOR; everything else asks PRICE_FACTOR.
+ *   - Cheapest listing, gated. Discogs' lowest_price is condition-blind,
+ *     country-blind and FX-converted, so a $9 "listing" on a $54 record is
+ *     usually a junk copy or a seller who won't ship to the US. It only
+ *     counts when it sits at or above the Fair-grade suggestion, and even
+ *     then never below the tier floor. A comparable listing caps the target
+ *     at lowest − UNDERCUT_BY.
  *   - eBay: when the exact pressing (UPC match) has EBAY_MIN_EXACT+ used
- *     listings, the target is capped at their median asking price.
- * Each run is logged to price_runs, and an email report is sent via
- * Resend when anything was flagged (if RESEND_API_KEY is set).
+ *     listings, their median asking price caps the target (floored too).
+ *   - Time decay: a record unsold for DECAY_AFTER_DAYS with no price change
+ *     in DECAY_QUIET_DAYS comes down DECAY_STEP, to the tier floor. Applied
+ *     directly — the daily "Drink me" drops on the site come from here.
+ *
+ * Moves within ±THRESHOLD (and decay steps) apply automatically; bigger
+ * moves are queued in pending_price_changes for approval on /admin. Each run
+ * is logged to price_runs, and an email report is sent via Resend when
+ * anything was flagged (if RESEND_API_KEY is set).
  *
  * Required env: DISCOGS_TOKEN, SUPABASE_SERVICE_ROLE_KEY
- * Optional env: RESEND_API_KEY
+ * Optional env: RESEND_API_KEY, EBAY_CLIENT_ID/EBAY_CLIENT_SECRET,
+ *   DRY_RUN=1 (plan and print, write nothing), ONLY_IDS=1,2,3 (limit to
+ *   these record ids, manual-priced ones included — for spot checks).
  */
 import { createClient } from "@supabase/supabase-js";
+import { pathToFileURL } from "node:url";
 
 const SUPABASE_URL = "https://spmbjuurarlpyqcqxyyz.supabase.co";
 const REPORT_EMAIL = "brandoncgillihan@gmail.com";
-const PRICE_FACTOR = 0.85; // ask 85% of the Discogs suggested price
-const THRESHOLD = 0.05; // auto-apply moves within ±5%
-const UNDERCUT_BY = 1; // competitive price = $1 below the cheapest listing
+export const PRICE_FACTOR = 0.85; // normal releases: ask 85% of the grade suggestion
+export const SCARCE_FACTOR = 1.0; // scarce and wanted: the full suggestion
+export const STOCKED_FACTOR = 0.7; // stocked releases: commodity copies only move cheap
+const THRESHOLD = 0.05; // auto-apply suggestion moves within ±5%
+export const UNDERCUT_BY = 1; // competitive price = $1 below a comparable cheapest listing
 const MAX_AUTO_CUT = 0.1; // auto-apply competitive cuts up to 10%
-const FLOOR_FACTOR = 0.7; // never recommend below 70% of the grade suggestion
-// With this many copies for sale, the cheapest listing is what buyers
-// actually compare against (the Discogs page we link to shows it), so the
-// floor relaxes to STOCKED_FLOOR_FACTOR and the listing is chased down to it.
-const STOCKED_MIN = 30;
-const STOCKED_FLOOR_FACTOR = 0.5;
+// Scarce = few copies for sale AND real demand (wants per existing copy).
+export const SCARCE_MAX_FOR_SALE = 5;
+export const SCARCE_MIN_DEMAND = 0.4;
+export const STOCKED_MIN = 30;
+// Floors as a share of the grade suggestion — undercuts, eBay caps and decay
+// never go below the tier's floor.
+export const FLOOR = { scarce: 0.85, normal: 0.55, stocked: 0.4 };
+// Time decay for shelf-sitters.
+export const DECAY_AFTER_DAYS = 30;
+export const DECAY_QUIET_DAYS = 14;
+export const DECAY_STEP = 0.05;
 // Only exact-pressing (UPC) eBay matches are trusted as a price cap —
 // fuzzy title matches mix every pressing of an album together.
 const EBAY_MIN_EXACT = 3;
+const DRY_RUN = process.env.DRY_RUN === "1";
+const ONLY_IDS = (process.env.ONLY_IDS ?? "")
+  .split(",")
+  .map((s) => Number(s.trim()))
+  .filter((n) => Number.isInteger(n) && n > 0);
 
 const GRADE_KEY = {
   M: "Mint (M)",
@@ -48,19 +72,104 @@ const GRADE_KEY = {
   F: "Fair (F)",
   P: "Poor (P)",
 };
+const FAIR_KEY = GRADE_KEY.F;
 
 const discogsToken = process.env.DISCOGS_TOKEN;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!discogsToken || !serviceKey) {
-  console.error("DISCOGS_TOKEN and SUPABASE_SERVICE_ROLE_KEY are required");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, serviceKey, {
-  auth: { persistSession: false },
-});
+let supabase = null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Pure pricing decision for one record — kept free of I/O so it can be unit
+// tested (scripts/price-run.test.mjs). All prices are whole dollars.
+export function planPrice({
+  price,
+  suggestion,
+  fairSuggestion = null,
+  lowest = null,
+  forSale = null,
+  want = null,
+  have = null,
+  ebay = null,
+  daysListed = 0,
+  daysSinceChange = 0,
+}) {
+  const demand =
+    want != null && have != null ? want / Math.max(have, 1) : null;
+  const tier =
+    forSale != null &&
+    forSale <= SCARCE_MAX_FOR_SALE &&
+    demand != null &&
+    demand >= SCARCE_MIN_DEMAND
+      ? "scarce"
+      : forSale != null && forSale >= STOCKED_MIN
+        ? "stocked"
+        : "normal";
+  const factor =
+    tier === "scarce"
+      ? SCARCE_FACTOR
+      : tier === "stocked"
+        ? STOCKED_FACTOR
+        : PRICE_FACTOR;
+  const floor = Math.max(1, Math.round(suggestion * FLOOR[tier]));
+
+  // Is the cheapest listing even the same kind of thing we're selling? A
+  // listing below what Discogs expects a Fair copy to fetch is a trashed
+  // copy, a mislisted item, or a foreign seller's FX-converted price.
+  const plausibleBar = fairSuggestion ?? suggestion * 0.5;
+  const lowestPlausible = lowest != null && lowest > 0 && lowest >= plausibleBar;
+  const rawCompetitive = lowestPlausible
+    ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
+    : null;
+  // Below the tier floor even a comparable listing is treated as noise.
+  const competitive =
+    rawCompetitive !== null && rawCompetitive >= floor ? rawCompetitive : null;
+
+  const ebayCap =
+    ebay?.exact && ebay.count >= EBAY_MIN_EXACT && ebay.median
+      ? Math.max(floor, Math.round(ebay.median))
+      : null;
+
+  let target = Math.round(suggestion * factor);
+  let reason = tier === "normal" ? "suggestion" : tier;
+  if (competitive !== null && competitive < target) {
+    target = competitive;
+    reason = "lowest";
+  }
+  if (ebayCap !== null && ebayCap < target) {
+    target = ebayCap;
+    reason = "ebay";
+  }
+
+  // Shelf-sitter decay only kicks in when the market rule alone would leave
+  // the price where it is (or raise it); a bigger market cut wins outright.
+  let decay = false;
+  if (
+    price > 0 &&
+    target >= price &&
+    daysListed >= DECAY_AFTER_DAYS &&
+    daysSinceChange >= DECAY_QUIET_DAYS
+  ) {
+    const stepped = Math.min(price - 1, Math.round(price * (1 - DECAY_STEP)));
+    const decayed = Math.max(floor, stepped);
+    if (decayed < price) {
+      target = decayed;
+      reason = "decay";
+      decay = true;
+    }
+  }
+
+  return {
+    tier,
+    floor,
+    lowestPlausible,
+    competitive,
+    ebayCap,
+    target: Math.max(1, target),
+    reason,
+    decay,
+  };
+}
 
 // --- eBay Browse API (optional second market signal) ---
 // Set EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (production keyset from
@@ -227,6 +336,15 @@ async function backfillCoverImages() {
 }
 
 async function main() {
+  if (!discogsToken || !serviceKey) {
+    console.error("DISCOGS_TOKEN and SUPABASE_SERVICE_ROLE_KEY are required");
+    process.exit(1);
+  }
+  supabase = createClient(SUPABASE_URL, serviceKey, {
+    auth: { persistSession: false },
+  });
+  if (DRY_RUN) console.log("DRY RUN — nothing will be written");
+
   if (ebayId && ebaySecret) {
     try {
       ebayToken = await getEbayToken();
@@ -238,15 +356,20 @@ async function main() {
     console.log("eBay credentials not set — skipping eBay pricing");
   }
 
-  await backfillCoverImages();
+  if (!DRY_RUN) await backfillCoverImages();
 
-  const { data: records, error } = await supabase
+  let query = supabase
     .from("records")
-    .select("id, artist, title, media, price, discogs_release_id")
+    .select("id, artist, title, media, price, discogs_release_id, created_at")
     .eq("listed", true)
     .eq("sold", false)
-    .eq("manual_price", false) // admin-locked prices are left alone
     .not("discogs_release_id", "is", null);
+  // ONLY_IDS is a spot-check mode, so hand-priced records are included;
+  // the normal run leaves admin-locked prices alone.
+  query = ONLY_IDS.length
+    ? query.in("id", ONLY_IDS)
+    : query.eq("manual_price", false);
+  const { data: records, error } = await query;
   if (error) throw error;
 
   const { data: pendingRows, error: pendingErr } = await supabase
@@ -278,20 +401,61 @@ async function main() {
       (prev) => Math.abs(prev - suggested) / Math.max(prev, 1) <= 0.05
     );
 
+  // Last price change per record (price_history is trigger-fed on every
+  // change) — the decay rule waits DECAY_QUIET_DAYS after any move.
+  const { data: historyRows, error: historyErr } = await supabase
+    .from("price_history")
+    .select("record_id, changed_at")
+    .order("changed_at", { ascending: false })
+    .range(0, 19999);
+  if (historyErr) throw historyErr;
+  const lastChange = new Map();
+  for (const h of historyRows) {
+    if (!lastChange.has(h.record_id)) lastChange.set(h.record_id, h.changed_at);
+  }
+  const DAY = 24 * 3600 * 1000;
+  const daysSince = (iso) => (iso ? (Date.now() - new Date(iso).getTime()) / DAY : 0);
+
   const summary = [];
   let checked = 0;
   let autoApplied = 0;
   let flagged = 0;
   let aboveLowest = 0;
   let undercuts = 0;
+  let decays = 0;
+  let implausible = 0;
   let errors = 0;
 
-  const { data: run, error: runErr } = await supabase
-    .from("price_runs")
-    .insert({})
-    .select()
-    .single();
-  if (runErr) throw runErr;
+  let run = { id: null };
+  if (!DRY_RUN) {
+    const { data, error: runErr } = await supabase
+      .from("price_runs")
+      .insert({})
+      .select()
+      .single();
+    if (runErr) throw runErr;
+    run = data;
+  }
+
+  const setPrice = async (id, patch) => {
+    if (DRY_RUN) return;
+    const { error: updErr } = await supabase
+      .from("records")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (updErr) throw updErr;
+  };
+  const queueChange = async (id, oldPrice, newPrice, pct) => {
+    if (DRY_RUN) return;
+    const { error: insErr } = await supabase.from("pending_price_changes").insert({
+      record_id: id,
+      run_id: run.id,
+      old_price: oldPrice,
+      suggested_price: newPrice,
+      pct_change: pct,
+    });
+    if (insErr) throw insErr;
+  };
 
   for (const r of records) {
     try {
@@ -299,11 +463,11 @@ async function main() {
       checked++;
       const gradeKey = GRADE_KEY[r.media];
       const suggestion = suggestions?.[gradeKey]?.value ?? null;
+      const fairSuggestion = suggestions?.[FAIR_KEY]?.value ?? null;
 
       // Full release data up front: same request budget as the old
       // marketplace/stats call but also returns community have/want and
-      // rating — our demand signals. The lowest listing caps the
-      // suggestion target: never suggest raising above lowest − $1.
+      // rating — our demand signals.
       await sleep(1100);
       let lowest = null;
       let forSale = null;
@@ -344,10 +508,26 @@ async function main() {
         }
       }
 
+      const plan = suggestion
+        ? planPrice({
+            price: Number(r.price),
+            suggestion,
+            fairSuggestion,
+            lowest,
+            forSale,
+            want,
+            have,
+            ebay,
+            daysListed: daysSince(r.created_at),
+            daysSinceChange: daysSince(lastChange.get(r.id) ?? r.created_at),
+          })
+        : null;
+      if (lowest != null && plan && !plan.lowestPlausible) implausible++;
+
       // Daily market snapshot — our own time series of data Discogs
       // doesn't expose historically (rerunning the same day overwrites).
-      const { error: snapErr } = await supabase.from("market_snapshots").upsert(
-        {
+      if (!DRY_RUN) {
+        const snapshot = {
           record_id: r.id,
           snapped_on: new Date().toISOString().slice(0, 10),
           suggested: suggestion,
@@ -362,164 +542,89 @@ async function main() {
           ebay_max: ebay?.max ?? null,
           ebay_count: ebay?.count ?? null,
           ebay_exact: ebay?.exact ?? false,
-        },
-        { onConflict: "record_id,snapped_on" }
-      );
-      if (snapErr) console.error(`snapshot for record ${r.id}:`, snapErr.message);
-
-      if (!suggestion) continue; // pricing logic needs a suggestion
-
-      // Discogs' lowest_price is condition-blind: it's the cheapest listing
-      // of the release in ANY grade, from any seller, before shipping — so a
-      // trashed copy at $0.99 must never drag our price down. On a sparsely
-      // listed release a competitive price below the floor (FLOOR_FACTOR ×
-      // grade suggestion) is treated as condition noise and ignored. On a
-      // stocked release (STOCKED_MIN+ copies) the cheapest listing is real
-      // competition, so we follow it down as far as the lower stocked floor.
-      const stocked = forSale !== null && forSale >= STOCKED_MIN;
-      const floor = Math.round(
-        suggestion * (stocked ? STOCKED_FLOOR_FACTOR : FLOOR_FACTOR)
-      );
-      const rawCompetitive = lowest
-        ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
-        : null;
-      const competitive =
-        rawCompetitive === null
-          ? null
-          : rawCompetitive >= floor
-            ? rawCompetitive
-            : stocked
-              ? floor
-              : null;
-
-      // Exact-pressing eBay asks are the same product buyers cross-shop;
-      // their median caps the target (it may sit below the floor — that's
-      // real market data for this pressing, not condition noise).
-      const ebayCap =
-        ebay?.exact && ebay.count >= EBAY_MIN_EXACT && ebay.median
-          ? Math.round(ebay.median)
-          : null;
-
-      let price = r.price; // tracks changes made within this iteration
-
-      let target = Math.round(suggestion * PRICE_FACTOR);
-      let reason = "suggestion";
-      if (competitive !== null && competitive < target) {
-        target = competitive;
-        reason = stocked ? "stocked" : "lowest";
-      }
-      if (ebayCap !== null && ebayCap < target) {
-        target = ebayCap;
-        reason = "ebay";
-      }
-      if (target >= 1 && target !== price) {
-        const entry = {
-          record_id: r.id,
-          artist: r.artist,
-          title: r.title,
-          old_price: price,
-          new_price: target,
-          reason,
-          lowest: lowest ? Math.round(lowest) : null,
-          for_sale: forSale,
-          ebay_median: ebay?.median ?? null,
+          lowest_plausible: lowest != null && plan ? plan.lowestPlausible : null,
         };
+        let { error: snapErr } = await supabase
+          .from("market_snapshots")
+          .upsert(snapshot, { onConflict: "record_id,snapped_on" });
+        if (snapErr && /lowest_plausible/.test(snapErr.message)) {
+          // Migration not applied yet — keep the snapshot flowing without it.
+          delete snapshot.lowest_plausible;
+          ({ error: snapErr } = await supabase
+            .from("market_snapshots")
+            .upsert(snapshot, { onConflict: "record_id,snapped_on" }));
+        }
+        if (snapErr) console.error(`snapshot for record ${r.id}:`, snapErr.message);
+      }
 
+      if (!plan) continue; // pricing logic needs a suggestion
+
+      let price = Number(r.price); // tracks changes made within this iteration
+      const { target, reason, competitive, lowestPlausible } = plan;
+      const base = {
+        record_id: r.id,
+        artist: r.artist,
+        title: r.title,
+        lowest: lowest ? Math.round(lowest) : null,
+        lowest_plausible: lowest != null ? lowestPlausible : undefined,
+        for_sale: forSale,
+        have,
+        want,
+        ebay_median: ebay?.median ?? null,
+      };
+
+      if (target !== price) {
+        const entry = { ...base, old_price: price, new_price: target, reason };
         if (price === 0) {
           // new record with no price yet — set it directly
-          const { error: updErr } = await supabase
-            .from("records")
-            .update({ price: target, updated_at: new Date().toISOString() })
-            .eq("id", r.id);
-          if (updErr) throw updErr;
+          await setPrice(r.id, { price: target });
           autoApplied++;
           price = target;
           summary.push({ ...entry, pct: 0, action: "applied" });
         } else {
-          const pct = (target - price) / price;
-          if (Math.abs(pct) <= THRESHOLD) {
-            const { error: updErr } = await supabase
-              .from("records")
-              .update({ price: target, updated_at: new Date().toISOString() })
-              .eq("id", r.id);
-            if (updErr) throw updErr;
+          const pct = Number(((target - price) / price).toFixed(4));
+          if (Math.abs(pct) <= THRESHOLD || reason === "decay") {
+            await setPrice(r.id, { price: target });
             autoApplied++;
+            if (reason === "decay") decays++;
             price = target;
-            summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "applied" });
+            summary.push({ ...entry, pct, action: "applied" });
           } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
-            const { error: insErr } = await supabase
-              .from("pending_price_changes")
-              .insert({
-                record_id: r.id,
-                run_id: run.id,
-                old_price: price,
-                suggested_price: target,
-                pct_change: Number(pct.toFixed(4)),
-              });
-            if (insErr) throw insErr;
+            await queueChange(r.id, price, target, pct);
             hasPending.add(r.id);
             flagged++;
-            summary.push({ ...entry, pct: Number(pct.toFixed(4)), action: "flagged" });
+            summary.push({ ...entry, pct, action: "flagged" });
           }
         }
       }
 
-      // Competitive check: is our price above the cheapest Discogs listing?
-      // Buyers see that number, so undercut it by $1 — automatically when
-      // the cut is small (≤MAX_AUTO_CUT); otherwise queue it for approval.
-      // competitive is already null when it would fall below the floor, so
-      // sub-floor cuts are never applied OR recommended.
-      if (
-        price > 0 &&
-        lowest &&
-        price > lowest &&
-        competitive !== null &&
-        competitive < price
-      ) {
+      // Competitive check: are we still above a comparable cheapest Discogs
+      // listing? Undercut it by $1 — automatically when the cut is small
+      // (≤MAX_AUTO_CUT); otherwise queue it for approval. competitive is
+      // already null when the listing isn't comparable or the cut would
+      // breach the tier floor.
+      if (price > 0 && competitive !== null && competitive < price) {
         aboveLowest++;
         const cutPct = Number(((competitive - price) / price).toFixed(4));
-        const entry = {
-          record_id: r.id,
-          artist: r.artist,
-          title: r.title,
-          old_price: price,
-          new_price: competitive,
-          pct: cutPct,
-          lowest: Math.round(lowest),
-          for_sale: forSale,
-          have,
-          want,
-          ebay_median: ebay?.median ?? null,
-        };
+        const entry = { ...base, old_price: price, new_price: competitive, pct: cutPct };
         if (Math.abs(cutPct) <= MAX_AUTO_CUT) {
-          const { error: updErr } = await supabase
-            .from("records")
-            .update({
-              price: competitive,
-              prev_price: price,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", r.id);
-          if (updErr) throw updErr;
+          await setPrice(r.id, { price: competitive, prev_price: price });
           undercuts++;
           summary.push({ ...entry, action: "undercut" });
-        } else if (
-          !hasPending.has(r.id) &&
-          !wasRejected(r.id, competitive)
-        ) {
-          const { error: insErr } = await supabase
-            .from("pending_price_changes")
-            .insert({
-              record_id: r.id,
-              run_id: run.id,
-              old_price: price,
-              suggested_price: competitive,
-              pct_change: cutPct,
-            });
-          if (insErr) throw insErr;
+        } else if (!hasPending.has(r.id) && !wasRejected(r.id, competitive)) {
+          await queueChange(r.id, price, competitive, cutPct);
           hasPending.add(r.id);
           summary.push({ ...entry, action: "above-lowest" });
         }
+      }
+
+      if (DRY_RUN) {
+        console.log(
+          `${r.artist} — ${r.title}: $${r.price} → $${target} [${plan.tier}/${reason}]` +
+            ` sugg $${Math.round(suggestion)} fair $${fairSuggestion ? Math.round(fairSuggestion) : "?"}` +
+            ` lowest ${lowest != null ? `$${lowest}${lowestPlausible ? "" : " (not comparable)"}` : "—"}` +
+            ` for sale ${forSale ?? "?"} floor $${plan.floor}`
+        );
       }
     } catch (e) {
       errors++;
@@ -528,40 +633,45 @@ async function main() {
     await sleep(1100); // Discogs allows 60 requests/minute
   }
 
-  await supabase
-    .from("price_runs")
-    .update({
-      checked,
-      auto_applied: autoApplied,
-      flagged,
-      above_lowest: aboveLowest,
-      undercuts,
-      errors,
-      summary,
-    })
-    .eq("id", run.id);
+  if (!DRY_RUN) {
+    await supabase
+      .from("price_runs")
+      .update({
+        checked,
+        auto_applied: autoApplied,
+        flagged,
+        above_lowest: aboveLowest,
+        undercuts,
+        errors,
+        summary,
+      })
+      .eq("id", run.id);
+  }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied, ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above lowest listing, ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied (${decays} decay steps), ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
   if (
+    !DRY_RUN &&
     (flagged > 0 || undercuts > 0 || pendingCuts.length > 0) &&
     process.env.RESEND_API_KEY
   ) {
     const REASON_LABEL = {
       suggestion: "85% of grade suggestion",
-      lowest: "$1 under cheapest listing",
-      stocked: "stocked release — chasing cheapest listing",
+      scarce: "scarce & wanted — full suggestion",
+      stocked: "stocked release (30+ copies) — 70% of suggestion",
+      lowest: "$1 under a comparable cheapest listing",
       ebay: "capped at eBay median for this pressing",
+      decay: "unsold 30+ days — 5% time decay",
     };
     const suggestionRows = (action) =>
       summary
         .filter((s) => s.action === action)
         .map(
           (s) =>
-            `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${REASON_LABEL[s.reason] ?? "—"}</td><td>${s.lowest != null ? `$${s.lowest}` : "—"}</td><td>${s.for_sale ?? "?"}</td><td>${s.ebay_median != null ? `$${s.ebay_median}` : "—"}</td></tr>`
+            `<tr><td>${s.artist} — ${s.title}</td><td>$${s.old_price}</td><td>$${s.new_price}</td><td>${(s.pct * 100).toFixed(1)}%</td><td>${REASON_LABEL[s.reason] ?? "—"}</td><td>${s.lowest != null ? `$${s.lowest}${s.lowest_plausible === false ? " (ignored)" : ""}` : "—"}</td><td>${s.for_sale ?? "?"}</td><td>${s.ebay_median != null ? `$${s.ebay_median}` : "—"}</td></tr>`
         )
         .join("");
     const demand = (s) =>
@@ -574,7 +684,7 @@ async function main() {
 
     const flaggedSection =
       flagged > 0
-        ? `<p>These moved more than ±5% on the Discogs suggestion and are waiting for your approval at
+        ? `<p>These moved more than ±5% and are waiting for your approval at
 <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th><th>Why</th><th>Lowest listing</th><th>Copies for sale</th><th>eBay median (used)</th></tr>
@@ -582,39 +692,19 @@ ${suggestionRows("flagged")}
 </table>`
         : "";
 
-    // Sort pending cuts biggest-gap-first, then split into ones worth
-    // acting on vs. likely condition noise (big gap or scarce copies). A
-    // stocked release is always worth acting on, however big the gap.
     const sortedCuts = [...pendingCuts].sort((a, b) => a.pct - b.pct);
-    const actionable = sortedCuts.filter(
-      (s) =>
-        (s.for_sale ?? 0) >= STOCKED_MIN ||
-        (Math.abs(s.pct) <= 0.3 && (s.for_sale ?? 0) >= 3)
-    );
-    const noise = sortedCuts.filter((s) => !actionable.includes(s));
     const cutsSection =
       sortedCuts.length > 0
-        ? `<p>These are priced <strong>above the cheapest current Discogs listing</strong>.
+        ? `<p>These are priced <strong>above a comparable cheapest Discogs listing</strong>
+(one at or above the Fair-grade suggestion — junk-grade and foreign-only listings are already filtered out).
 One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>
-sets the suggested price ($1 under the lowest listing).</p>
-${
-  actionable.length > 0
-    ? `<p><strong>Worth acting on</strong> (modest gap, several copies competing):</p>
-<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${actionable.map(cutRow).join("")}</table>`
-    : ""
-}
-${
-  noise.length > 0
-    ? `<p><strong>Probably condition noise or scarce</strong> (big gap — often a low-grade copy anchoring the price — or few copies for sale; check the listing before cutting):</p>
-<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${noise.map(cutRow).join("")}</table>`
-    : ""
-}`
+sets the suggested price ($1 under that listing).</p>
+<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`
         : "";
 
     const undercutSection =
       undercuts > 0
-        ? `<p>Auto-undercut to $1 below the cheapest listing (cut ≤10% and above the
-${FLOOR_FACTOR * 100}% floor of the grade suggestion):</p>
+        ? `<p>Auto-undercut to $1 below a comparable cheapest listing (cut ≤10% and above the tier floor):</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${summary
             .filter((s) => s.action === "undercut")
             .map(cutRow)
@@ -630,8 +720,8 @@ ${FLOOR_FACTOR * 100}% floor of the grade suggestion):</p>
       body: JSON.stringify({
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
-        subject: `Price run: ${undercuts} auto-undercut, ${flagged + pendingCuts.length} awaiting approval`,
-        html: `<p>${checked} records checked, ${autoApplied} suggestion changes auto-applied, ${undercuts} competitive undercuts applied.</p>
+        subject: `Price run: ${undercuts} auto-undercut, ${decays} decay steps, ${flagged + pendingCuts.length} awaiting approval`,
+        html: `<p>${checked} records checked, ${autoApplied} changes auto-applied (${decays} of them time-decay steps), ${undercuts} competitive undercuts applied, ${implausible} cheapest listings ignored as not comparable.</p>
 ${flaggedSection}
 ${cutsSection}
 ${undercutSection}`,
@@ -643,7 +733,10 @@ ${undercutSection}`,
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Only run when executed directly — the test file imports planPrice.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

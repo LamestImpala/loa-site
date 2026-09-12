@@ -66,7 +66,7 @@ const INVOICER = {
 const TERMS =
   "All records are graded to the Goldmine standard — media and sleeve grades are listed per item. " +
   "Shipped via USPS Media Mail from Phoenix, AZ, outside the jacket in a proper LP mailer. " +
-  "Combined shipping is $6 per parcel of up to 3 records. " +
+  "Shipping is $6 for 1–2 records and free on 3 or more. " +
   "Questions? Reply to this invoice or PM u/ShroomHog on Reddit.";
 
 export type InvoiceResult = {

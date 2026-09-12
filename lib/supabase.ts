@@ -127,12 +127,16 @@ export type PriceRun = {
     old_price: number;
     new_price: number;
     pct: number;
-    lowest?: number; // cheapest Discogs listing at run time
+    lowest?: number | null; // cheapest Discogs listing at run time (any grade, any country)
+    lowest_plausible?: boolean; // false = that listing sits below the Fair-grade suggestion, so it was ignored
     for_sale?: number | null; // copies listed on Discogs at run time
     have?: number | null; // Discogs community have count at run time
     want?: number | null; // Discogs community want count at run time
     ebay_median?: number | null; // median used asking price on eBay US
-    reason?: "suggestion" | "lowest" | "stocked" | "ebay"; // what set the target
+    // what set the target: the tier factor on the grade suggestion
+    // (suggestion 85% / scarce 100% / stocked 70%), a comparable cheapest
+    // listing, the eBay median, or the unsold-30-days time decay
+    reason?: "suggestion" | "scarce" | "stocked" | "lowest" | "ebay" | "decay";
     action: "applied" | "flagged" | "above-lowest" | "undercut";
   }[];
 };
@@ -146,6 +150,9 @@ export type MarketSnapshotRow = {
   for_sale: number | null;
   want: number | null; // Discogs community want count
   have: number | null; // Discogs community have count
+  suggested: number | null; // Discogs price suggestion for the record's media grade
+  lowest: number | null; // raw Discogs lowest_price (any grade, any country, FX-converted)
+  lowest_plausible: boolean | null; // whether the run treated that listing as comparable
 };
 
 // Per-record aggregate of shopper click events (record_interest view);

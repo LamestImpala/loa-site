@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
+  FREE_SHIPPING_MIN,
   LETTERS,
-  RECORDS_PER_PARCEL,
   SELLER_INFO,
   artistLetter,
   bundleBreakdown,
@@ -151,13 +151,13 @@ function combinedRequestMessage(
   refCode: string
 ) {
   const subject = `Record purchase: ${list.length} records from your list`;
-  const { lines, subtotal, parcels, shipping, total } = bundleBreakdown(list);
+  const { lines, subtotal, shipping, total } = bundleBreakdown(list);
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
   const message = `Hi! I am interested in purchasing these titles from you:\n\n${lines.join(
     "\n"
-  )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${total}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
   return { subject, message };
 }
 
@@ -999,8 +999,8 @@ export default function RecordsClient({
 
         <p className="shop-controls-note">
           Records are claimed by Reddit DM — no account needed on this site.
-          Bundle up: shipping is $6 per parcel of up to {RECORDS_PER_PARCEL}{" "}
-          records.
+          Bundle up: one or two records ship for $6, {FREE_SHIPPING_MIN} or
+          more ship free.
         </p>
       </section>
 
@@ -1078,12 +1078,14 @@ export default function RecordsClient({
           <div className="shop-shell shop-bundle-inner">
             <span className="shop-bundle-summary" aria-live="polite">
               {selectedRecords.length} record
-              {selectedRecords.length === 1 ? "" : "s"} · ${bundleSubtotal} + $
-              {bundleShipping} shipping{" "}
+              {selectedRecords.length === 1 ? "" : "s"} · ${bundleSubtotal}
+              {bundleShipping > 0 ? ` + $${bundleShipping} shipping` : " + free shipping"}{" "}
               <strong>= ${bundleSubtotal + bundleShipping}</strong>
             </span>
             <span className="shop-bundle-shipnote">
-              $6 per parcel of up to {RECORDS_PER_PARCEL} records
+              {selectedRecords.length >= FREE_SHIPPING_MIN
+                ? "Free shipping unlocked"
+                : `Add ${FREE_SHIPPING_MIN - selectedRecords.length} more for free shipping`}
             </span>
             <button
               type="button"
@@ -1135,7 +1137,10 @@ export default function RecordsClient({
             </ul>
             <div className="shop-dialog-total">
               <span>
-                ${sheetQuote.subtotal} + ${sheetQuote.shipping} shipping
+                ${sheetQuote.subtotal}
+                {sheetQuote.shipping > 0
+                  ? ` + $${sheetQuote.shipping} shipping`
+                  : " + free shipping"}
               </span>
               <strong>= ${sheetQuote.total}</strong>
             </div>
