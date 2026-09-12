@@ -9,6 +9,14 @@ permissions:
   contents: read
   issues: write
 
+# Two runs must never overlap: each one reads prices and price history at
+# its start, so a second run would re-apply (or undo) the first one's
+# changes and queue duplicate approvals. GitHub can deliver a scheduled run
+# hours late, right on top of a manual dispatch — so queue, don't cancel.
+concurrency:
+  group: price-run
+  cancel-in-progress: false
+
 jobs:
   price-run:
     runs-on: ubuntu-latest

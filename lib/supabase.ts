@@ -128,7 +128,7 @@ export type PriceRun = {
     new_price: number;
     pct: number;
     lowest?: number | null; // cheapest Discogs listing at run time (any grade, any country)
-    lowest_plausible?: boolean; // false = that listing sits below the Fair-grade suggestion, so it was ignored
+    lowest_plausible?: boolean; // false = that listing sits below half the grade suggestion, so it was ignored
     for_sale?: number | null; // copies listed on Discogs at run time
     have?: number | null; // Discogs community have count at run time
     want?: number | null; // Discogs community want count at run time
