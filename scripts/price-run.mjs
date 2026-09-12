@@ -12,9 +12,13 @@
  *   - Cheapest listing, gated. Discogs' lowest_price is condition-blind,
  *     country-blind and FX-converted, so a $9 "listing" on a $54 record is
  *     usually a junk copy or a seller who won't ship to the US. It only
- *     counts when it sits at or above the Fair-grade suggestion, and even
- *     then never below the tier floor. A comparable listing caps the target
- *     at lowest − UNDERCUT_BY.
+ *     counts when it is at least COMPARABLE_FACTOR of the grade suggestion
+ *     (Discogs' own Fair-grade suggestion is far too low a bar — about 14%
+ *     of NM), and even then never below the tier floor. A comparable
+ *     listing caps the target at lowest − UNDERCUT_BY.
+ *   - Ratchet: outside the scarce tier the run never proposes a raise on a
+ *     priced record. Hand markdowns are the strategy; only scarce-and-wanted
+ *     records track the suggestion back up.
  *   - eBay: when the exact pressing (UPC match) has EBAY_MIN_EXACT+ used
  *     listings, their median asking price caps the target (floored too).
  *   - Time decay: a record unsold for DECAY_AFTER_DAYS with no price change
@@ -49,6 +53,9 @@ export const STOCKED_MIN = 30;
 // Floors as a share of the grade suggestion — undercuts, eBay caps and decay
 // never go below the tier's floor.
 export const FLOOR = { scarce: 0.85, normal: 0.55, stocked: 0.4 };
+// A cheapest listing below this share of the grade suggestion is not the
+// same kind of copy we're selling (junk grade, non-US seller, FX artefact).
+export const COMPARABLE_FACTOR = 0.5;
 // Time decay for shelf-sitters.
 export const DECAY_AFTER_DAYS = 30;
 export const DECAY_QUIET_DAYS = 14;
@@ -72,7 +79,6 @@ const GRADE_KEY = {
   F: "Fair (F)",
   P: "Poor (P)",
 };
-const FAIR_KEY = GRADE_KEY.F;
 
 const discogsToken = process.env.DISCOGS_TOKEN;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -85,7 +91,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function planPrice({
   price,
   suggestion,
-  fairSuggestion = null,
   lowest = null,
   forSale = null,
   want = null,
@@ -113,11 +118,11 @@ export function planPrice({
         : PRICE_FACTOR;
   const floor = Math.max(1, Math.round(suggestion * FLOOR[tier]));
 
-  // Is the cheapest listing even the same kind of thing we're selling? A
-  // listing below what Discogs expects a Fair copy to fetch is a trashed
-  // copy, a mislisted item, or a foreign seller's FX-converted price.
-  const plausibleBar = fairSuggestion ?? suggestion * 0.5;
-  const lowestPlausible = lowest != null && lowest > 0 && lowest >= plausibleBar;
+  // Is the cheapest listing even the same kind of thing we're selling? Far
+  // below the grade suggestion it's a trashed copy, a mislisted item, or a
+  // foreign seller's FX-converted price that US buyers never see.
+  const lowestPlausible =
+    lowest != null && lowest > 0 && lowest >= suggestion * COMPARABLE_FACTOR;
   const rawCompetitive = lowestPlausible
     ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
     : null;
@@ -140,6 +145,10 @@ export function planPrice({
     target = ebayCap;
     reason = "ebay";
   }
+  // Ratchet: a priced record outside the scarce tier is never pushed back
+  // up — a hand markdown stays put, and the suggestion drifting up only
+  // matters for records buyers are actually hunting.
+  if (price > 0 && tier !== "scarce" && target > price) target = price;
 
   // Shelf-sitter decay only kicks in when the market rule alone would leave
   // the price where it is (or raise it); a bigger market cut wins outright.
@@ -463,7 +472,6 @@ async function main() {
       checked++;
       const gradeKey = GRADE_KEY[r.media];
       const suggestion = suggestions?.[gradeKey]?.value ?? null;
-      const fairSuggestion = suggestions?.[FAIR_KEY]?.value ?? null;
 
       // Full release data up front: same request budget as the old
       // marketplace/stats call but also returns community have/want and
@@ -512,7 +520,6 @@ async function main() {
         ? planPrice({
             price: Number(r.price),
             suggestion,
-            fairSuggestion,
             lowest,
             forSale,
             want,
@@ -621,7 +628,7 @@ async function main() {
       if (DRY_RUN) {
         console.log(
           `${r.artist} — ${r.title}: $${r.price} → $${target} [${plan.tier}/${reason}]` +
-            ` sugg $${Math.round(suggestion)} fair $${fairSuggestion ? Math.round(fairSuggestion) : "?"}` +
+            ` sugg $${Math.round(suggestion)}` +
             ` lowest ${lowest != null ? `$${lowest}${lowestPlausible ? "" : " (not comparable)"}` : "—"}` +
             ` for sale ${forSale ?? "?"} floor $${plan.floor}`
         );
@@ -696,7 +703,7 @@ ${suggestionRows("flagged")}
     const cutsSection =
       sortedCuts.length > 0
         ? `<p>These are priced <strong>above a comparable cheapest Discogs listing</strong>
-(one at or above the Fair-grade suggestion — junk-grade and foreign-only listings are already filtered out).
+(at least half the grade suggestion — junk-grade and foreign-only listings are already filtered out).
 One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>
 sets the suggested price ($1 under that listing).</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`

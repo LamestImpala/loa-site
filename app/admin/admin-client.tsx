@@ -4350,7 +4350,7 @@ export default function AdminClient() {
                       {market[r.id]?.suggested ? (
                         <p
                           className="mt-1 text-xs text-neutral-500"
-                          title="Discogs price suggestion for this media grade, and the cheapest current listing — marked not comparable when it sits below the Fair-grade suggestion (a junk copy, a non-US seller, or a foreign price converted to USD), in which case the price run ignores it"
+                          title="Discogs price suggestion for this media grade, and the cheapest current listing — marked not comparable when it sits below half the grade suggestion (a junk copy, a non-US seller, or a foreign price converted to USD), in which case the price run ignores it"
                         >
                           sugg ${Math.round(market[r.id].suggested!)}
                           {market[r.id].lowest != null
