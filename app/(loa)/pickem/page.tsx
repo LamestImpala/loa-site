@@ -13,7 +13,7 @@ import PickemClient from "./pickem-client";
 export const metadata: Metadata = {
   title: "College Football Pick'em — Late Onset Audiophile",
   description:
-    "Weekly college football pick'em with live lines, line movement, house picks with confidence scores, and recommended parlays. Free to play.",
+    "Weekly college football pick'em with live lines, line movement, house picks with confidence scores on every game, and house parlays ranked by expected value. Free to play.",
 };
 
 // Lines and scores change all day Saturday; never serve a cached page.
@@ -62,7 +62,8 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
       .select("*")
       .eq("season", PICKEM_SEASON)
       .eq("week", week)
-      .order("id"),
+      .order("leg_count")
+      .order("created_at", { ascending: false }),
     supabase.from("pickem_leaderboard").select("*").eq("season", PICKEM_SEASON),
   ]);
 

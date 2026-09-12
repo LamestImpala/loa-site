@@ -9,19 +9,15 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ADMIN_EMAIL } from "./supabase"
 import {
   ALWAYS_FEATURED,
   PICKEM_SEASON,
-  parlayAmericanOdds,
   seasonWeek,
-  shortTeam,
   weekWindow,
   type BestLine,
   type BestLines,
   type HousePicks,
-  type Market,
-  type ParlayLeg,
   type PickemGame,
-  type Selection,
 } from "./pickem";
 import { isPower, unmappedTeams } from "./pickem-conferences";
+import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 
 const ODDS_BASE = "https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf";
 const SLATE_SIZE = 40;
@@ -304,8 +300,10 @@ export async function syncLines(now = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
-// House picks: Claude reads the slate (with line movement) and returns a pick,
-// confidence and short rationale for every market, plus 2-3 parlays.
+// House picks: Claude reads the slate in small batches and returns a pick,
+// confidence and short rationale for every market of every game. Parlays are
+// computed from those picks afterwards (lib/pickem-parlays.ts); the model no
+// longer writes them.
 
 const HouseCallSchema = z.object({
   pick: z.enum(["home", "away", "over", "under"]),
@@ -313,7 +311,9 @@ const HouseCallSchema = z.object({
   why: z.string().max(400),
 });
 
-const HouseOutputSchema = z.object({
+// One batch of games. Array length cannot be enforced by the API's grammar,
+// so completeness is checked in code after the call.
+const HouseBatchSchema = z.object({
   games: z.array(
     z.object({
       game_id: z.string(),
@@ -322,76 +322,61 @@ const HouseOutputSchema = z.object({
       moneyline: HouseCallSchema,
     })
   ),
-  parlays: z
-    .array(
-      z.object({
-        name: z.string().max(60),
-        legs: z
-          .array(
-            z.object({
-              game_id: z.string(),
-              market: z.enum(["spread", "total", "ml"]),
-              selection: z.enum(["home", "away", "over", "under"]),
-            })
-          )
-          .min(2)
-          .max(4),
-        confidence: z.number().int().min(1).max(10),
-        note: z.string().max(400),
-      })
-    )
-    .min(2)
-    .max(3),
 });
 
 const HOUSE_SYSTEM = `You are the house handicapper for a friendly college football pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
 
-For each game give a pick for the spread, the total, and the moneyline with a 1-10 confidence and a rationale of at most two sentences. Confidence 8+ should be rare. Use line movement as a signal: money that moves a number is information. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games, not on 40-point spreads.
+You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence and a rationale of at most two sentences. Use line movement as a signal: money that moves a number is information. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads.
 
-Then build two or three parlays from the slate. One should be a "safer" parlay of two or three heavy favorites on the moneyline; the others can mix spreads and totals. Legs must reference game_id values from the input and must not include two markets from the same game. Prefer legs where your confidence is 7 or higher.
+Confidence is a calibrated probability that your pick wins on its own side of the number. 5 means the line is fair and you have no real lean (about 50% for spreads and totals; for a moneyline, the market's implied probability). 6 is about 55% to cover, 7 about 58%, 8 about 62%, 9 about 66%, and 10 is near-certain and almost never used. Never go below 5: if you would rather have the other side, pick the other side instead. Most games are a 5 or a 6; 8 and above should be rare.
 
 Selections use "home"/"away" for spread and moneyline and "over"/"under" for totals. Return only the JSON.`;
 
-function legLabel(g: PickemGame, market: Market, selection: Selection): string {
-  const home = shortTeam(g.home_team);
-  const away = shortTeam(g.away_team);
-  if (market === "total") return `${selection === "over" ? "Over" : "Under"} ${g.total} (${away} @ ${home})`;
-  const team = selection === "home" ? home : away;
-  if (market === "ml") return `${team} ML`;
-  const sp = selection === "home" ? g.spread_home : g.spread_home == null ? null : -g.spread_home;
-  return `${team} ${sp == null ? "" : sp > 0 ? `+${sp}` : sp}`;
+// Batches run in one wave so a 41-game slate fits the route's 300 s limit.
+const BATCH_SIZE = 7;
+const BATCH_CONCURRENCY = 6;
+const PER_CALL_MS = 200_000;
+const ROUTE_BUDGET_MS = 250_000; // leaves room for the writes and the response
+const LAUNCH_FLOOR_MS = 60_000; // do not start a batch with less than this left
+const RETRY_FLOOR_MS = 90_000; // and do not start the retry pass with less than this
+
+type BatchOutcome = { size: number; ok: boolean; ms: number; reason?: string; usage?: Anthropic.Messages.Usage };
+
+export type HouseRunOptions = { force?: boolean; dry?: boolean; onlyParlays?: boolean };
+
+export type HouseRunResult = {
+  week: number;
+  picked: number;
+  missing: { id: string; game: string }[];
+  batches: BatchOutcome[];
+  parlays: { inserted: number; removed: number; kept: number; skipped_duplicates: number };
+  preview?: { picks: Record<string, HousePicks>; parlays: ParlayDraft[] };
+};
+
+/** Deal items round-robin into ceil(n / size) batches so the interesting games spread out. */
+function dealBatches<T>(xs: T[], size: number): T[][] {
+  const n = Math.ceil(xs.length / size);
+  const out: T[][] = Array.from({ length: n }, () => []);
+  xs.forEach((x, i) => out[i % n].push(x));
+  return out.filter((b) => b.length);
 }
 
-function legLineAndPrice(g: PickemGame, market: Market, selection: Selection): { line: number | null; price: number } {
-  if (market === "ml") {
-    return { line: null, price: (selection === "home" ? g.ml_home : g.ml_away) ?? -110 };
-  }
-  if (market === "total") {
-    const b = selection === "over" ? g.best.over : g.best.under;
-    return { line: g.total, price: b?.price ?? -110 };
-  }
-  const b = selection === "home" ? g.best.spread_home : g.best.spread_away;
-  const line = selection === "home" ? g.spread_home : g.spread_home == null ? null : -g.spread_home;
-  return { line, price: b?.price ?? -110 };
+/** Run fn over items with at most `limit` in flight. fn must not throw. */
+async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
-export async function generateHousePicks(now = new Date(), opts: { force?: boolean } = {}) {
-  const db = serviceSupabase();
-  const week = seasonWeek(now);
-  const { data: games, error } = await db
-    .from("pickem_games")
-    .select("*")
-    .eq("season", PICKEM_SEASON)
-    .eq("week", week)
-    .gt("commence_time", now.toISOString())
-    .order("commence_time");
-  if (error) throw new Error(error.message);
-  const slate = (games ?? []) as PickemGame[];
-  const todo = opts.force ? slate : slate.filter((g) => !g.house);
-  if (!todo.length) return { week, picked: 0, parlays: 0, skipped: "nothing to pick" };
-
-  const client = new Anthropic();
-  const input = todo.map((g) => ({
+function batchInput(g: PickemGame) {
+  return {
     game_id: g.id,
     kickoff_utc: g.commence_time,
     away: g.away_team,
@@ -403,71 +388,158 @@ export async function generateHousePicks(now = new Date(), opts: { force?: boole
     ml_home: g.ml_home,
     ml_away: g.ml_away,
     best: g.best,
-  }));
+  };
+}
 
-  const stream = client.messages.stream({
-    model: "claude-opus-5",
-    max_tokens: 32000,
-    thinking: { type: "adaptive" },
-    output_config: { effort: "high", format: zodOutputFormat(HouseOutputSchema) },
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 12 }],
-    system: HOUSE_SYSTEM,
-    messages: [
+async function pickBatch(
+  client: Anthropic,
+  batch: PickemGame[],
+  now: Date,
+  week: number,
+  msLeft: number
+): Promise<{ picks: Map<string, HousePicks>; outcome: BatchOutcome }> {
+  const started = Date.now();
+  const picks = new Map<string, HousePicks>();
+  const fail = (reason: string) => ({ picks, outcome: { size: batch.length, ok: false, ms: Date.now() - started, reason } });
+  try {
+    const stream = client.messages.stream(
       {
-        role: "user",
-        content: `Today is ${now.toUTCString()}. Season ${PICKEM_SEASON}, week ${week}. Slate:\n${JSON.stringify(input)}`,
+        model: "claude-opus-5",
+        max_tokens: 16000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "high", format: zodOutputFormat(HouseBatchSchema) },
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+        system: HOUSE_SYSTEM,
+        messages: [
+          {
+            role: "user",
+            content: `Today is ${now.toUTCString()}. Season ${PICKEM_SEASON}, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map(batchInput))}`,
+          },
+        ],
       },
-    ],
-  });
-  const message = await stream.finalMessage();
-  if (message.stop_reason === "refusal") throw new Error("model declined the request");
-  const text = message.content.find((b) => b.type === "text")?.text ?? "";
-  const parsed = HouseOutputSchema.parse(JSON.parse(text));
-
-  const byId = new Map(slate.map((g) => [g.id, g]));
-  const stamp = now.toISOString();
-  let picked = 0;
-  for (const g of parsed.games) {
-    if (!byId.has(g.game_id)) continue;
-    const house: HousePicks = { spread: g.spread, total: g.total, ml: g.moneyline };
-    const { error: uErr } = await db
-      .from("pickem_games")
-      .update({ house, updated_at: stamp })
-      .eq("id", g.game_id);
-    if (!uErr) picked++;
-  }
-
-  // Replace this week's house parlays only when we are (re)picking the slate.
-  if (opts.force || !slate.some((g) => g.house)) {
-    await db.from("pickem_parlays").delete().eq("season", PICKEM_SEASON).eq("week", week);
-  }
-  let parlays = 0;
-  for (const p of parsed.parlays) {
-    const legs: ParlayLeg[] = [];
-    const seen = new Set<string>();
-    for (const l of p.legs) {
-      const g = byId.get(l.game_id);
-      if (!g || seen.has(g.id)) continue;
-      seen.add(g.id);
-      const { line, price } = legLineAndPrice(g, l.market, l.selection);
-      legs.push({ game_id: g.id, market: l.market, selection: l.selection, line, price, label: legLabel(g, l.market, l.selection) });
+      { signal: AbortSignal.timeout(Math.max(1000, Math.min(PER_CALL_MS, msLeft))), maxRetries: 1 }
+    );
+    const message = await stream.finalMessage();
+    if (message.stop_reason === "refusal") return fail("refusal");
+    if (message.stop_reason === "max_tokens") return fail("max_tokens");
+    const parsed = message.parsed_output;
+    if (!parsed) return fail("unparseable");
+    const ids = new Set(batch.map((g) => g.id));
+    for (const g of parsed.games) {
+      if (ids.has(g.game_id)) picks.set(g.game_id, { spread: g.spread, total: g.total, ml: g.moneyline });
     }
-    if (legs.length < 2) continue;
-    const locks_at = legs
-      .map((l) => byId.get(l.game_id)!.commence_time)
-      .sort()[0];
-    const { error: pErr } = await db.from("pickem_parlays").insert({
-      season: PICKEM_SEASON,
-      week,
-      name: p.name,
-      legs,
-      american_odds: parlayAmericanOdds(legs.map((l) => l.price)),
-      confidence: p.confidence,
-      note: p.note,
-      locks_at,
-    });
-    if (!pErr) parlays++;
+    return { picks, outcome: { size: batch.length, ok: true, ms: Date.now() - started, usage: message.usage } };
+  } catch (e) {
+    const err = e as Error & { name?: string };
+    const reason = e instanceof Anthropic.APIUserAbortError || err.name === "TimeoutError" ? "timeout" : err.message;
+    return fail(reason);
+  }
+}
+
+/** Replace the week's open, untailed parlays with the computed set. Tailed and locked tickets stay. */
+async function rebuildParlays(
+  db: ReturnType<typeof serviceSupabase>,
+  games: PickemGame[],
+  now: Date,
+  week: number,
+  dry: boolean
+): Promise<HouseRunResult["parlays"] & { drafts: ParlayDraft[] }> {
+  const drafts = buildParlays(games, now.getTime());
+  const { data: open, error } = await db
+    .from("pickem_parlays")
+    .select("id, legs")
+    .eq("season", PICKEM_SEASON)
+    .eq("week", week)
+    .gt("locks_at", now.toISOString());
+  if (error) throw new Error(error.message);
+  const openRows = (open ?? []) as { id: number; legs: ParlayDraft["legs"] }[];
+  let tailed = new Set<number>();
+  if (openRows.length) {
+    const { data: t } = await db
+      .from("pickem_parlay_tails")
+      .select("parlay_id")
+      .in("parlay_id", openRows.map((r) => r.id));
+    tailed = new Set((t ?? []).map((r) => r.parlay_id as number));
+  }
+  const keptSignatures = new Set(openRows.filter((r) => tailed.has(r.id)).map((r) => parlaySignature(r.legs)));
+  const fresh = drafts.filter((d) => !keptSignatures.has(d.signature));
+  const skipped_duplicates = drafts.length - fresh.length;
+  if (dry) return { inserted: 0, removed: 0, kept: tailed.size, skipped_duplicates, drafts };
+
+  const rows = fresh.map((d) => ({
+    name: d.name,
+    legs: d.legs,
+    american_odds: d.american_odds,
+    note: d.note,
+    locks_at: d.locks_at,
+    hit_probability: d.hit_probability,
+  }));
+  const { data, error: rpcErr } = await db.rpc("pickem_replace_parlays", { p_season: PICKEM_SEASON, p_week: week, p_rows: rows });
+  if (rpcErr) throw new Error(rpcErr.message);
+  const r = (Array.isArray(data) ? data[0] : data) as { removed: number; inserted: number } | null;
+  return { inserted: r?.inserted ?? 0, removed: r?.removed ?? 0, kept: tailed.size, skipped_duplicates, drafts };
+}
+
+export async function generateHousePicks(now = new Date(), opts: HouseRunOptions = {}): Promise<HouseRunResult> {
+  const db = serviceSupabase();
+  const week = seasonWeek(now);
+  const { data: games, error } = await db
+    .from("pickem_games")
+    .select("*")
+    .eq("season", PICKEM_SEASON)
+    .eq("week", week)
+    .gt("commence_time", now.toISOString())
+    .order("commence_time");
+  if (error) throw new Error(error.message);
+  const slate = (games ?? []) as PickemGame[];
+
+  const deadline = Date.now() + ROUTE_BUDGET_MS;
+  const batches: BatchOutcome[] = [];
+  const picks = new Map<string, HousePicks>();
+  const label = (g: PickemGame) => `${g.away_team} @ ${g.home_team}`;
+  let missing: HouseRunResult["missing"] = [];
+
+  if (!opts.onlyParlays) {
+    const todo = (opts.force ? slate : slate.filter((g) => !g.house)).sort(
+      (a, b) => Math.abs(a.spread_home ?? 99) - Math.abs(b.spread_home ?? 99)
+    );
+    if (todo.length) {
+      const client = new Anthropic();
+      const run = async (games: PickemGame[]) => {
+        await pool(dealBatches(games, BATCH_SIZE), BATCH_CONCURRENCY, async (batch) => {
+          const msLeft = deadline - Date.now();
+          if (msLeft < LAUNCH_FLOOR_MS) {
+            batches.push({ size: batch.length, ok: false, ms: 0, reason: "deadline" });
+            return;
+          }
+          const { picks: got, outcome } = await pickBatch(client, batch, now, week, msLeft);
+          for (const [id, house] of got) picks.set(id, house);
+          batches.push(outcome);
+        });
+      };
+      await run(todo);
+      let left = todo.filter((g) => !picks.has(g.id));
+      if (left.length && deadline - Date.now() > RETRY_FLOOR_MS) {
+        await run(left);
+        left = todo.filter((g) => !picks.has(g.id));
+      }
+      missing = left.map((g) => ({ id: g.id, game: label(g) }));
+    }
   }
 
-  return { week, picked, parlays, usage: message.usage };
+  let picked = 0;
+  if (!opts.dry) {
+    const stamp = now.toISOString();
+    for (const [id, house] of picks) {
+      const { error: uErr } = await db.from("pickem_games").update({ house, updated_at: stamp }).eq("id", id);
+      if (!uErr) picked++;
+    }
+  }
+
+  const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
+  const { drafts, ...parlays } = await rebuildParlays(db, withPicks, now, week, Boolean(opts.dry));
+
+  const result: HouseRunResult = { week, picked, missing, batches, parlays };
+  if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts };
+  return result;
 }
