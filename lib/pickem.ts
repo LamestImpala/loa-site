@@ -62,6 +62,8 @@ export type ParlayLeg = {
   line: number | null;
   price: number;
   label: string;
+  /** House confidence behind the leg, 1-10. Absent on legacy rows. */
+  confidence?: number;
 };
 
 export type PickemParlay = {
@@ -74,6 +76,9 @@ export type PickemParlay = {
   confidence: number | null;
   note: string;
   locks_at: string;
+  leg_count: number;
+  /** House's own estimate that every leg hits; null on legacy rows. */
+  hit_probability: number | null;
 };
 
 export type PickemPick = {
@@ -184,3 +189,37 @@ export function shortTeam(name: string): string {
 // Conference membership (and isPower) lives in pickem-conferences.ts.
 
 export const ALWAYS_FEATURED = ["Arkansas Razorbacks"];
+
+// ---------------------------------------------------------------------------
+// Parlay legs: how a pick on a game becomes a line, a price and a label.
+
+export function legLabel(g: PickemGame, market: Market, selection: Selection): string {
+  const home = shortTeam(g.home_team);
+  const away = shortTeam(g.away_team);
+  if (market === "total") return `${selection === "over" ? "Over" : "Under"} ${g.total} (${away} @ ${home})`;
+  const team = selection === "home" ? home : away;
+  if (market === "ml") return `${team} ML`;
+  const sp = selection === "home" ? g.spread_home : g.spread_home == null ? null : -g.spread_home;
+  return `${team} ${sp == null ? "" : sp > 0 ? `+${sp}` : sp}`;
+}
+
+/** The picked side's number and the price we lock: consensus for moneylines, best book for spreads and totals. */
+export function legLineAndPrice(g: PickemGame, market: Market, selection: Selection): { line: number | null; price: number } {
+  if (market === "ml") {
+    return { line: null, price: (selection === "home" ? g.ml_home : g.ml_away) ?? -110 };
+  }
+  if (market === "total") {
+    const b = selection === "over" ? g.best.over : g.best.under;
+    return { line: g.total, price: b?.price ?? -110 };
+  }
+  const b = selection === "home" ? g.best.spread_home : g.best.spread_away;
+  const line = selection === "home" ? g.spread_home : g.spread_home == null ? null : -g.spread_home;
+  return { line, price: b?.price ?? -110 };
+}
+
+/** Price on the other side of the same market, for taking the vig out. Null when we do not have it. */
+export function opposingPrice(g: PickemGame, market: Market, selection: Selection): number | null {
+  if (market === "ml") return (selection === "home" ? g.ml_away : g.ml_home) ?? null;
+  if (market === "total") return (selection === "over" ? g.best.under : g.best.over)?.price ?? null;
+  return (selection === "home" ? g.best.spread_away : g.best.spread_home)?.price ?? null;
+}

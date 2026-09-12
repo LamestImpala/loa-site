@@ -1,6 +1,7 @@
 "use client";
 
-// The house's parlays for the week, tailable until the first leg kicks off.
+// The house's parlays for the week: one per leg count, two through seven,
+// computed from the house picks. Tailable until the first leg kicks off.
 import { fmtPrice, gradePick, winUnits, type PickemGame, type PickemParlay, type PickResult } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
 
@@ -18,10 +19,11 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
     <section className="mt-12">
       <h2 className="text-lg font-semibold text-white">House parlays</h2>
       <p className="mt-1 max-w-2xl text-sm text-neutral-400">
-        Tailing one risks a unit at the combined price. A push on any leg pushes the ticket.
+        One ticket per leg count, two through seven, built from the legs with the most edge over the price. Tailing
+        one risks a unit at the combined price. A push on any leg pushes the ticket.
       </p>
       {parlays.length === 0 ? (
-        <p className="mt-4 text-sm text-neutral-400">House parlays post Thursday morning once the lines settle.</p>
+        <p className="mt-4 text-sm text-neutral-400">House parlays post Thursday around noon Central, once every game has house picks.</p>
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {parlays.map((p) => {
@@ -39,7 +41,14 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
                     const res = g ? gradePick(l.market, l.selection, l.line, g.home_score, g.away_score) : null;
                     return (
                       <li key={i} className="flex items-center justify-between gap-3 border-t border-white/10 py-1.5 first:border-t-0">
-                        <span>{l.label}</span>
+                        <span>
+                          {l.label}
+                          {l.confidence != null ? (
+                            <span className="ml-1.5 align-top text-[9px] font-medium text-orange-300" title={`House confidence ${l.confidence}/10`}>
+                              H{l.confidence}
+                            </span>
+                          ) : null}
+                        </span>
                         <span className="flex items-center gap-2 tabular-nums text-neutral-400">
                           {fmtPrice(l.price)} <Result result={res} />
                         </span>
@@ -49,7 +58,10 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
                 </ul>
                 <p className="mt-3 text-sm leading-6 text-neutral-300">{p.note}</p>
                 <p className="mt-2 text-xs tabular-nums text-neutral-500">
-                  Confidence {p.confidence ?? "—"}/10 · 1 unit returns {(1 + winUnits(p.american_odds)).toFixed(2)}
+                  {p.hit_probability != null
+                    ? `House puts it at ${p.hit_probability < 0.1 ? (p.hit_probability * 100).toFixed(1) : Math.round(p.hit_probability * 100)}% to hit`
+                    : `Confidence ${p.confidence ?? "—"}/10`}
+                  {" "}· 1 unit returns {(1 + winUnits(p.american_odds)).toFixed(2)}
                 </p>
                 <button
                   type="button"

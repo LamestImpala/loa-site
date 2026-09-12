@@ -8,7 +8,8 @@ export default function HowItWorks() {
         <li>A pick locks the line and price at that moment. Kickoff freezes it.</li>
         <li>Every pick risks 1 unit. A win at -110 returns 0.91, a +200 dog returns 2.00, a loss costs 1, a push is 0.</li>
         <li>Everyone&apos;s picks become visible once a game kicks off.</li>
-        <li>House picks come from an AI handicapper that reads the lines, the movement, and the week&apos;s news. Fade or follow. H7 on a button means the house likes that side at 7 out of 10.</li>
+        <li>Every game gets house picks on the spread, total and moneyline from an AI handicapper that reads the lines, the movement, and the week&apos;s news. Fade or follow. H7 on a button means the house likes that side at 7 out of 10, roughly a 58% shot against the number.</li>
+        <li>House parlays are math, not vibes: each leg&apos;s price becomes a probability, nudged by the house confidence, and the legs with the most edge are stacked two to seven deep. The percentage is the house&apos;s own estimate of the ticket hitting; it is usually lower than the price implies, which is the point.</li>
         <li>The slate is the forty most interesting games of the week: closest Power Four matchups first, and Arkansas always.</li>
       </ul>
     </details>
