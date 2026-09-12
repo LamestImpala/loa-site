@@ -248,3 +248,8 @@ create policy "users untail before lock" on public.pickem_parlay_tails
   );
 
 grant select on public.pickem_leaderboard to anon, authenticated;
+
+-- Pin the search path on the grading functions (Supabase linter 0011). They
+-- only use built-ins, so an empty path is correct.
+alter function public.pickem_pick_result(text, text, numeric, int, int) set search_path = '';
+alter function public.pickem_units(text, int) set search_path = '';
