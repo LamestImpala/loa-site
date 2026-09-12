@@ -44,6 +44,14 @@ leaderboard. Players sign in with a Supabase magic link.
 
 Schema: `supabase/migrations/20260912_pickem.sql`. Server code: `lib/pickem-server.ts`.
 
+The board (`app/(loa)/pickem/`) is a sportsbook-style sheet: one row per game,
+day dividers, and a view picker (starting soon / by conference / all) whose
+choice lives in `?view=` and `?conf=`. Conference membership is the static map
+in `lib/pickem-conferences.ts`; the sync job's JSON lists any team strings that
+fell through to FCS so a misspelled FBS school is easy to spot. Outside
+production, `?at=<ISO timestamp>` pretends it is another time. Pure board logic
+has tests: `npm test`.
+
 Environment variables (Vercel project + `.env.local`):
 
 | Name | Used for |
