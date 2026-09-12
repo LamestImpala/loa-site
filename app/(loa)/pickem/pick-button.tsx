@@ -12,7 +12,7 @@ type Props = {
   main: string;
   /** Second line: the price (spread, total) or the best book's price (ML). */
   sub?: string;
-  /** Sportsbook code for the best price; hidden below lg. */
+  /** Sportsbook with the best price: short code below lg, full name from lg up. */
   book?: string;
   bookTitle?: string;
   /** Direction this side's number moved since open, with the open number. */
@@ -68,10 +68,11 @@ export default function PickButton({ game, market, selection, main, sub, book, b
         <span className="mt-0.5 text-[10px] tabular-nums text-neutral-400">
           {sub}
           {book ? (
-            <span className="hidden lg:inline" title={bookTitle}>
+            <>
               {" "}
-              {book}
-            </span>
+              <span className="lg:hidden" title={bookTitle}>{book}</span>
+              <span className="hidden lg:inline">{bookTitle}</span>
+            </>
           ) : null}
         </span>
       ) : null}
