@@ -7,6 +7,7 @@ import { fmtPrice, fmtSpread, gradePick, shortTeam, type PickemGame, type Pickem
 import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
 import { bookCode, fmtKick } from "@/lib/pickem-board";
 import PickButton from "./pick-button";
+import ConfidenceBadge from "./confidence-badge";
 
 type Props = {
   game: PickemGame;
@@ -203,8 +204,8 @@ function Detail({
         </div>
         {house ? (
           <div>
-            <span className="text-orange-300">
-              House likes {sideName(house.pick)} · {house.confidence}/10.
+            <span className="inline-flex items-center gap-1.5 text-orange-300">
+              House likes {sideName(house.pick)} <ConfidenceBadge value={house.confidence} size="md" />
             </span>{" "}
             <span className="text-neutral-300">{house.why}</span>
           </div>

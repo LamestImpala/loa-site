@@ -3,6 +3,7 @@
 // One side of one market. The only place pick-button styling lives.
 import type { Market, PickemGame, PickResult, Selection } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
+import ConfidenceBadge from "./confidence-badge";
 
 type Props = {
   game: PickemGame;
@@ -38,8 +39,8 @@ export default function PickButton({ game, market, selection, main, sub, book, b
         {result === "win" ? "W" : result === "loss" ? "L" : "P"}
       </span>
     ) : house != null ? (
-      <span className="absolute right-1 top-0.5 text-[9px] font-medium text-orange-300" title={`House likes this side, ${house}/10`}>
-        H{house}
+      <span className="absolute right-0.5 top-0.5">
+        <ConfidenceBadge value={house} />
       </span>
     ) : null;
 
