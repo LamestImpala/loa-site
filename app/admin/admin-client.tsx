@@ -10,8 +10,8 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
+  FREE_SHIPPING_MIN,
   LETTERS,
-  RECORDS_PER_PARCEL,
   SELLER_INFO,
   artistLetter,
   bundleBreakdown,
@@ -52,7 +52,9 @@ function cell(s: string | undefined) {
 // "Request to buy" button that pre-fills the DM; SELLER_INFO.contact stays
 // as-is for the site's own hero card.
 const SHOP_URL = "https://curiouserrecords.com";
-const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.`;
+const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.
+
+**Offers:** reasonable offers welcome on bundles of ${FREE_SHIPPING_MIN}+ records (which also ship free) — singles are priced as listed.`;
 
 // The first line of each copied post is a ready-made [For Sale] title —
 // paste it into Reddit's title field, then delete it from the body.
@@ -110,8 +112,20 @@ type MarketStats = {
   forSale: number | null;
   want: number | null;
   have: number | null;
+  suggested: number | null; // Discogs suggestion for the record's media grade
+  lowest: number | null; // raw Discogs lowest_price — any grade, any country
+  lowestPlausible: boolean | null; // did the price run treat it as comparable?
 };
 type MarketMap = Record<number, MarketStats>;
+
+// A price drop recent enough to headline a weekly post.
+const DROP_WINDOW_DAYS = 14;
+const isRecentDrop = (r: DbRecord) =>
+  r.prev_price != null &&
+  Number(r.prev_price) > r.price &&
+  Date.now() - new Date(r.updated_at).getTime() <
+    DROP_WINDOW_DAYS * 24 * 3600 * 1000;
+const dropPct = (r: DbRecord) => 1 - r.price / Number(r.prev_price);
 
 // Relative demand for ranking picks: wants per existing copy. Not shown
 // to buyers — a ratio below 1 reads as weak even when it's the best.
@@ -136,16 +150,39 @@ const REDDIT_TABLE_HEADER = [
   "|---|---|---|---|---|",
 ];
 
-function redditWeeklyMarkdown(selected: DbRecord[], liveCount: number) {
+// The title leads with the three most-wanted artists in the pick (Discogs
+// want count) — that is what a collector scanning the sub actually reads —
+// and says "price drops" only when the pick carries some.
+function redditWeeklyMarkdown(
+  selected: DbRecord[],
+  liveCount: number,
+  market: MarketMap
+) {
   const list = [...selected].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
-  const title = `[For Sale] Weekly update — ${list.length} picks from a ${liveCount}-record collection sale — PayPal G&S`;
+  const drops = list.filter(isRecentDrop).length;
+  const headliners: string[] = [];
+  for (const r of [...list].sort(
+    (a, b) => (market[b.id]?.want ?? 0) - (market[a.id]?.want ?? 0)
+  )) {
+    if (!headliners.includes(r.artist)) headliners.push(r.artist);
+    if (headliners.length === 3) break;
+  }
+  const title = `[For Sale] ${drops > 0 ? "Price drops + scarce picks" : "Weekly picks"}${
+    headliners.length ? ` — ${headliners.map(cell).join(", ")}` : ""
+  } — from a ${liveCount}-record collection sale — PayPal G&S, free shipping on ${FREE_SHIPPING_MIN}+`;
   return [
     title,
     "",
     `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
+    ...(drops > 0
+      ? [
+          `**Price drops** — ${drops} of these ${list.length} came down in the last two weeks; every price below is live.`,
+          "",
+        ]
+      : []),
     ...REDDIT_TABLE_HEADER,
     ...list.map(weeklyRow),
     "",
@@ -315,6 +352,28 @@ function pct(n: number) {
 const holdActive = (r: DbRecord) =>
   !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
 
+// Last week of snapshots, newest first — reduced by the caller to the
+// newest row per record (runs can skip a day). lowest_plausible arrives
+// with a migration; until it lands, fall back to the older column set.
+async function loadSnapshots(supabase: ReturnType<typeof getBrowserSupabase>) {
+  const since = new Date(Date.now() - 7 * 24 * 3600 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const query = (cols: string) =>
+    supabase
+      .from("market_snapshots")
+      .select(cols)
+      .gte("snapped_on", since)
+      .order("snapped_on", { ascending: false });
+  const full = await query(
+    "record_id,snapped_on,for_sale,want,have,suggested,lowest,lowest_plausible"
+  );
+  if (full.error && /lowest_plausible/.test(full.error.message)) {
+    return query("record_id,snapped_on,for_sale,want,have,suggested,lowest");
+  }
+  return full;
+}
+
 // Fisher–Yates; returns a new array.
 function shuffle<T>(arr: T[]): T[] {
   const out = [...arr];
@@ -404,6 +463,12 @@ function bucketEventsByDay(events: RecordEventRow[]): DayBucket[] {
 }
 
 type SortKey = "artist" | "price-desc" | "price-asc" | "interest" | "added";
+// "manual-off-market": hand-priced records sitting far from the Discogs
+// grade suggestion — the audit list for deciding what to hand back to the
+// daily run (uncheck "manual").
+type InterestFilter = "all" | "clicked-no-request" | "manual-off-market";
+const OFF_MARKET_HIGH = 1.3;
+const OFF_MARKET_LOW = 0.6;
 
 export default function AdminClient() {
   const supabase = getBrowserSupabase();
@@ -445,9 +510,8 @@ export default function AdminClient() {
   const [events, setEvents] = useState<RecordEventRow[]>([]);
   // Record whose Interest cell is expanded to show its daily history.
   const [interestDetailId, setInterestDetailId] = useState<number | null>(null);
-  const [interestFilter, setInterestFilter] = useState<
-    "all" | "clicked-no-request"
-  >("all");
+  const [interestFilter, setInterestFilter] =
+    useState<InterestFilter>("all");
   const [letterFilter, setLetterFilter] = useState<string | null>(null);
   const [shownFilter, setShownFilter] = useState<"all" | "shown" | "hidden">(
     "all"
@@ -648,7 +712,24 @@ export default function AdminClient() {
     setRedditPosts((prev) => [data as RedditPost, ...prev]);
   }
 
+  // r/vinylcollectors readers (and mods) see every live post; keep one of
+  // each kind up at a time. Copying a new post is fine — just remember to
+  // retire the old one once the new one is posted.
+  function warnIfStillLive(kind: "full" | "weekly") {
+    const live = topLevelPosts.find(
+      (p) => p.kind === kind && !p.retired_at && p.reddit_url
+    );
+    if (!live) return;
+    pushToast(
+      "info",
+      `Your ${kind === "full" ? "full catalog" : "weekly"} post from ${new Date(
+        live.created_at
+      ).toLocaleDateString()} is still live — once this one is up, copy its retire body so only one stays live.`
+    );
+  }
+
   async function copyRedditTable() {
+    warnIfStillLive("full");
     const md = redditMarkdown(records);
     if (await copyText(md, "Copy the Reddit table")) {
       setTableCopied(true);
@@ -661,13 +742,15 @@ export default function AdminClient() {
     await archivePost("full", md.split("\n")[0], md, listedIds);
   }
 
-  // Seed the weekly post with the most in-demand picks — highest Discogs
-  // want/have ratio first (wants per existing copy), scarcest copies
-  // breaking ties. Stock still rotates: records from the last posted set
-  // only backfill when the fresh pool runs short. Shuffling before the
-  // stable sort randomizes exact ties (and records with no snapshot
-  // data) between clicks.
+  // Seed the weekly post: up to WEEKLY_DROP_COUNT of the biggest recent
+  // price drops (the post's hook), then the most in-demand of the rest —
+  // highest Discogs want/have ratio first (wants per existing copy),
+  // scarcest copies breaking ties. Stock still rotates: records from the
+  // last posted set only backfill when the fresh pool runs short.
+  // Shuffling before the stable sort randomizes exact ties (and records
+  // with no snapshot data) between clicks.
   const WEEKLY_PICK_COUNT = 20;
+  const WEEKLY_DROP_COUNT = 10;
   function randomizeWeeklyPicks() {
     const byDemand = (pool: DbRecord[]) =>
       shuffle(pool).sort((a, b) => {
@@ -680,13 +763,23 @@ export default function AdminClient() {
         );
       });
     const pool = records.filter((r) => r.listed && !r.sold && !holdActive(r));
+    const drops = pool
+      .filter(isRecentDrop)
+      .sort((a, b) => dropPct(b) - dropPct(a))
+      .slice(0, WEEKLY_DROP_COUNT);
+    const dropIds = new Set(drops.map((r) => r.id));
     const lastPosted = new Set(postedInfo.ids);
-    const fresh = pool.filter((r) => !lastPosted.has(r.id));
-    const rest = pool.filter((r) => lastPosted.has(r.id));
-    const picks = [...byDemand(fresh), ...byDemand(rest)].slice(
-      0,
-      WEEKLY_PICK_COUNT
+    const fresh = pool.filter(
+      (r) => !dropIds.has(r.id) && !lastPosted.has(r.id)
     );
+    const rest = pool.filter((r) => !dropIds.has(r.id) && lastPosted.has(r.id));
+    const picks = [
+      ...drops,
+      ...[...byDemand(fresh), ...byDemand(rest)].slice(
+        0,
+        WEEKLY_PICK_COUNT - drops.length
+      ),
+    ];
     setSelectedIds(new Set(picks.map((r) => r.id)));
     setSelectionMode("weekly");
   }
@@ -695,8 +788,9 @@ export default function AdminClient() {
   async function copyWeeklyPost() {
     const picks = records.filter((r) => selectedIds.has(r.id) && !r.sold);
     if (picks.length === 0) return;
+    warnIfStillLive("weekly");
     const liveCount = records.filter((r) => r.listed && !r.sold).length;
-    const md = redditWeeklyMarkdown(picks, liveCount);
+    const md = redditWeeklyMarkdown(picks, liveCount, market);
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.
     if (await copyText(md, "Copy the weekly post")) {
@@ -997,18 +1091,7 @@ export default function AdminClient() {
           .select("*")
           .order("created_at", { ascending: false }),
         supabase.from("invoices").select("*"),
-        // Last week of snapshots, newest first — reduced below to the
-        // newest row per record (runs can skip a day).
-        supabase
-          .from("market_snapshots")
-          .select("record_id,snapped_on,for_sale,want,have")
-          .gte(
-            "snapped_on",
-            new Date(Date.now() - 7 * 24 * 3600 * 1000)
-              .toISOString()
-              .slice(0, 10)
-          )
-          .order("snapped_on", { ascending: false }),
+        loadSnapshots(supabase),
         supabase
           .from("reddit_posts")
           .select("*")
@@ -1052,12 +1135,15 @@ export default function AdminClient() {
       );
     }
     const latestMarket: MarketMap = {};
-    for (const s of (snapshotsRes.data ?? []) as MarketSnapshotRow[]) {
+    for (const s of (snapshotsRes.data ?? []) as unknown as MarketSnapshotRow[]) {
       if (!(s.record_id in latestMarket)) {
         latestMarket[s.record_id] = {
           forSale: s.for_sale,
           want: s.want,
           have: s.have,
+          suggested: s.suggested == null ? null : Number(s.suggested),
+          lowest: s.lowest == null ? null : Number(s.lowest),
+          lowestPlausible: s.lowest_plausible ?? null,
         };
       }
     }
@@ -1644,6 +1730,12 @@ export default function AdminClient() {
         )
           return false;
       }
+      if (interestFilter === "manual-off-market") {
+        const sugg = market[r.id]?.suggested;
+        if (!r.manual_price || r.sold || !r.listed || !sugg) return false;
+        const ratio = r.price / sugg;
+        if (ratio <= OFF_MARKET_HIGH && ratio >= OFF_MARKET_LOW) return false;
+      }
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""}`
         .toLowerCase()
@@ -1674,7 +1766,7 @@ export default function AdminClient() {
       });
     }
     return list;
-  }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest]);
+  }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]);
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -1756,10 +1848,10 @@ export default function AdminClient() {
   async function copySaleReply() {
     if (saleRecords.length === 0) return;
     const buyer = saleBuyer.trim().replace(/^u\//, "");
-    const { lines, subtotal, parcels, shipping, total } = saleTotals;
+    const { lines, subtotal, shipping, total } = saleTotals;
     const text = `${buyer ? `Hi u/${buyer}!` : "Hi!"} Here's the breakdown for the records you asked about:\n\n${lines.join(
       "\n"
-    )}\n\nSubtotal: $${subtotal}\nShipping (${parcels} parcel${parcels === 1 ? "" : "s"} of up to ${RECORDS_PER_PARCEL} records): $${shipping}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
+    )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
     if (await copyText(text, "Copy this reply")) {
       setReplyCopied(true);
       setTimeout(() => setReplyCopied(false), 1600);
@@ -2678,8 +2770,9 @@ export default function AdminClient() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20 at random&rdquo;
-          (highest Discogs want/have ratio first, scarcest breaking ties; a
+          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20: drops + scarce&rdquo;
+          (biggest recent price drops first, then highest Discogs want/have
+          ratio, scarcest breaking ties; a
           weekly-post bar appears above the listings instead of the sale
           desk) and adjust the checkboxes, or pick by hand. Each row shows
           price, year, and grades, with the title linked to its Discogs
@@ -2695,9 +2788,9 @@ export default function AdminClient() {
             type="button"
             onClick={randomizeWeeklyPicks}
             className={buttonClass}
-            title="Selects the 20 listed records with the highest Discogs want/have ratio, scarcest first on ties (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
+            title="Selects up to 10 of the biggest price drops from the last two weeks, then fills to 20 with the highest Discogs want/have ratio, scarcest first on ties (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
           >
-            Pick 20 at random
+            Pick 20: drops + scarce
           </button>
           <button
             type="button"
@@ -3638,12 +3731,15 @@ export default function AdminClient() {
           <select
             value={interestFilter}
             onChange={(e) =>
-              setInterestFilter(e.target.value as "all" | "clicked-no-request")
+              setInterestFilter(e.target.value as InterestFilter)
             }
             className={`${inputClass} [&>option]:bg-neutral-900`}
           >
             <option value="all">Interest: All</option>
             <option value="clicked-no-request">Clicked, no request</option>
+            <option value="manual-off-market">
+              Hand-priced, far from suggestion
+            </option>
           </select>
           <select
             value={shownFilter}
@@ -3811,7 +3907,9 @@ export default function AdminClient() {
                 </span>{" "}
                 <span className="text-neutral-400">
                   · Subtotal ${saleTotals.subtotal} · Shipping $
-                  {saleTotals.shipping} ({saleTotals.parcels} parcel
+                  {saleTotals.shipping}
+                  {saleTotals.shipping === 0 ? " (free)" : ""} (
+                  {saleTotals.parcels} parcel
                   {saleTotals.parcels === 1 ? "" : "s"}) ·{" "}
                 </span>
                 <span className="font-semibold">Total ${saleTotals.total}</span>
@@ -4249,6 +4347,21 @@ export default function AdminClient() {
                         />
                         manual
                       </label>
+                      {market[r.id]?.suggested ? (
+                        <p
+                          className="mt-1 text-xs text-neutral-500"
+                          title="Discogs price suggestion for this media grade, and the cheapest current listing — marked not comparable when it sits below the Fair-grade suggestion (a junk copy, a non-US seller, or a foreign price converted to USD), in which case the price run ignores it"
+                        >
+                          sugg ${Math.round(market[r.id].suggested!)}
+                          {market[r.id].lowest != null
+                            ? ` · lowest $${Math.round(market[r.id].lowest!)}${
+                                market[r.id].lowestPlausible === false
+                                  ? " (not comparable)"
+                                  : ""
+                              }`
+                            : ""}
+                        </p>
+                      ) : null}
                       {r.prev_price != null &&
                       Number(r.prev_price) > 0 &&
                       Number(r.prev_price) !== r.price ? (
@@ -4619,14 +4732,22 @@ export default function AdminClient() {
                                   ? "auto-applied"
                                   : "flagged for approval"}
                                 {s.reason === "stocked"
-                                  ? " · stocked release, chasing cheapest listing"
-                                  : s.reason === "ebay"
-                                    ? " · capped at eBay median for this pressing"
-                                    : s.reason === "lowest"
-                                      ? " · $1 under cheapest listing"
-                                      : ""}
+                                  ? " · stocked release (30+ copies), 70% of suggestion"
+                                  : s.reason === "scarce"
+                                    ? " · scarce & wanted, full suggestion"
+                                    : s.reason === "decay"
+                                      ? " · unsold 30+ days, 5% time decay"
+                                      : s.reason === "ebay"
+                                        ? " · capped at eBay median for this pressing"
+                                        : s.reason === "lowest"
+                                          ? " · $1 under comparable cheapest listing"
+                                          : ""}
                                 {s.lowest != null
-                                  ? ` · lowest listing $${s.lowest}`
+                                  ? ` · lowest listing $${s.lowest}${
+                                      s.lowest_plausible === false
+                                        ? " (not comparable)"
+                                        : ""
+                                    }`
                                   : ""}
                                 {s.for_sale != null
                                   ? ` · ${s.for_sale} for sale`

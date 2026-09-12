@@ -16,12 +16,17 @@ export function artistLetter(artist: string) {
   return first >= "A" && first <= "Z" ? first : "#";
 }
 
-// USA media mail: one parcel holds up to 3 records
+// USA media mail: one parcel holds up to 3 records. Buyers pay $6 for one
+// or two records; a bundle of FREE_SHIPPING_MIN or more ships free — that is
+// the parcel boundary, so it costs one label and rewards the order size
+// that makes the packing worthwhile.
 export const SHIPPING_PER_PARCEL = 6;
 export const RECORDS_PER_PARCEL = 3;
+export const FREE_SHIPPING_MIN = 3;
 
 export function combinedShipping(count: number): number {
   if (count <= 0) return 0;
+  if (count >= FREE_SHIPPING_MIN) return 0;
   return Math.ceil(count / RECORDS_PER_PARCEL) * SHIPPING_PER_PARCEL;
 }
 
@@ -35,8 +40,8 @@ export type BundleItem = {
 
 // Itemized quote for a set of records — the one formatter for the shop's
 // combined "Request to buy" DM, the admin sale-desk reply, and the PayPal
-// invoice route. The order_requests DB trigger recomputes shipping with the
-// same $6-per-3 math — a rate change must touch both.
+// invoice route. The order_requests DB trigger (validate_order_request)
+// recomputes shipping with the same rule — a rate change must touch both.
 export function bundleBreakdown(items: BundleItem[]) {
   const lines = items.map(
     (r, i) =>
@@ -84,5 +89,5 @@ export const SELLER_INFO: SellerInfo = {
   location: "Phoenix, AZ",
   contact: "PM me on Reddit to claim. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
-  shipping: "$6 media mail per parcel of up to 3 records (USA) — 1–3 records $6, 4–6 $12, and so on. Records shipped outside the jacket in a proper LP mailer.",
+  shipping: "$6 USPS Media Mail for 1–2 records (USA); free shipping on 3 or more. Records ship outside the jacket in a proper LP mailer.",
 };
