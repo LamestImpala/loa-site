@@ -9,7 +9,6 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ADMIN_EMAIL } from "./supabase"
 import {
   ALWAYS_FEATURED,
   PICKEM_SEASON,
-  isPower,
   parlayAmericanOdds,
   seasonWeek,
   shortTeam,
@@ -22,6 +21,7 @@ import {
   type PickemGame,
   type Selection,
 } from "./pickem";
+import { isPower, unmappedTeams } from "./pickem-conferences";
 
 const ODDS_BASE = "https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf";
 const SLATE_SIZE = 40;
@@ -297,7 +297,10 @@ export async function syncLines(now = new Date()) {
     }
   }
 
-  return { week, games: rows.length, graded, odds_requests_remaining: remaining };
+  // Team strings the conference map does not know. Genuine FCS opponents land
+  // here too; anything FBS in this list is a spelling to add to the map.
+  const unmapped = unmappedTeams(rows.flatMap((r) => [r.home_team, r.away_team]));
+  return { week, games: rows.length, graded, unmapped_teams: unmapped, odds_requests_remaining: remaining };
 }
 
 // ---------------------------------------------------------------------------

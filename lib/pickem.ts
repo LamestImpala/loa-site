@@ -181,35 +181,6 @@ export function shortTeam(name: string): string {
   return i > 0 ? name.slice(0, i) : name;
 }
 
-// Power Four schools plus Notre Dame, as The Odds API names them. Used to rank
-// which games make the weekly slate.
-export const POWER_TEAMS = new Set<string>([
-  // SEC
-  "Alabama Crimson Tide", "Arkansas Razorbacks", "Auburn Tigers", "Florida Gators",
-  "Georgia Bulldogs", "Kentucky Wildcats", "LSU Tigers", "Mississippi State Bulldogs",
-  "Missouri Tigers", "Oklahoma Sooners", "Ole Miss Rebels", "South Carolina Gamecocks",
-  "Tennessee Volunteers", "Texas Longhorns", "Texas A&M Aggies", "Vanderbilt Commodores",
-  // Big Ten
-  "Illinois Fighting Illini", "Indiana Hoosiers", "Iowa Hawkeyes", "Maryland Terrapins",
-  "Michigan Wolverines", "Michigan State Spartans", "Minnesota Golden Gophers",
-  "Nebraska Cornhuskers", "Northwestern Wildcats", "Ohio State Buckeyes", "Oregon Ducks",
-  "Penn State Nittany Lions", "Purdue Boilermakers", "Rutgers Scarlet Knights",
-  "UCLA Bruins", "USC Trojans", "Washington Huskies", "Wisconsin Badgers",
-  // ACC
-  "Boston College Eagles", "California Golden Bears", "Clemson Tigers", "Duke Blue Devils",
-  "Florida State Seminoles", "Georgia Tech Yellow Jackets", "Louisville Cardinals",
-  "Miami Hurricanes", "North Carolina Tar Heels", "NC State Wolfpack",
-  "Notre Dame Fighting Irish", "Pittsburgh Panthers", "SMU Mustangs", "Stanford Cardinal",
-  "Syracuse Orange", "Virginia Cavaliers", "Virginia Tech Hokies", "Wake Forest Demon Deacons",
-  // Big 12
-  "Arizona Wildcats", "Arizona State Sun Devils", "Baylor Bears", "BYU Cougars",
-  "Cincinnati Bearcats", "Colorado Buffaloes", "Houston Cougars", "Iowa State Cyclones",
-  "Kansas Jayhawks", "Kansas State Wildcats", "Oklahoma State Cowboys", "TCU Horned Frogs",
-  "Texas Tech Red Raiders", "UCF Knights", "Utah Utes", "West Virginia Mountaineers",
-]);
+// Conference membership (and isPower) lives in pickem-conferences.ts.
 
 export const ALWAYS_FEATURED = ["Arkansas Razorbacks"];
-
-export function isPower(team: string): boolean {
-  return POWER_TEAMS.has(team);
-}
