@@ -24,6 +24,11 @@ import type {
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
 import { holdActive } from "@/lib/admin/records";
+import {
+  discogsCandidates,
+  finishedRequests,
+  soldPatch,
+} from "@/lib/admin/sales";
 import { useAdminSession } from "../admin-gate";
 import type { Toast } from "./ui";
 
@@ -459,19 +464,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   async function markRecordsSold(targets: DbRecord[], buyer: string) {
     if (targets.length === 0) return;
     try {
+      const now = new Date();
       const patches = new Map(
-        targets.map((r) => [
-          r.id,
-          {
-            sold: true,
-            sold_at: new Date().toISOString(),
-            sold_price: Number(r.price),
-            buyer_username:
-              buyer || r.hold_buyer || (r.buyer_username ?? "").trim() || "",
-            hold_buyer: null,
-            hold_until: null,
-          } satisfies Partial<DbRecord>,
-        ])
+        targets.map((r) => [r.id, soldPatch(r, buyer, now)])
       );
       // Track per-record success so the UI reflects exactly what landed in
       // the DB, even when a chunk fails partway through.
@@ -514,11 +509,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       pushToast("success", `Marked ${done.length} sold ✓`);
       // Best-effort: close loaded order requests whose records are now all
       // sold. Failures are non-fatal — the card keeps its manual buttons.
-      const finished = orderRequests.filter(
-        (req) =>
-          req.status === "loaded" &&
-          req.record_ids.every((id) => doneSet.has(id) || byId.get(id)?.sold)
-      );
+      const finished = finishedRequests(orderRequests, doneSet, byId);
       if (finished.length > 0) {
         supabase
           .from("order_requests")
@@ -536,9 +527,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
           });
       }
-      const withDiscogs = targets.filter(
-        (r) => doneSet.has(r.id) && r.discogs_release_id && !r.discogs_removed
-      );
+      const withDiscogs = discogsCandidates(targets, doneSet);
       if (
         withDiscogs.length > 0 &&
         window.confirm(

@@ -14,13 +14,8 @@ import {
   recordFlags,
   type LineMatch,
 } from "@/lib/order-parse";
-import { holdActive } from "@/lib/admin/records";
-import {
-  bucketEventsByDay,
-  dayLabel,
-  localDayKey,
-  type DayBucket,
-} from "@/lib/admin/interest";
+import { recentDays } from "@/lib/admin/interest";
+import { activeHoldGroups, pendingInvoiceGroups } from "@/lib/admin/sales";
 import { useAdmin } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
 import { buttonClass, inputClass, timeAgo } from "../_shell/ui";
@@ -60,25 +55,7 @@ export function InboxPage() {
     clearSelection,
   } = useAdmin();
 
-  const dailyStrip = useMemo(() => {
-    const byKey = new Map(bucketEventsByDay(events).map((d) => [d.key, d]));
-    const out: DayBucket[] = [];
-    const now = new Date();
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const key = localDayKey(d);
-      out.push(
-        byKey.get(key) ?? {
-          key,
-          label: dayLabel(key),
-          clicks: 0,
-          looked: 0,
-          asked: 0,
-        }
-      );
-    }
-    return out;
-  }, [events]);
+  const dailyStrip = useMemo(() => recentDays(events), [events]);
   const stripMax = Math.max(1, ...dailyStrip.map((d) => d.looked));
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
@@ -265,70 +242,21 @@ export function InboxPage() {
   // This is the durable "order in progress": it survives clearing the
   // sale desk, and disappears once its records are marked sold (the
   // group then shows up in Fulfillment) or the invoice is cancelled.
-  const pendingInvoices = useMemo(() => {
-    const byInvoice = new Map<string, DbRecord[]>();
-    for (const r of records) {
-      if (r.sold || !r.paypal_invoice_id) continue;
-      const list = byInvoice.get(r.paypal_invoice_id);
-      if (list) list.push(r);
-      else byInvoice.set(r.paypal_invoice_id, [r]);
-    }
-    return invoices
-      .filter((inv) => !inv.paid_at && inv.status !== "CANCELLED")
-      .map((inv) => {
-        // Prefer the live stamp; fall back to the ids saved at creation
-        // for invoices whose stamp never landed.
-        let recs = byInvoice.get(inv.paypal_invoice_id) ?? [];
-        if (recs.length === 0 && inv.record_ids?.length) {
-          recs = inv.record_ids
-            .map((id) => byId.get(id))
-            .filter((r): r is DbRecord => !!r && !r.sold);
-        }
-        const holdUntil = recs.reduce(
-          (max, r) =>
-            r.hold_until ? Math.max(max, new Date(r.hold_until).getTime()) : max,
-          0
-        );
-        return {
-          invoice: inv,
-          buyer: (inv.buyer_username ?? recs[0]?.hold_buyer ?? "").trim(),
-          recs,
-          totals: bundleBreakdown(recs),
-          holdUntil,
-        };
-      })
-      .filter((p) => p.recs.length > 0)
-      .sort((a, b) => b.invoice.created_at.localeCompare(a.invoice.created_at));
-  }, [invoices, records, byId]);
+  const pendingInvoices = useMemo(
+    () => pendingInvoiceGroups(records, invoices),
+    [records, invoices]
+  );
   const pendingInvoiceIds = useMemo(
     () => new Set(pendingInvoices.map((p) => p.invoice.paypal_invoice_id)),
     [pendingInvoices]
   );
 
-  // active hold, grouped per buyer. Records covered by a pending invoice
+  // Active holds, grouped per buyer. Records covered by a pending invoice
   // are listed under that invoice instead, so an order shows once.
-  const activeHolds = useMemo(() => {
-    const groups = new Map<string, DbRecord[]>();
-    for (const r of records) {
-      if (r.sold || !holdActive(r)) continue;
-      if (r.paypal_invoice_id && pendingInvoiceIds.has(r.paypal_invoice_id)) continue;
-      const buyer = (r.hold_buyer ?? "").trim() || "(no buyer name)";
-      const list = groups.get(buyer);
-      if (list) list.push(r);
-      else groups.set(buyer, [r]);
-    }
-    return [...groups.entries()]
-      .map(([buyer, recs]) => ({
-        buyer,
-        recs,
-        // Holds in a group can expire at different times; show the soonest.
-        until: recs.reduce(
-          (min, r) => Math.min(min, new Date(r.hold_until!).getTime()),
-          Infinity
-        ),
-      }))
-      .sort((a, b) => a.until - b.until);
-  }, [records, pendingInvoiceIds]);
+  const activeHolds = useMemo(
+    () => activeHoldGroups(records, pendingInvoiceIds),
+    [records, pendingInvoiceIds]
+  );
 
   // Replace the sale-desk selection (with confirmation when it differs),
   // open the Listings section, and scroll to the sticky bar.

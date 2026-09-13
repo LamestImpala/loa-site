@@ -3,6 +3,15 @@
 import { useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DbRecord, Invoice, Shipment } from "@/lib/supabase";
+import {
+  buyerNudge,
+  confirmationComment,
+  groupOrdersByBuyer,
+  inPayPal,
+  needsRepush,
+  pushNotNeeded,
+  type OrderGroup,
+} from "@/lib/admin/fulfillment";
 import { blurOnEnter, buttonClass, inputClass, smallButtonClass } from "./_shell/ui";
 
 /*
@@ -31,68 +40,6 @@ const CARRIERS = ["USPS", "UPS", "FEDEX", "DHL", "OTHER"];
 // sale date) so an order still in transit never archives early — the window
 // covers delivery plus an it-arrived-damaged grace period.
 const ARCHIVE_AFTER_DAYS = 21;
-
-// A parcel already known to PayPal, under its current tracking number.
-const inPayPal = (s: Shipment) =>
-  !!s.paypal_tracker_id &&
-  !!s.tracking_code &&
-  s.paypal_tracked_number === s.tracking_code;
-
-// Pushed once, but the tracking number changed since.
-const needsRepush = (s: Shipment) =>
-  !!s.paypal_tracker_id &&
-  !!s.tracking_code &&
-  s.paypal_tracked_number !== s.tracking_code;
-
-// Marked as a label bought inside PayPal that the tracking API can't see
-// (PayPal Shipping labels never register as trackers): the tracking is
-// already on the transaction, so pushing would only duplicate the buyer
-// email. Parcels PayPal does know about keep their re-push behavior.
-const pushNotNeeded = (s: Shipment) =>
-  s.mode === "paypal" && !s.paypal_tracker_id;
-
-// r/VinylCollectors trade confirmations: u/VinylSwapBot only reads plain-text
-// u/ mentions (hyperlinked tags are invisible to it) and only counts NEW
-// top-level comments on the thread the sale came from — edits don't register.
-// Credit lands once the buyer replies to the comment.
-const SWAP_BOT = "u/VinylSwapBot";
-
-function confirmationComment(buyer: string, records: DbRecord[]) {
-  const list = [...records].sort((a, b) =>
-    `${a.artist} ${a.title}`.localeCompare(`${b.artist} ${b.title}`)
-  );
-  return [
-    SWAP_BOT,
-    "",
-    `Confirming my sale to u/${buyer}:`,
-    "",
-    ...list.map((r) => `- ${r.artist} — ${r.title}`),
-    "",
-    `Thanks for a smooth transaction, u/${buyer}! Please reply to this comment to confirm so the bot credits us both.`,
-  ].join("\n");
-}
-
-function buyerNudge(buyer: string, threadUrl: string) {
-  const where = threadUrl
-    ? `here: ${threadUrl}`
-    : "on the r/VinylCollectors post the sale came from";
-  return [
-    `Hey u/${buyer} — thanks again for the order! I posted our trade confirmation ${where}`,
-    "",
-    `When you get a minute, could you reply to my comment there (a quick "Confirmed" is perfect)? That way ${SWAP_BOT} counts the trade for both of us. Cheers!`,
-  ].join("\n");
-}
-
-type Group = {
-  key: string;
-  buyer: string;
-  records: DbRecord[];
-  shipments: Shipment[];
-  invoiceId: string; // unique invoice id among member records, if any
-  unassigned: DbRecord[];
-  done: boolean;
-  lastActivity: number; // most recent shipment update (ms) — drives archiving
-};
 
 export function FulfillmentPanel({
   records,
@@ -144,55 +91,10 @@ export function FulfillmentPanel({
     [invoices]
   );
 
-  const groups = useMemo<Group[]>(() => {
-    const map = new Map<string, Group>();
-    const groupOf = (buyer: string) => {
-      const key = buyer.trim().toLowerCase() || "(no buyer)";
-      let g = map.get(key);
-      if (!g) {
-        g = {
-          key,
-          buyer: buyer.trim(),
-          records: [],
-          shipments: [],
-          invoiceId: "",
-          unassigned: [],
-          done: false,
-          lastActivity: 0,
-        };
-        map.set(key, g);
-      }
-      return g;
-    };
-    for (const r of records) groupOf(r.buyer_username ?? "").records.push(r);
-    for (const s of shipments) {
-      if (s.status === "refunded") continue;
-      groupOf(s.buyer_username ?? "").shipments.push(s);
-    }
-    for (const g of map.values()) {
-      const invoices = [
-        ...new Set(
-          g.records.map((r) => r.paypal_invoice_id).filter(Boolean) as string[]
-        ),
-      ];
-      g.invoiceId = invoices.length === 1 ? invoices[0] : "";
-      const assigned = new Set(g.shipments.flatMap((s) => s.record_ids ?? []));
-      g.unassigned = g.records.filter((r) => !assigned.has(r.id));
-      g.done =
-        g.records.length > 0 &&
-        g.unassigned.length === 0 &&
-        g.shipments.every((s) => !!s.tracking_code);
-      g.lastActivity = g.shipments.reduce(
-        (max, s) =>
-          Math.max(max, new Date(s.updated_at ?? s.created_at).getTime()),
-        0
-      );
-    }
-    return [...map.values()].sort((a, b) => {
-      if (a.done !== b.done) return a.done ? 1 : -1;
-      return a.buyer.localeCompare(b.buyer);
-    });
-  }, [records, shipments]);
+  const groups = useMemo(
+    () => groupOrdersByBuyer(records, shipments),
+    [records, shipments]
+  );
 
   // Fulfilled orders age out of the completed list into a month-grouped
   // archive once the delivery/grace window has passed.
@@ -206,7 +108,7 @@ export function FulfillmentPanel({
   const visibleGroups = groups.filter(
     (g) => !g.done || (showDone && g.lastActivity >= archiveCutoff)
   );
-  const archivedByMonth: [string, Group[]][] = [];
+  const archivedByMonth: [string, OrderGroup[]][] = [];
   for (const g of archivedGroups) {
     const label = new Date(g.lastActivity).toLocaleString(undefined, {
       month: "long",
@@ -249,7 +151,7 @@ export function FulfillmentPanel({
     for (const id of recordIds) onRecordPatched(id, { tracking_number: value });
   }
 
-  async function createParcel(g: Group) {
+  async function createParcel(g: OrderGroup) {
     const ids = (selected[g.key] ?? []).filter((id) =>
       g.unassigned.some((r) => r.id === id)
     );
@@ -364,7 +266,7 @@ export function FulfillmentPanel({
   }
 
   async function saveInvoiceCost(
-    g: Group,
+    g: OrderGroup,
     field: "paypal_fee" | "shipping_charged"
   ) {
     const raw = costEdits[`${g.key}:${field}`];
@@ -404,7 +306,7 @@ export function FulfillmentPanel({
     note(g.key, "");
   }
 
-  async function saveThreadUrl(g: Group) {
+  async function saveThreadUrl(g: OrderGroup) {
     const raw = threadEdits[g.key];
     if (raw === undefined) return;
     const invoiceId = (invoiceEdits[g.key] ?? g.invoiceId).trim();
@@ -438,7 +340,7 @@ export function FulfillmentPanel({
     note(g.key, "");
   }
 
-  function threadUrlFor(g: Group, invoice: Invoice | undefined) {
+  function threadUrlFor(g: OrderGroup, invoice: Invoice | undefined) {
     return (
       (threadEdits[g.key] ?? invoice?.reddit_thread_url ?? "").trim() ||
       defaultThreadUrl.trim()
@@ -450,7 +352,7 @@ export function FulfillmentPanel({
     setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
   }
 
-  async function copyTradeConfirmation(g: Group, invoice: Invoice | undefined) {
+  async function copyTradeConfirmation(g: OrderGroup, invoice: Invoice | undefined) {
     // Copy before anything else — Safari only allows clipboard writes in the
     // synchronous part of the click gesture.
     const ok = await copyText(
@@ -470,7 +372,7 @@ export function FulfillmentPanel({
     }
   }
 
-  async function copyBuyerNudge(g: Group, invoice: Invoice | undefined) {
+  async function copyBuyerNudge(g: OrderGroup, invoice: Invoice | undefined) {
     const ok = await copyText(
       buyerNudge(g.buyer, threadUrlFor(g, invoice)),
       "Copy the buyer nudge"
@@ -495,7 +397,7 @@ export function FulfillmentPanel({
     }
   }
 
-  async function saveInvoiceId(g: Group) {
+  async function saveInvoiceId(g: OrderGroup) {
     // Fall back to the current id — a focus+blur with no typing must not
     // read as "cleared".
     const value = (invoiceEdits[g.key] ?? g.invoiceId).trim();
@@ -556,7 +458,7 @@ export function FulfillmentPanel({
     return body;
   }
 
-  async function syncFromPayPal(g: Group) {
+  async function syncFromPayPal(g: OrderGroup) {
     const invoiceId = (invoiceEdits[g.key] ?? g.invoiceId).trim();
     if (!invoiceId || busy) return;
     setBusy(g.key);
@@ -755,7 +657,7 @@ export function FulfillmentPanel({
   );
 
   // Shared order-card renderer for the active/completed list and the archive.
-  function renderGroup(g: Group) {
+  function renderGroup(g: OrderGroup) {
     const invoiceValue = invoiceEdits[g.key] ?? g.invoiceId;
     const invoice = invoiceById.get(invoiceValue.trim());
     const costValue = (field: "paypal_fee" | "shipping_charged") =>

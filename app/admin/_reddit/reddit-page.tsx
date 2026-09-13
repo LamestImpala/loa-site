@@ -3,17 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DbRecord, RedditPost } from "@/lib/supabase";
-import { holdActive } from "@/lib/admin/records";
 import {
   REDDIT_BODY_LIMIT,
-  demandRatio,
-  dropPct,
-  isRecentDrop,
+  pickWeekly,
   redditMarkdown,
   redditStaleMarkdown,
   redditUpdateMarkdown,
   redditWeeklyMarkdown,
-  shuffle,
 } from "@/lib/admin/reddit";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass, inputClass } from "../_shell/ui";
@@ -135,44 +131,9 @@ export function RedditPage() {
     await archivePost("full", md.split("\n")[0], md, listedIds);
   }
 
-  // Seed the weekly post: up to WEEKLY_DROP_COUNT of the biggest recent
-  // price drops (the post's hook), then the most in-demand of the rest —
-  // highest Discogs want/have ratio first (wants per existing copy),
-  // scarcest copies breaking ties. Stock still rotates: records from the
-  // last posted set only backfill when the fresh pool runs short.
-  // Shuffling before the stable sort randomizes exact ties (and records
-  // with no snapshot data) between clicks.
-  const WEEKLY_PICK_COUNT = 20;
-  const WEEKLY_DROP_COUNT = 10;
+  // Seed the weekly post (see pickWeekly for the ranking rules).
   function randomizeWeeklyPicks() {
-    const byDemand = (pool: DbRecord[]) =>
-      shuffle(pool).sort((a, b) => {
-        const d =
-          (demandRatio(market[b.id]) ?? -1) - (demandRatio(market[a.id]) ?? -1);
-        if (d !== 0) return d;
-        return (
-          (market[a.id]?.forSale ?? Infinity) -
-          (market[b.id]?.forSale ?? Infinity)
-        );
-      });
-    const pool = records.filter((r) => r.listed && !r.sold && !holdActive(r));
-    const drops = pool
-      .filter(isRecentDrop)
-      .sort((a, b) => dropPct(b) - dropPct(a))
-      .slice(0, WEEKLY_DROP_COUNT);
-    const dropIds = new Set(drops.map((r) => r.id));
-    const lastPosted = new Set(postedInfo.ids);
-    const fresh = pool.filter(
-      (r) => !dropIds.has(r.id) && !lastPosted.has(r.id)
-    );
-    const rest = pool.filter((r) => !dropIds.has(r.id) && lastPosted.has(r.id));
-    const picks = [
-      ...drops,
-      ...[...byDemand(fresh), ...byDemand(rest)].slice(
-        0,
-        WEEKLY_PICK_COUNT - drops.length
-      ),
-    ];
+    const picks = pickWeekly(records, market, postedInfo.ids);
     setSelectedIds(new Set(picks.map((r) => r.id)));
     setSelectionMode("weekly");
     pushToast(

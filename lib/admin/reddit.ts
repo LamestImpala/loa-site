@@ -1,6 +1,7 @@
-import type { DbRecord, RedditPost } from "@/lib/supabase";
-import { FREE_SHIPPING_MIN, SELLER_INFO } from "@/lib/records";
-import type { MarketMap, MarketStats } from "./market";
+import type { DbRecord, RedditPost } from "../supabase.ts";
+import { FREE_SHIPPING_MIN, SELLER_INFO } from "../records.ts";
+import { holdActive } from "./records.ts";
+import type { MarketMap, MarketStats } from "./market.ts";
 
 // Reddit post bodies for r/VinylCollectors: the full-catalog table, the
 // weekly picks post, the "sold rows struck through" update, and the retire
@@ -76,11 +77,10 @@ export function redditMarkdown(records: DbRecord[]) {
 
 // A price drop recent enough to headline a weekly post.
 const DROP_WINDOW_DAYS = 14;
-export const isRecentDrop = (r: DbRecord) =>
+export const isRecentDrop = (r: DbRecord, now: number = Date.now()) =>
   r.prev_price != null &&
   Number(r.prev_price) > r.price &&
-  Date.now() - new Date(r.updated_at).getTime() <
-    DROP_WINDOW_DAYS * 24 * 3600 * 1000;
+  now - new Date(r.updated_at).getTime() < DROP_WINDOW_DAYS * 24 * 3600 * 1000;
 export const dropPct = (r: DbRecord) => 1 - r.price / Number(r.prev_price);
 
 // Relative demand for ranking picks: wants per existing copy. Not shown
@@ -229,12 +229,58 @@ export function redditStaleMarkdown(
   ].join("\n");
 }
 
-// Fisher–Yates; returns a new array.
-export function shuffle<T>(arr: T[]): T[] {
+// Fisher–Yates; returns a new array. `random` is injectable for tests.
+export function shuffle<T>(arr: T[], random: () => number = Math.random): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+// Seed the weekly post: up to WEEKLY_DROP_COUNT of the biggest recent price
+// drops (the post's hook), then the most in-demand of the rest — highest
+// Discogs want/have ratio first (wants per existing copy), scarcest copies
+// breaking ties. Stock still rotates: records from the last posted set only
+// backfill when the fresh pool runs short. Shuffling before the stable sort
+// randomizes exact ties (and records with no snapshot data) between clicks.
+export const WEEKLY_PICK_COUNT = 20;
+export const WEEKLY_DROP_COUNT = 10;
+
+export function pickWeekly(
+  records: DbRecord[],
+  market: MarketMap,
+  lastPostedIds: Iterable<number>,
+  opts: { now?: number; random?: () => number } = {}
+): DbRecord[] {
+  const now = opts.now ?? Date.now();
+  const random = opts.random ?? Math.random;
+  const byDemand = (pool: DbRecord[]) =>
+    shuffle(pool, random).sort((a, b) => {
+      const d =
+        (demandRatio(market[b.id]) ?? -1) - (demandRatio(market[a.id]) ?? -1);
+      if (d !== 0) return d;
+      return (
+        (market[a.id]?.forSale ?? Infinity) - (market[b.id]?.forSale ?? Infinity)
+      );
+    });
+  const pool = records.filter(
+    (r) => r.listed && !r.sold && !holdActive(r, now)
+  );
+  const drops = pool
+    .filter((r) => isRecentDrop(r, now))
+    .sort((a, b) => dropPct(b) - dropPct(a))
+    .slice(0, WEEKLY_DROP_COUNT);
+  const dropIds = new Set(drops.map((r) => r.id));
+  const lastPosted = new Set(lastPostedIds);
+  const fresh = pool.filter((r) => !dropIds.has(r.id) && !lastPosted.has(r.id));
+  const rest = pool.filter((r) => !dropIds.has(r.id) && lastPosted.has(r.id));
+  return [
+    ...drops,
+    ...[...byDemand(fresh), ...byDemand(rest)].slice(
+      0,
+      WEEKLY_PICK_COUNT - drops.length
+    ),
+  ];
 }

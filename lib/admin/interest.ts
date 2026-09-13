@@ -1,4 +1,4 @@
-import type { RecordEventRow } from "@/lib/supabase";
+import type { RecordEventRow } from "../supabase.ts";
 
 // One local-calendar-day slice of shopper activity; "looked"/"asked" count
 // distinct anonymous sessions, "clicks" counts raw events. Days are bucketed
@@ -52,4 +52,23 @@ export function bucketEventsByDay(events: RecordEventRow[]): DayBucket[] {
       asked: d.ask.size,
     }))
     .sort((a, b) => (a.key < b.key ? 1 : -1)); // newest first
+}
+
+// A contiguous run of the last `days` local days ending today, zero-filled
+// so quiet days show as gaps in the "Interest by day" strip. Oldest first.
+export function recentDays(
+  events: RecordEventRow[],
+  days = 14,
+  now: Date = new Date()
+): DayBucket[] {
+  const byKey = new Map(bucketEventsByDay(events).map((d) => [d.key, d]));
+  const out: DayBucket[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const key = localDayKey(d);
+    out.push(
+      byKey.get(key) ?? { key, label: dayLabel(key), clicks: 0, looked: 0, asked: 0 }
+    );
+  }
+  return out;
 }
