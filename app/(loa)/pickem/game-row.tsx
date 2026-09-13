@@ -8,6 +8,7 @@ import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
 import { bookCode, fmtKick } from "@/lib/pickem-board";
 import PickButton from "./pick-button";
 import ConfidenceBadge from "./confidence-badge";
+import TeamLogo from "./team-logo";
 
 type Props = {
   game: PickemGame;
@@ -27,7 +28,8 @@ function move(open: number | null, now: number | null, fmt: (v: number) => strin
 
 function Team({ league, name, score, winner }: { league: League; name: string; score: number | null; winner: boolean }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 self-center">
+    <div className="flex min-w-0 items-center gap-2 self-center">
+      <TeamLogo league={league} name={name} size="md" />
       <span className={`truncate text-[13px] lg:text-sm ${winner ? "font-semibold text-white" : "text-neutral-100"}`}>{displayTeam(league, name)}</span>
       {league === "ncaaf" ? <span className="shrink-0 text-[10px] text-neutral-500">{conferenceTag(conferenceOf(name))}</span> : null}
       {score != null ? <span className="ml-auto shrink-0 pr-1 text-[13px] tabular-nums text-neutral-300">{score}</span> : null}
@@ -136,15 +138,17 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
       {expanded ? (
         <div className="mt-2 grid gap-2 border-t border-dashed border-white/10 pt-2 text-xs text-neutral-300 lg:col-span-5 lg:col-start-1">
           <Detail
+            league={g.league}
             label="Spread"
             opened={fmtSpread(g.open_spread_home)} now={fmtSpread(g.spread_home)} numberFor={home}
             best={[
-              [away, g.best.spread_away],
-              [home, g.best.spread_home],
+              [away, g.best.spread_away, g.away_team],
+              [home, g.best.spread_home, g.home_team],
             ]}
             house={h?.spread} sideName={(s) => (s === "home" ? home : away)}
           />
           <Detail
+            league={g.league}
             label="Total"
             opened={g.open_total == null ? "—" : `${g.open_total}`} now={g.total == null ? "—" : `${g.total}`}
             best={[
@@ -154,11 +158,12 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
             house={h?.total} sideName={(s) => (s === "over" ? "the over" : "the under")}
           />
           <Detail
+            league={g.league}
             label="Moneyline"
             opened={`${fmtPrice(g.open_ml_away)} / ${fmtPrice(g.open_ml_home)}`} now={`${fmtPrice(g.ml_away)} / ${fmtPrice(g.ml_home)}`}
             best={[
-              [away, g.best.ml_away],
-              [home, g.best.ml_home],
+              [away, g.best.ml_away, g.away_team],
+              [home, g.best.ml_home, g.home_team],
             ]}
             house={h?.ml} sideName={(s) => (s === "home" ? home : away)}
           />
@@ -171,13 +176,15 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
 type BestLine = { point: number | null; price: number; book: string } | undefined;
 
 function Detail({
-  label, opened, now, numberFor, best, house, sideName,
+  league, label, opened, now, numberFor, best, house, sideName,
 }: {
+  league: League;
   label: string;
   opened: string;
   now: string;
   numberFor?: string;
-  best: [string, BestLine][];
+  /** Side label, its best line, and the raw team name when the side is a team (for its logo). */
+  best: [string, BestLine, string?][];
   house?: { pick: string; confidence: number; why: string };
   sideName: (s: string) => string;
 }) {
@@ -196,9 +203,10 @@ function Detail({
             </>
           )}
           <span className="text-neutral-400"> · best</span>{" "}
-          {best.map(([side, b], i) => (
-            <span key={side}>
+          {best.map(([side, b, team], i) => (
+            <span key={side} className="inline-flex items-baseline gap-1">
               {i ? ", " : ""}
+              {team ? <TeamLogo league={league} name={team} size="sm" /> : null}
               {side} {b ? `${fmtPrice(b.price)} ${b.book}` : "—"}
             </span>
           ))}

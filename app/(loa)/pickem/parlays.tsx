@@ -5,6 +5,7 @@
 import { fmtPrice, gradePick, winUnits, type PickemGame, type PickemParlay, type PickResult } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
 import HouseBadge from "./house-badge";
+import TeamLogo from "./team-logo";
 
 type Props = { parlays: PickemParlay[]; games: PickemGame[]; tails: Set<number>; now: number };
 
@@ -43,6 +44,9 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
                     return (
                       <li key={i} className="flex items-center justify-between gap-3 border-t border-white/10 py-1.5 first:border-t-0">
                         <span className="inline-flex items-center gap-1.5">
+                          {g && l.market !== "total" ? (
+                            <TeamLogo league={g.league} name={l.selection === "home" ? g.home_team : g.away_team} size="sm" />
+                          ) : null}
                           {l.label}
                           {l.confidence != null ? <HouseBadge value={l.confidence} why={g?.house?.[l.market]?.why} label={l.label} /> : null}
                         </span>
