@@ -4,7 +4,7 @@
 // away at the bottom. Pure derivation from props; no state of its own.
 import { useMemo } from "react";
 import type { Conference } from "@/lib/pickem-conferences";
-import { shortTeam, type PickemGame, type PickemPick } from "@/lib/pickem";
+import { displayTeam, type PickemGame, type PickemPick } from "@/lib/pickem";
 import { bucketGames, filterByConference, fmtKickLong, groupByDay, kickoffMs, tzLabel, type View } from "@/lib/pickem-board";
 import { pickKey } from "./use-pickem-session";
 import GameRow from "./game-row";
@@ -70,7 +70,7 @@ export default function Board({ games, view, conf, now, tz, picks, openGameId, o
               Nothing kicks off in the next hour.
               {next ? (
                 <>
-                  {" "}Next up is {shortTeam(next.away_team)} at {shortTeam(next.home_team)}, {fmtKickLong(next.commence_time, tz)} {zone}.
+                  {" "}Next up is {displayTeam(next.league, next.away_team)} at {displayTeam(next.league, next.home_team)}, {fmtKickLong(next.commence_time, tz)} {zone}.
                 </>
               ) : null}{" "}
               <button type="button" onClick={onShowAll} className="text-orange-300 underline-offset-2 hover:underline">

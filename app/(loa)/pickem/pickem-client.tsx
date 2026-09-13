@@ -3,7 +3,8 @@
 // Page shell: owns the clock, the open row, and the view; everything else
 // is a section component fed by props.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { LeaderboardRow, PickemGame, PickemParlay } from "@/lib/pickem";
+import Link from "next/link";
+import { LEAGUES, LEAGUE_META, type League, type LeaderboardRow, type PickemGame, type PickemParlay } from "@/lib/pickem";
 import { bucketGames, conferencesOnSlate, defaultView, fmtKickLong, tzLabel, type View } from "@/lib/pickem-board";
 import { PickemActionsContext } from "./pickem-context";
 import { usePickemSession } from "./use-pickem-session";
@@ -16,6 +17,7 @@ import Standings from "./standings";
 import HowItWorks from "./how-it-works";
 
 type Props = {
+  league: League;
   week: number;
   games: PickemGame[];
   parlays: PickemParlay[];
@@ -25,7 +27,7 @@ type Props = {
   linesAsOf: string | null;
 };
 
-export default function PickemClient({ week, games, parlays, leaderboard, initialNow, linesAsOf }: Props) {
+export default function PickemClient({ league, week, games, parlays, leaderboard, initialNow, linesAsOf }: Props) {
   const auth = usePickemSession();
   const tz = useViewerTimeZone();
 
@@ -37,7 +39,8 @@ export default function PickemClient({ week, games, parlays, leaderboard, initia
     return () => clearInterval(t);
   }, []);
 
-  const conferences = useMemo(() => conferencesOnSlate(games), [games]);
+  // Conferences only mean something for college; NFL teams would all fall through to FCS.
+  const conferences = useMemo(() => (league === "ncaaf" ? conferencesOnSlate(games) : []), [league, games]);
   const { view: urlView, conf, setView } = useBoardView(conferences);
   const buckets = useMemo(() => bucketGames(games, now), [games, now]);
 
@@ -66,8 +69,20 @@ export default function PickemClient({ week, games, parlays, leaderboard, initia
         <header className="mb-4">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Pick&apos;em</h1>
+            <nav aria-label="League" className="inline-flex gap-0.5 self-center rounded-md border border-white/15 p-0.5">
+              {LEAGUES.map((l) => (
+                <Link
+                  key={l}
+                  href={{ pathname: "/pickem", query: { league: l } }}
+                  aria-current={l === league ? "page" : undefined}
+                  className={`h-7 rounded px-2.5 text-sm leading-7 transition ${l === league ? "bg-white text-neutral-950" : "text-neutral-300 hover:text-white"}`}
+                >
+                  {LEAGUE_META[l].short}
+                </Link>
+              ))}
+            </nav>
             <p className="text-sm tabular-nums text-neutral-400">
-              College football · Week {week} · {games.length} games
+              {LEAGUE_META[league].label} · Week {week} · {games.length} games
               {linesAsOf ? (
                 <>
                   {" "}· lines as of {fmtKickLong(linesAsOf, tz)} {tzLabel(tz, now)}
@@ -84,12 +99,13 @@ export default function PickemClient({ week, games, parlays, leaderboard, initia
 
         <h2 className="sr-only">Games</h2>
         {games.length === 0 ? (
-          <p className="py-8 text-sm text-neutral-400">This week&apos;s lines haven&apos;t been pulled yet. Check back after Tuesday morning.</p>
+          <p className="py-8 text-sm text-neutral-400">This week&apos;s {league === "nfl" ? "NFL" : "college"} lines haven&apos;t been pulled yet. Check back Tuesday.</p>
         ) : (
           <>
             <ViewPicker
               view={view}
               conf={conf}
+              showConference={league === "ncaaf"}
               soonCount={buckets.soon.length}
               openCount={buckets.upcoming.length}
               conferences={conferences}
@@ -110,7 +126,7 @@ export default function PickemClient({ week, games, parlays, leaderboard, initia
         )}
 
         <Parlays parlays={parlays} games={games} tails={auth.tails} now={now} />
-        <Standings leaderboard={leaderboard} week={week} userId={auth.userId} />
+        <Standings leaderboard={leaderboard} league={league} week={week} userId={auth.userId} />
         <HowItWorks />
       </section>
     </PickemActionsContext.Provider>

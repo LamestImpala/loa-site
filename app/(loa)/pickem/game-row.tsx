@@ -3,7 +3,7 @@
 // One game on the board: two lines (away, home), three markets across.
 // Memoised so the 30-second clock only re-renders rows whose lock flips.
 import { memo } from "react";
-import { fmtPrice, fmtSpread, gradePick, shortTeam, type PickemGame, type PickemPick } from "@/lib/pickem";
+import { displayTeam, fmtPrice, fmtSpread, gradePick, type League, type PickemGame, type PickemPick } from "@/lib/pickem";
 import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
 import { bookCode, fmtKick } from "@/lib/pickem-board";
 import PickButton from "./pick-button";
@@ -25,19 +25,19 @@ function move(open: number | null, now: number | null, fmt: (v: number) => strin
   return { dir: now > open ? ("up" as const) : ("down" as const), opened: fmt(open) };
 }
 
-function Team({ name, score, winner }: { name: string; score: number | null; winner: boolean }) {
+function Team({ league, name, score, winner }: { league: League; name: string; score: number | null; winner: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5 self-center">
-      <span className={`truncate text-[13px] lg:text-sm ${winner ? "font-semibold text-white" : "text-neutral-100"}`}>{shortTeam(name)}</span>
-      <span className="shrink-0 text-[10px] text-neutral-500">{conferenceTag(conferenceOf(name))}</span>
+      <span className={`truncate text-[13px] lg:text-sm ${winner ? "font-semibold text-white" : "text-neutral-100"}`}>{displayTeam(league, name)}</span>
+      {league === "ncaaf" ? <span className="shrink-0 text-[10px] text-neutral-500">{conferenceTag(conferenceOf(name))}</span> : null}
       {score != null ? <span className="ml-auto shrink-0 pr-1 text-[13px] tabular-nums text-neutral-300">{score}</span> : null}
     </div>
   );
 }
 
 function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded, onToggleExpand }: Props) {
-  const home = shortTeam(g.home_team);
-  const away = shortTeam(g.away_team);
+  const home = displayTeam(g.league, g.home_team);
+  const away = displayTeam(g.league, g.away_team);
   const spreadAway = g.spread_home == null ? null : -g.spread_home;
   const hasScore = g.home_score != null && g.away_score != null;
   const status = g.completed ? "Final" : locked ? "Live" : fmtKick(g.commence_time, tz);
@@ -73,7 +73,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.25rem)] gap-x-1.5 gap-y-1 lg:contents">
-        <Team name={g.away_team} score={g.away_score} winner={hasScore && g.away_score! > g.home_score!} />
+        <Team league={g.league} name={g.away_team} score={g.away_score} winner={hasScore && g.away_score! > g.home_score!} />
         <PickButton
           game={g} market="spread" selection="away" locked={locked}
           main={fmtSpread(spreadAway)} sub={fmtPrice(g.best.spread_away?.price)}
@@ -102,7 +102,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           on={mlPick?.selection === "away"} label={`${away} moneyline ${fmtPrice(g.ml_away)}`}
         />
 
-        <Team name={g.home_team} score={g.home_score} winner={hasScore && g.home_score! > g.away_score!} />
+        <Team league={g.league} name={g.home_team} score={g.home_score} winner={hasScore && g.home_score! > g.away_score!} />
         <PickButton
           game={g} market="spread" selection="home" locked={locked}
           main={fmtSpread(g.spread_home)} sub={fmtPrice(g.best.spread_home?.price)}

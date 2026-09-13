@@ -1,9 +1,14 @@
 {
   "crons": [
-    { "path": "/api/pickem/sync", "schedule": "0 12,16,20 * * *" },
-    { "path": "/api/pickem/house", "schedule": "0 17 * * 4" },
-    { "path": "/api/pickem/house", "schedule": "30 17 * * 4" },
-    { "path": "/api/pickem/house", "schedule": "0 14 * * 6" },
-    { "path": "/api/pickem/house", "schedule": "30 14 * * 6" }
+    { "path": "/api/pickem/ncaaf/sync", "schedule": "30 13 * * *" },
+    { "path": "/api/pickem/ncaaf/sync", "schedule": "0 17,20,23 * * 6" },
+    { "path": "/api/pickem/ncaaf/house", "schedule": "0 17 * * 4" },
+    { "path": "/api/pickem/ncaaf/house", "schedule": "30 17 * * 4" },
+    { "path": "/api/pickem/ncaaf/house", "schedule": "0 14 * * 6" },
+    { "path": "/api/pickem/ncaaf/house", "schedule": "30 14 * * 6" },
+    { "path": "/api/pickem/nfl/sync", "schedule": "30 14 * * *" },
+    { "path": "/api/pickem/nfl/sync", "schedule": "0 20,23 * * 0" },
+    { "path": "/api/pickem/nfl/house", "schedule": "0 15 * * 4" },
+    { "path": "/api/pickem/nfl/house", "schedule": "30 15 * * 4" }
   ]
 }

@@ -8,19 +8,21 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ADMIN_EMAIL } from "./supabase";
 import {
   ALWAYS_FEATURED,
+  LEAGUE_META,
   PICKEM_SEASON,
   seasonWeek,
   weekWindow,
   type BestLine,
   type BestLines,
   type HousePicks,
+  type League,
   type PickemGame,
 } from "./pickem";
 import { isPower, unmappedTeams } from "./pickem-conferences";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 
-const ODDS_BASE = "https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf";
-const SLATE_SIZE = 40;
+const oddsBase = (league: League) => `https://api.the-odds-api.com/v4/sports/${LEAGUE_META[league].oddsSport}`;
+const SLATE_SIZE = 40; // college only; every NFL game of the week is on the board
 
 // ---------------------------------------------------------------------------
 // Auth for the job routes: Vercel cron sends `Authorization: Bearer $CRON_SECRET`;
@@ -73,7 +75,7 @@ function oddsKey(): string {
   return key;
 }
 
-export async function fetchOdds(): Promise<{ events: OddsEvent[]; remaining: string | null }> {
+export async function fetchOdds(league: League): Promise<{ events: OddsEvent[]; remaining: string | null }> {
   const q = new URLSearchParams({
     apiKey: oddsKey(),
     regions: "us",
@@ -81,14 +83,14 @@ export async function fetchOdds(): Promise<{ events: OddsEvent[]; remaining: str
     oddsFormat: "american",
     dateFormat: "iso",
   });
-  const res = await fetch(`${ODDS_BASE}/odds?${q}`, { cache: "no-store" });
+  const res = await fetch(`${oddsBase(league)}/odds?${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Odds API ${res.status}: ${await res.text()}`);
   return { events: await res.json(), remaining: res.headers.get("x-requests-remaining") };
 }
 
-export async function fetchScores(daysFrom = 3): Promise<ScoreEvent[]> {
+export async function fetchScores(league: League, daysFrom = 3): Promise<ScoreEvent[]> {
   const q = new URLSearchParams({ apiKey: oddsKey(), daysFrom: String(daysFrom) });
-  const res = await fetch(`${ODDS_BASE}/scores?${q}`, { cache: "no-store" });
+  const res = await fetch(`${oddsBase(league)}/scores?${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Odds API scores ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -168,18 +170,22 @@ export function summarizeEvent(ev: OddsEvent): LineSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Slate selection, capped at 40 and ordered closest spread first within tier:
+// Slate selection. The NFL is every game of the week in kickoff order. College
+// is capped at 40 and ordered closest spread first within tier:
 //   0  anything Arkansas plays
 //   1  Power Four vs Power Four
 //   2  any game inside two touchdowns (competitive Group of Five games count)
 //   3  Power Four vs anyone, inside four touchdowns
 //   4  the rest
-export function selectSlate(events: OddsEvent[], week: number): OddsEvent[] {
-  const { start, end } = weekWindow(week);
+export function selectSlate(league: League, events: OddsEvent[], week: number): OddsEvent[] {
+  const { start, end } = weekWindow(league, week);
   const inWeek = events.filter((e) => {
     const t = new Date(e.commence_time);
     return t >= start && t < end && e.bookmakers.length > 0;
   });
+  if (league === "nfl") {
+    return [...inWeek].sort((a, b) => a.commence_time.localeCompare(b.commence_time) || a.id.localeCompare(b.id));
+  }
   const tier = (e: OddsEvent, spread: number) => {
     if (ALWAYS_FEATURED.includes(e.home_team) || ALWAYS_FEATURED.includes(e.away_team)) return 0;
     const p = Number(isPower(e.home_team)) + Number(isPower(e.away_team));
@@ -201,17 +207,18 @@ export function selectSlate(events: OddsEvent[], week: number): OddsEvent[] {
 // ---------------------------------------------------------------------------
 // Sync: pull lines, upsert the slate, record history, grade finished games.
 
-export async function syncLines(now = new Date()) {
+export async function syncLines(league: League, now = new Date()) {
   const db = serviceSupabase();
-  const week = seasonWeek(now);
-  const { events, remaining } = await fetchOdds();
-  const slate = selectSlate(events, week);
+  const week = seasonWeek(league, now);
+  const { events, remaining } = await fetchOdds(league);
+  const slate = selectSlate(league, events, week);
 
   // Keep games we already feature this week even if they fell out of the top
   // 40 (a line moved), so nobody's picks vanish.
   const { data: existing } = await db
     .from("pickem_games")
     .select("id, open_spread_home, open_total, open_ml_home, open_ml_away")
+    .eq("league", league)
     .eq("season", PICKEM_SEASON)
     .eq("week", week);
   const existingById = new Map((existing ?? []).map((g) => [g.id, g]));
@@ -229,6 +236,7 @@ export async function syncLines(now = new Date()) {
     const prev = existingById.get(ev.id);
     rows.push({
       id: ev.id,
+      league,
       season: PICKEM_SEASON,
       week,
       commence_time: ev.commence_time,
@@ -263,16 +271,18 @@ export async function syncLines(now = new Date()) {
     if (hErr) throw new Error(`insert history: ${hErr.message}`);
   }
 
-  // Grade: only spend a scores request when something needs a score.
+  // Grade: only spend a scores request when something needs a score. Scoped
+  // to the league, since each feed only knows its own games.
   const { data: pending } = await db
     .from("pickem_games")
     .select("id, home_team, away_team")
+    .eq("league", league)
     .eq("completed", false)
     .lte("commence_time", stamp)
     .gte("commence_time", new Date(now.getTime() - 3 * 86400000).toISOString());
   let graded = 0;
   if (pending && pending.length) {
-    const scores = await fetchScores(3);
+    const scores = await fetchScores(league, 3);
     const byScoreId = new Map(scores.map((s) => [s.id, s]));
     for (const g of pending) {
       const s = byScoreId.get(g.id);
@@ -295,8 +305,8 @@ export async function syncLines(now = new Date()) {
 
   // Team strings the conference map does not know. Genuine FCS opponents land
   // here too; anything FBS in this list is a spelling to add to the map.
-  const unmapped = unmappedTeams(rows.flatMap((r) => [r.home_team, r.away_team]));
-  return { week, games: rows.length, graded, unmapped_teams: unmapped, odds_requests_remaining: remaining };
+  const unmapped = league === "ncaaf" ? unmappedTeams(rows.flatMap((r) => [r.home_team, r.away_team])) : [];
+  return { league, week, games: rows.length, graded, unmapped_teams: unmapped, odds_requests_remaining: remaining };
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +334,7 @@ const HouseBatchSchema = z.object({
   ),
 });
 
-const HOUSE_SYSTEM = `You are the house handicapper for a friendly college football pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
+const houseSystem = (league: League) => `You are the house handicapper for a friendly ${league === "nfl" ? "NFL" : "college football"} pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
 
 You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence and a rationale of at most two sentences. Use line movement as a signal: money that moves a number is information. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads.
 
@@ -345,6 +355,7 @@ type BatchOutcome = { size: number; ok: boolean; ms: number; reason?: string; us
 export type HouseRunOptions = { force?: boolean; dry?: boolean; onlyParlays?: boolean };
 
 export type HouseRunResult = {
+  league: League;
   week: number;
   picked: number;
   missing: { id: string; game: string }[];
@@ -393,6 +404,7 @@ function batchInput(g: PickemGame) {
 
 async function pickBatch(
   client: Anthropic,
+  league: League,
   batch: PickemGame[],
   now: Date,
   week: number,
@@ -409,11 +421,11 @@ async function pickBatch(
         thinking: { type: "adaptive" },
         output_config: { effort: "high", format: zodOutputFormat(HouseBatchSchema) },
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
-        system: HOUSE_SYSTEM,
+        system: houseSystem(league),
         messages: [
           {
             role: "user",
-            content: `Today is ${now.toUTCString()}. Season ${PICKEM_SEASON}, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map(batchInput))}`,
+            content: `Today is ${now.toUTCString()}. ${LEAGUE_META[league].label} ${PICKEM_SEASON} season, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map(batchInput))}`,
           },
         ],
       },
@@ -439,6 +451,7 @@ async function pickBatch(
 /** Replace the week's open, untailed parlays with the computed set. Tailed and locked tickets stay. */
 async function rebuildParlays(
   db: ReturnType<typeof serviceSupabase>,
+  league: League,
   games: PickemGame[],
   now: Date,
   week: number,
@@ -448,6 +461,7 @@ async function rebuildParlays(
   const { data: open, error } = await db
     .from("pickem_parlays")
     .select("id, legs")
+    .eq("league", league)
     .eq("season", PICKEM_SEASON)
     .eq("week", week)
     .gt("locks_at", now.toISOString());
@@ -474,18 +488,19 @@ async function rebuildParlays(
     locks_at: d.locks_at,
     hit_probability: d.hit_probability,
   }));
-  const { data, error: rpcErr } = await db.rpc("pickem_replace_parlays", { p_season: PICKEM_SEASON, p_week: week, p_rows: rows });
+  const { data, error: rpcErr } = await db.rpc("pickem_replace_parlays", { p_league: league, p_season: PICKEM_SEASON, p_week: week, p_rows: rows });
   if (rpcErr) throw new Error(rpcErr.message);
   const r = (Array.isArray(data) ? data[0] : data) as { removed: number; inserted: number } | null;
   return { inserted: r?.inserted ?? 0, removed: r?.removed ?? 0, kept: tailed.size, skipped_duplicates, drafts };
 }
 
-export async function generateHousePicks(now = new Date(), opts: HouseRunOptions = {}): Promise<HouseRunResult> {
+export async function generateHousePicks(league: League, now = new Date(), opts: HouseRunOptions = {}): Promise<HouseRunResult> {
   const db = serviceSupabase();
-  const week = seasonWeek(now);
+  const week = seasonWeek(league, now);
   const { data: games, error } = await db
     .from("pickem_games")
     .select("*")
+    .eq("league", league)
     .eq("season", PICKEM_SEASON)
     .eq("week", week)
     .gt("commence_time", now.toISOString())
@@ -512,7 +527,7 @@ export async function generateHousePicks(now = new Date(), opts: HouseRunOptions
             batches.push({ size: batch.length, ok: false, ms: 0, reason: "deadline" });
             return;
           }
-          const { picks: got, outcome } = await pickBatch(client, batch, now, week, msLeft);
+          const { picks: got, outcome } = await pickBatch(client, league, batch, now, week, msLeft);
           for (const [id, house] of got) picks.set(id, house);
           batches.push(outcome);
         });
@@ -537,9 +552,9 @@ export async function generateHousePicks(now = new Date(), opts: HouseRunOptions
   }
 
   const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
-  const { drafts, ...parlays } = await rebuildParlays(db, withPicks, now, week, Boolean(opts.dry));
+  const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry));
 
-  const result: HouseRunResult = { week, picked, missing, batches, parlays };
+  const result: HouseRunResult = { league, week, picked, missing, batches, parlays };
   if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts };
   return result;
 }

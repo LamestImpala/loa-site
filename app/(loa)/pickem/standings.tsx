@@ -1,12 +1,13 @@
 "use client";
 
-// Season standings in net units, with this week's line beside each name.
+// Season standings in net units across both leagues, with the active
+// league's week beside each name.
 import { useMemo } from "react";
-import type { LeaderboardRow } from "@/lib/pickem";
+import type { League, LeaderboardRow } from "@/lib/pickem";
 
-type Props = { leaderboard: LeaderboardRow[]; week: number; userId: string | null };
+type Props = { leaderboard: LeaderboardRow[]; league: League; week: number; userId: string | null };
 
-export default function Standings({ leaderboard, week, userId }: Props) {
+export default function Standings({ leaderboard, league, week, userId }: Props) {
   const standings = useMemo(() => {
     const byUser = new Map<string, { name: string; w: number; l: number; p: number; units: number; weekUnits: number; weekRecord: string }>();
     for (const r of leaderboard) {
@@ -15,7 +16,7 @@ export default function Standings({ leaderboard, week, userId }: Props) {
       cur.l += Number(r.losses);
       cur.p += Number(r.pushes);
       cur.units += Number(r.units);
-      if (r.week === week) {
+      if (r.week === week && r.league === league) {
         cur.weekUnits = Number(r.units);
         cur.weekRecord = `${r.wins}-${r.losses}${Number(r.pushes) ? `-${r.pushes}` : ""}`;
       }
@@ -24,14 +25,14 @@ export default function Standings({ leaderboard, week, userId }: Props) {
     return [...byUser.entries()]
       .map(([id, v]) => ({ id, ...v }))
       .sort((a, b) => b.units - a.units || b.w - a.w);
-  }, [leaderboard, week]);
+  }, [leaderboard, league, week]);
 
   const signed = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 
   return (
     <section className="mt-12">
       <h2 className="text-lg font-semibold text-white">Leaderboard</h2>
-      <p className="mt-1 text-sm text-neutral-400">Net units, season to date.</p>
+      <p className="mt-1 text-sm text-neutral-400">Net units, season to date, NFL and college together.</p>
       {standings.length === 0 ? (
         <p className="mt-4 text-sm text-neutral-400">Nobody has a graded pick yet. Standings appear after the first final.</p>
       ) : (
