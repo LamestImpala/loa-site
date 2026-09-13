@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 import { holdActive } from "@/lib/admin/records";
@@ -113,8 +113,6 @@ export function CatalogPage() {
   const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
   const [genreFilter, setGenreFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
-  // Record whose Interest cell is expanded to show its daily history.
-  const [interestDetailId, setInterestDetailId] = useState<number | null>(null);
   const [interestFilter, setInterestFilter] =
     useState<InterestFilter>("all");
   const [letterFilter, setLetterFilter] = useState<string | null>(null);
@@ -124,15 +122,29 @@ export function CatalogPage() {
   const [soldFilter, setSoldFilter] = useState<"all" | "sold" | "unsold">(
     "all"
   );
-  const [expandedRowIds, setExpandedRowIds] = useState<Set<number>>(new Set());
-  function toggleRowExpanded(id: number) {
-    setExpandedRowIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  // The record open in the details drawer, from ?record=ID so a drawer can
+  // be linked to (and survives a reload). Replaced, not pushed, so the
+  // back button leaves the catalog rather than walking through records.
+  const searchParams = useSearchParams();
+  const openId = Number(searchParams.get("record")) || null;
+  const openRecord = useMemo(
+    () => (openId == null ? null : records.find((r) => r.id === openId) ?? null),
+    [records, openId]
+  );
+  function openDrawer(id: number | null) {
+    router.replace(id == null ? "/admin/catalog" : `/admin/catalog?record=${id}`, {
+      scroll: false,
     });
   }
+  useEffect(() => {
+    if (openId == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") openDrawer(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
 
   const [uploadingId, setUploadingId] = useState<number | null>(null);
 
@@ -408,15 +420,13 @@ export function CatalogPage() {
     }
   }
 
-  // Daily history for the one record whose Interest cell is expanded.
+  // Daily history for the record open in the drawer.
   const interestDetailDays = useMemo(
     () =>
-      interestDetailId == null
+      openId == null
         ? []
-        : bucketEventsByDay(
-            events.filter((e) => e.record_id === interestDetailId)
-          ),
-    [interestDetailId, events]
+        : bucketEventsByDay(events.filter((e) => e.record_id === openId)),
+    [openId, events]
   );
 
   // Same heuristic as the email: a cut worth acting on is modest (≤30%)
@@ -1006,38 +1016,14 @@ export function CatalogPage() {
                     />
                   </div>
                 </th>
-                <th className="px-3 py-3 text-center font-medium">
-                  <div className="flex flex-col items-center gap-1">
-                    Sold
-                    <input
-                      type="checkbox"
-                      title="Select/deselect Sold for all records in the current search"
-                      checked={
-                        filteredRecords.length > 0 &&
-                        filteredRecords.every((r) => r.sold)
-                      }
-                      ref={(el) => {
-                        if (el)
-                          el.indeterminate =
-                            filteredRecords.some((r) => r.sold) &&
-                            !filteredRecords.every((r) => r.sold);
-                      }}
-                      disabled={bulkSaving}
-                      onChange={(e) =>
-                        toggleAllFiltered("sold", e.target.checked)
-                      }
-                      className="admin-checkbox"
-                    />
-                  </div>
-                </th>
-                <th className="px-3 py-3 font-medium">Sale details</th>
+                <th className="px-3 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
               {filteredRecords.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="px-4 py-10 text-center text-sm text-neutral-500"
                   >
                     No records match the current filters — try clearing the
@@ -1049,12 +1035,15 @@ export function CatalogPage() {
                 const edited =
                   priceEdits[r.id] !== undefined &&
                   priceEdits[r.id] !== String(r.price);
+                const isOpen = openId === r.id;
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-white/5 last:border-b-0"
+                    className={`border-b border-white/5 last:border-b-0 ${
+                      isOpen ? "bg-white/5" : ""
+                    }`}
                   >
-                    <td className="px-3 py-3 text-center align-top">
+                    <td className="px-3 py-2 text-center align-top">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(r.id)}
@@ -1062,47 +1051,197 @@ export function CatalogPage() {
                         className="admin-checkbox"
                       />
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-start gap-2">
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => openDrawer(isOpen ? null : r.id)}
+                        aria-expanded={isOpen}
+                        title="Open details — grades, notes, photos, hold, sold"
+                        className="block text-left"
+                      >
+                        <p className="font-medium text-white hover:underline">
+                          {r.artist} — {r.title}
+                        </p>
+                      </button>
+                      <p className="text-xs text-neutral-500">{r.pressing}</p>
+                      <p className="mt-0.5 text-xs text-neutral-600">
+                        {[
+                          `${r.media}/${r.sleeve}`,
+                          (r.genres ?? []).join(", ") || null,
+                          r.collection || null,
+                          (r.photo_urls ?? []).length
+                            ? `${(r.photo_urls ?? []).length} photo${(r.photo_urls ?? []).length === 1 ? "" : "s"}`
+                            : null,
+                          (r.notes ?? "").trim() ? "notes" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <div className="flex items-center gap-2">
+                        <span className="text-neutral-500">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={priceEdits[r.id] ?? String(r.price)}
+                          onChange={(e) =>
+                            setPriceEdits((prev) => ({
+                              ...prev,
+                              [r.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && edited) savePrice(r);
+                          }}
+                          className={`w-20 ${inputClass}`}
+                        />
+                        {edited ? (
+                          <button
+                            type="button"
+                            disabled={savingIds.has(r.id)}
+                            onClick={() => savePrice(r)}
+                            className={buttonClass}
+                          >
+                            {savingIds.has(r.id) ? "…" : "Save"}
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {r.manual_price ? (
+                          <span title="Manual price: the daily run leaves it alone">
+                            manual
+                          </span>
+                        ) : null}
+                        {market[r.id]?.suggested ? (
+                          <span title="Discogs suggestion for this grade">
+                            {r.manual_price ? " · " : ""}sugg $
+                            {Math.round(market[r.id].suggested!)}
+                          </span>
+                        ) : null}
+                        {r.prev_price != null &&
+                        Number(r.prev_price) > 0 &&
+                        Number(r.prev_price) !== r.price ? (
+                          <span
+                            className={
+                              r.price > Number(r.prev_price)
+                                ? "text-green-400"
+                                : "text-red-400"
+                            }
+                            title={`Was $${r.prev_price} before the last change`}
+                          >
+                            {r.manual_price || market[r.id]?.suggested ? " · " : ""}
+                            {pct(
+                              (r.price - Number(r.prev_price)) /
+                                Number(r.prev_price)
+                            )}
+                          </span>
+                        ) : null}
+                      </p>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap align-top">
+                      {interest[r.id] ? (
                         <button
                           type="button"
-                          onClick={() => toggleRowExpanded(r.id)}
-                          aria-expanded={expandedRowIds.has(r.id)}
-                          title={
-                            expandedRowIds.has(r.id)
-                              ? "Hide details"
-                              : "Edit genres, grades, notes, photos"
-                          }
-                          className={`mt-0.5 text-xs text-neutral-500 transition-transform hover:text-white ${
-                            expandedRowIds.has(r.id) ? "rotate-90" : ""
-                          }`}
+                          onClick={() => openDrawer(r.id)}
+                          className="text-neutral-300 underline decoration-white/30 decoration-dotted underline-offset-4 transition hover:text-white"
+                          title={`${interest[r.id].interest_events} clicks · ${interest[r.id].request_events} requests · last ${new Date(interest[r.id].last_event_at).toLocaleDateString()} — open for the day-by-day history`}
                         >
-                          ▶
+                          {interest[r.id].interest_sessions} looked
+                          {interest[r.id].request_sessions > 0 ? (
+                            <span className="text-green-400">
+                              {" "}
+                              · {interest[r.id].request_sessions} asked
+                            </span>
+                          ) : null}
                         </button>
-                        <div className="min-w-0">
-                          <p className="font-medium text-white">
-                            {r.artist} — {r.title}
-                          </p>
-                          <p className="text-xs text-neutral-500">{r.pressing}</p>
-                          {expandedRowIds.has(r.id) ? null : (
-                            <p className="mt-0.5 text-xs text-neutral-600">
-                              {[
-                                `${r.media}/${r.sleeve}`,
-                                (r.genres ?? []).join(", ") || null,
-                                r.collection || null,
-                                (r.photo_urls ?? []).length
-                                  ? `${(r.photo_urls ?? []).length} photo${(r.photo_urls ?? []).length === 1 ? "" : "s"}`
-                                  : null,
-                                (r.notes ?? "").trim() ? "notes" : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </p>
-                          )}
-                        </div>
+                      ) : (
+                        <span className="text-neutral-600">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center align-top">
+                      <input
+                        type="checkbox"
+                        checked={r.listed}
+                        disabled={savingIds.has(r.id)}
+                        onChange={(e) => toggleListed(r, e.target.checked)}
+                        className="admin-checkbox"
+                      />
+                    </td>
+                    <td className="px-3 py-2 align-top text-xs">
+                      {r.sold ? (
+                        <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
+                          Sold{(r.buyer_username ?? "").trim() ? ` · u/${r.buyer_username}` : ""}
+                        </span>
+                      ) : holdActive(r) ? (
+                        <span
+                          className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
+                          title={`Until ${new Date(r.hold_until as string).toLocaleString()}`}
+                        >
+                          Held · u/{r.hold_buyer}
+                        </span>
+                      ) : r.listed ? (
+                        <span className="text-neutral-500">on shop</span>
+                      ) : (
+                        <span className="text-neutral-600">hidden</span>
+                      )}
+                      {r.discogs_removed ? (
+                        <span className="ml-2 text-neutral-600" title="Removed from your Discogs collection">
+                          ✓ Discogs
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Record details drawer — one record at a time, deep-linked via ?record= */}
+        {openRecord
+          ? (() => {
+              const r = openRecord;
+              const edited =
+                priceEdits[r.id] !== undefined &&
+                priceEdits[r.id] !== String(r.price);
+              return (
+                <aside
+                  role="dialog"
+                  aria-label={`${r.artist} — ${r.title}`}
+                  className="fixed inset-y-0 right-0 z-40 flex w-[460px] max-w-full flex-col overflow-y-auto border-l border-white/15 bg-neutral-950 p-5 shadow-2xl"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      {r.cover_image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={r.cover_image}
+                          alt=""
+                          className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                        />
+                      ) : null}
+                      <div className="min-w-0">
+                        <p className="font-medium text-white">
+                          {r.artist} — {r.title}
+                        </p>
+                        <p className="text-xs text-neutral-500">{r.pressing}</p>
                       </div>
-                      {expandedRowIds.has(r.id) ? (
-                        <>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openDrawer(null)}
+                      aria-label="Close"
+                      title="Close (Esc)"
+                      className="text-xl leading-none text-neutral-500 transition hover:text-white"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
+                    Listing
+                  </h3>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <input
                           type="text"
@@ -1216,47 +1355,10 @@ export function CatalogPage() {
                           />
                         </label>
                       </div>
-                      <p className="mt-1 flex gap-3 text-xs">
-                        {r.discogs_release_id ? (
-                          <a
-                            href={`https://www.discogs.com/release/${r.discogs_release_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
-                          >
-                            Discogs
-                          </a>
-                        ) : null}
-                        <a
-                          href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${r.artist} ${r.title} vinyl`)}&LH_Sold=1&LH_Complete=1`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
-                        >
-                          eBay solds
-                        </a>
-                        <a
-                          href={`https://www.popsike.com/php/quicksearch.php?searchtext=${encodeURIComponent(`${r.artist} ${r.title}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
-                        >
-                          Popsike
-                        </a>
-                        <button
-                          type="button"
-                          disabled={savingIds.has(r.id)}
-                          onClick={() => deleteRecord(r)}
-                          title="Permanently delete this record — for copies that were never actually sold (e.g. no longer owned)"
-                          className="text-neutral-500 underline underline-offset-2 transition hover:text-red-400"
-                        >
-                          Delete…
-                        </button>
-                      </p>
-                        </>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3">
+
+                  <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
+                    Pricing
+                  </h3>
                       <div className="flex items-center gap-2">
                         <span className="text-neutral-500">$</span>
                         <input
@@ -1335,86 +1437,21 @@ export function CatalogPage() {
                           vs last
                         </p>
                       ) : null}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap align-top">
-                      {interest[r.id] ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setInterestDetailId((prev) =>
-                                prev === r.id ? null : r.id
-                              )
-                            }
-                            className="text-neutral-300 underline decoration-white/30 decoration-dotted underline-offset-4 transition hover:text-white"
-                            title={`${interest[r.id].interest_events} clicks · ${interest[r.id].request_events} requests · last ${new Date(interest[r.id].last_event_at).toLocaleDateString()} — click for the day-by-day history`}
-                          >
-                            {interest[r.id].interest_sessions} looked
-                            {interest[r.id].request_sessions > 0 ? (
-                              <span className="text-green-400">
-                                {" "}
-                                · {interest[r.id].request_sessions} asked
-                              </span>
-                            ) : null}
-                          </button>
-                          {interestDetailId === r.id ? (
-                            <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2 text-xs">
-                              <p className="text-[10px] uppercase tracking-wide text-neutral-500">
-                                By day · last 60 days
-                              </p>
-                              {interestDetailDays.length === 0 ? (
-                                <p className="mt-1 text-neutral-500">
-                                  No activity in the last 60 days
-                                </p>
-                              ) : (
-                                <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto pr-1">
-                                  {interestDetailDays.map((d) => (
-                                    <li
-                                      key={d.key}
-                                      className="whitespace-nowrap text-neutral-400"
-                                    >
-                                      <span className="text-neutral-300">
-                                        {d.label}
-                                      </span>
-                                      {d.looked > 0
-                                        ? ` · ${d.looked} looked (${d.clicks} click${d.clicks === 1 ? "" : "s"})`
-                                        : ""}
-                                      {d.asked > 0 ? (
-                                        <span className="text-green-400">
-                                          {" "}
-                                          · {d.asked} asked
-                                        </span>
-                                      ) : null}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="text-neutral-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <input
-                        type="checkbox"
-                        checked={r.listed}
-                        disabled={savingIds.has(r.id)}
-                        onChange={(e) => toggleListed(r, e.target.checked)}
-                        className="admin-checkbox"
-                      />
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <input
-                        type="checkbox"
-                        checked={r.sold}
-                        disabled={savingIds.has(r.id)}
-                        onChange={(e) => markSold(r, e.target.checked)}
-                        className="admin-checkbox"
-                      />
-                    </td>
-                    <td className="px-3 py-3">
+
+                  <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
+                    Sale
+                  </h3>
+                  <label className="mt-2 flex items-center gap-2 text-sm text-neutral-300">
+                    <input
+                      type="checkbox"
+                      checked={r.sold}
+                      disabled={savingIds.has(r.id)}
+                      onChange={(e) => markSold(r, e.target.checked)}
+                      className="admin-checkbox"
+                    />
+                    Sold
+                  </label>
+                  <div className="mt-2">
                       {r.sold ? (
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center gap-2">
@@ -1584,13 +1621,102 @@ export function CatalogPage() {
                           Hold…
                         </button>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+
+                  <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
+                    Interest
+                  </h3>
+                  {interest[r.id] ? (
+                    <p className="mt-1 text-sm text-neutral-300">
+                      {interest[r.id].interest_sessions} looked
+                      {interest[r.id].request_sessions > 0
+                        ? ` · ${interest[r.id].request_sessions} asked`
+                        : ""}{" "}
+                      <span className="text-xs text-neutral-500">
+                        · last {new Date(interest[r.id].last_event_at).toLocaleDateString()}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-neutral-500">No shopper activity yet.</p>
+                  )}
+                          {(
+                            <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2 text-xs">
+                              <p className="text-[10px] uppercase tracking-wide text-neutral-500">
+                                By day · last 60 days
+                              </p>
+                              {interestDetailDays.length === 0 ? (
+                                <p className="mt-1 text-neutral-500">
+                                  No activity in the last 60 days
+                                </p>
+                              ) : (
+                                <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto pr-1">
+                                  {interestDetailDays.map((d) => (
+                                    <li
+                                      key={d.key}
+                                      className="whitespace-nowrap text-neutral-400"
+                                    >
+                                      <span className="text-neutral-300">
+                                        {d.label}
+                                      </span>
+                                      {d.looked > 0
+                                        ? ` · ${d.looked} looked (${d.clicks} click${d.clicks === 1 ? "" : "s"})`
+                                        : ""}
+                                      {d.asked > 0 ? (
+                                        <span className="text-green-400">
+                                          {" "}
+                                          · {d.asked} asked
+                                        </span>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+
+                  <div className="mt-6 border-t border-white/10 pt-3">
+                      <p className="mt-1 flex gap-3 text-xs">
+                        {r.discogs_release_id ? (
+                          <a
+                            href={`https://www.discogs.com/release/${r.discogs_release_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                          >
+                            Discogs
+                          </a>
+                        ) : null}
+                        <a
+                          href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${r.artist} ${r.title} vinyl`)}&LH_Sold=1&LH_Complete=1`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                        >
+                          eBay solds
+                        </a>
+                        <a
+                          href={`https://www.popsike.com/php/quicksearch.php?searchtext=${encodeURIComponent(`${r.artist} ${r.title}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                        >
+                          Popsike
+                        </a>
+                        <button
+                          type="button"
+                          disabled={savingIds.has(r.id)}
+                          onClick={() => deleteRecord(r)}
+                          title="Permanently delete this record — for copies that were never actually sold (e.g. no longer owned)"
+                          className="text-neutral-500 underline underline-offset-2 transition hover:text-red-400"
+                        >
+                          Delete…
+                        </button>
+                      </p>
+                  </div>
+                </aside>
+              );
+            })()
+          : null}
 
         {/* Add record */}
         <h2 className="mt-12 text-xl font-medium">Add a record</h2>
