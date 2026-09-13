@@ -177,7 +177,7 @@ export function RedditPage() {
     setSelectionMode("weekly");
     pushToast(
       "info",
-      `${picks.length} picked — adjust them on the Records page if you like, then copy the weekly post here.`
+      `${picks.length} picked — adjust them on the Catalog page if you like, then copy the weekly post here.`
     );
   }
 
@@ -374,11 +374,11 @@ export function RedditPage() {
             Pick 20: drops + scarce
           </button>
           <Link
-            href="/admin"
+            href="/admin/catalog"
             className="text-sm text-neutral-400 underline underline-offset-2 transition hover:text-white"
             title="The picks are the Sel checkboxes in the listings table"
           >
-            Adjust picks on Records
+            Adjust picks on Catalog
           </Link>
           <button
             type="button"
