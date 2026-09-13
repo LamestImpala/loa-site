@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { ADMIN_EMAIL, getBrowserSupabase } from "@/lib/supabase";
-import { buttonClass, inputClass } from "./ui";
+import { buttonClass, inputClass } from "./_shell/ui";
 
 // Client-side sign-in gate shared by every /admin page. It only decides what
 // to render — RLS and the per-route email checks are what actually protect

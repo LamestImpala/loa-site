@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { AdminGate } from "../admin-gate";
-import { PickemAdminClient } from "./pickem-client";
+import { PickemPanel } from "./pickem-panel";
 
 export const metadata: Metadata = {
   title: "Pick'em admin — Late Onset Audiophile",
@@ -9,8 +8,9 @@ export const metadata: Metadata = {
 
 export default function PickemAdminPage() {
   return (
-    <AdminGate>
-      <PickemAdminClient />
-    </AdminGate>
+    <>
+      <h1 className="mt-6 text-3xl font-semibold">Pick&apos;em Admin</h1>
+      <PickemPanel />
+    </>
   );
 }
