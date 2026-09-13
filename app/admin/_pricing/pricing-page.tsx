@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type { PendingPriceChange } from "@/lib/supabase";
 import { forSaleById as forSaleFromRuns, isActionable as actionable } from "@/lib/admin/pricing";
-import { useAdmin } from "../_shell/admin-provider";
+import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { buttonClass, pct } from "../_shell/ui";
 
 // Pricing: approve or reject the daily run's flagged moves, and read the
@@ -12,6 +12,8 @@ export function PricingPage() {
   const { supabase, pending, setPending, runs, setRecords, updateRecord, pushToast } =
     useAdmin();
 
+  const pendingStatus = useSlice("pending");
+  const runsStatus = useSlice("runs");
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
   const [pendingFilter, setPendingFilter] = useState<"all" | "act" | "other">(
     "all"
@@ -153,7 +155,7 @@ export function PricingPage() {
         </h2>
         {pending.length === 0 ? (
           <p className="mt-3 text-sm text-neutral-400">
-            Nothing waiting for approval.
+            {pendingStatus === "loading" ? "Loading…" : "Nothing waiting for approval."}
           </p>
         ) : (
           <>
@@ -256,7 +258,9 @@ export function PricingPage() {
         )}
         <h2 className="mt-12 text-xl font-medium">Daily price runs</h2>
         {runs.length === 0 ? (
-          <p className="mt-3 text-sm text-neutral-400">No runs yet.</p>
+          <p className="mt-3 text-sm text-neutral-400">
+            {runsStatus === "loading" ? "Loading…" : "No runs yet."}
+          </p>
         ) : (
           <div className="mt-4 flex flex-col gap-3">
             {runs.map((run) => (
