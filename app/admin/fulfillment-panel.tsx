@@ -12,7 +12,7 @@ import {
   pushNotNeeded,
   type OrderGroup,
 } from "@/lib/admin/fulfillment";
-import { blurOnEnter, buttonClass, inputClass, smallButtonClass } from "./_shell/ui";
+import { blurOnEnter, buttonClass, inputClass, smallButtonClass, useCopied } from "./_shell/ui";
 
 /*
  * Fulfillment: sold records grouped by buyer, split into parcels
@@ -81,7 +81,7 @@ export function FulfillmentPanel({
   const [costEdits, setCostEdits] = useState<Record<string, string>>({});
   const [threadEdits, setThreadEdits] = useState<Record<string, string>>({});
   // `${group key}:confirm` / `${group key}:nudge` — transient "Copied!" label.
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const { isCopied, flash: flashCopied } = useCopied(2000);
   const [busy, setBusy] = useState<string | null>(null); // group key or `ship-${id}`
   const [notes, setNotes] = useState<Record<string, string>>({}); // group key or shipment id -> status text
 
@@ -345,11 +345,6 @@ export function FulfillmentPanel({
       (threadEdits[g.key] ?? invoice?.reddit_thread_url ?? "").trim() ||
       defaultThreadUrl.trim()
     );
-  }
-
-  function flashCopied(key: string) {
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
   }
 
   async function copyTradeConfirmation(g: OrderGroup, invoice: Invoice | undefined) {
@@ -775,7 +770,7 @@ export function FulfillmentPanel({
                         }
                         className={buttonClass}
                       >
-                        {copiedKey === `${g.key}:confirm`
+                        {isCopied(`${g.key}:confirm`)
                           ? "Copied!"
                           : "Copy trade confirmation"}
                       </button>
@@ -786,7 +781,7 @@ export function FulfillmentPanel({
                         title="Copies a DM asking the buyer to reply to the confirmation comment so the bot credits the trade"
                         className={buttonClass}
                       >
-                        {copiedKey === `${g.key}:nudge`
+                        {isCopied(`${g.key}:nudge`)
                           ? "Copied!"
                           : "Copy buyer nudge"}
                       </button>
