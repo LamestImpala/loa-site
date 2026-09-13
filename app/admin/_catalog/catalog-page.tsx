@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
@@ -15,6 +15,7 @@ import {
   type SortKey,
 } from "@/lib/admin/catalog-filter";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
+import { CatalogRow } from "./catalog-row";
 import { blurOnEnter, buttonClass, inputClass, pct } from "../_shell/ui";
 
 const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
@@ -96,11 +97,14 @@ export function CatalogPage() {
     () => (openId == null ? null : records.find((r) => r.id === openId) ?? null),
     [records, openId]
   );
-  function openDrawer(id: number | null) {
-    router.replace(id == null ? "/admin/catalog" : `/admin/catalog?record=${id}`, {
-      scroll: false,
-    });
-  }
+  const openDrawer = useCallback(
+    (id: number | null) => {
+      router.replace(id == null ? "/admin/catalog" : `/admin/catalog?record=${id}`, {
+        scroll: false,
+      });
+    },
+    [router]
+  );
   useEffect(() => {
     if (openId == null) return;
     const onKey = (e: KeyboardEvent) => {
@@ -108,8 +112,7 @@ export function CatalogPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openId]);
+  }, [openId, openDrawer]);
 
   const [uploadingId, setUploadingId] = useState<number | null>(null);
 
@@ -201,21 +204,28 @@ export function CatalogPage() {
     pushToast("success", `Deleted "${r.artist} — ${r.title}"`);
   }
 
-  async function savePrice(r: DbRecord) {
-    const raw = priceEdits[r.id];
-    const value = Number(raw);
-    if (!raw || !Number.isFinite(value) || value < 0) {
-      pushToast("error", `"${raw}" isn't a valid price — enter 0 or more.`);
-      return;
-    }
-    if (await updateRecord(r.id, { price: value, prev_price: r.price })) {
-      setPriceEdits((prev) => {
-        const next = { ...prev };
-        delete next[r.id];
-        return next;
-      });
-    }
-  }
+  // Row and drawer price fields share these; the row passes its own draft
+  // so the callback stays stable while other rows are being edited.
+  const setPriceDraft = useCallback((id: number, value: string) => {
+    setPriceEdits((prev) => ({ ...prev, [id]: value }));
+  }, []);
+  const savePrice = useCallback(
+    async (r: DbRecord, raw: string | undefined) => {
+      const value = Number(raw);
+      if (!raw || !Number.isFinite(value) || value < 0) {
+        pushToast("error", `"${raw}" isn't a valid price — enter 0 or more.`);
+        return;
+      }
+      if (await updateRecord(r.id, { price: value, prev_price: r.price })) {
+        setPriceEdits((prev) => {
+          const next = { ...prev };
+          delete next[r.id];
+          return next;
+        });
+      }
+    },
+    [pushToast, updateRecord]
+  );
 
   async function saveBuyer(r: DbRecord) {
     const value = (buyerEdits[r.id] ?? "").trim().replace(/^u\//, "");
@@ -342,14 +352,17 @@ export function CatalogPage() {
   }
 
   // Hiding is reversible, so it gets an Undo toast rather than a confirm.
-  async function toggleListed(r: DbRecord, listed: boolean) {
-    const ok = await updateRecord(r.id, { listed });
-    if (!ok || listed) return;
-    pushToast("info", `Hidden "${r.artist} — ${r.title}" from the shop`, {
-      label: "Undo",
-      onClick: () => updateRecord(r.id, { listed: true }),
-    });
-  }
+  const toggleListed = useCallback(
+    async (r: DbRecord, listed: boolean) => {
+      const ok = await updateRecord(r.id, { listed });
+      if (!ok || listed) return;
+      pushToast("info", `Hidden "${r.artist} — ${r.title}" from the shop`, {
+        label: "Undo",
+        onClick: () => updateRecord(r.id, { listed: true }),
+      });
+    },
+    [pushToast, updateRecord]
+  );
 
   async function releaseHold(r: DbRecord) {
     if (
@@ -945,169 +958,23 @@ export function CatalogPage() {
                   </td>
                 </tr>
               ) : null}
-              {filteredRecords.map((r) => {
-                const edited =
-                  priceEdits[r.id] !== undefined &&
-                  priceEdits[r.id] !== String(r.price);
-                const isOpen = openId === r.id;
-                return (
-                  <tr
-                    key={r.id}
-                    className={`border-b border-white/5 last:border-b-0 ${
-                      isOpen ? "bg-white/5" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2 text-center align-top">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(r.id)}
-                        onChange={() => toggleSelected(r.id)}
-                        className="admin-checkbox"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <button
-                        type="button"
-                        onClick={() => openDrawer(isOpen ? null : r.id)}
-                        aria-expanded={isOpen}
-                        title="Open details — grades, notes, photos, hold, sold"
-                        className="block text-left"
-                      >
-                        <p className="font-medium text-white hover:underline">
-                          {r.artist} — {r.title}
-                        </p>
-                      </button>
-                      <p className="text-xs text-neutral-500">{r.pressing}</p>
-                      <p className="mt-0.5 text-xs text-neutral-600">
-                        {[
-                          `${r.media}/${r.sleeve}`,
-                          (r.genres ?? []).join(", ") || null,
-                          r.collection || null,
-                          (r.photo_urls ?? []).length
-                            ? `${(r.photo_urls ?? []).length} photo${(r.photo_urls ?? []).length === 1 ? "" : "s"}`
-                            : null,
-                          (r.notes ?? "").trim() ? "notes" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <div className="flex items-center gap-2">
-                        <span className="text-neutral-500">$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={priceEdits[r.id] ?? String(r.price)}
-                          onChange={(e) =>
-                            setPriceEdits((prev) => ({
-                              ...prev,
-                              [r.id]: e.target.value,
-                            }))
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && edited) savePrice(r);
-                          }}
-                          className={`w-20 ${inputClass}`}
-                        />
-                        {edited ? (
-                          <button
-                            type="button"
-                            disabled={savingIds.has(r.id)}
-                            onClick={() => savePrice(r)}
-                            className={buttonClass}
-                          >
-                            {savingIds.has(r.id) ? "…" : "Save"}
-                          </button>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-xs text-neutral-500">
-                        {r.manual_price ? (
-                          <span title="Manual price: the daily run leaves it alone">
-                            manual
-                          </span>
-                        ) : null}
-                        {market[r.id]?.suggested ? (
-                          <span title="Discogs suggestion for this grade">
-                            {r.manual_price ? " · " : ""}sugg $
-                            {Math.round(market[r.id].suggested!)}
-                          </span>
-                        ) : null}
-                        {r.prev_price != null &&
-                        Number(r.prev_price) > 0 &&
-                        Number(r.prev_price) !== r.price ? (
-                          <span
-                            className={
-                              r.price > Number(r.prev_price)
-                                ? "text-green-400"
-                                : "text-red-400"
-                            }
-                            title={`Was $${r.prev_price} before the last change`}
-                          >
-                            {r.manual_price || market[r.id]?.suggested ? " · " : ""}
-                            {pct(
-                              (r.price - Number(r.prev_price)) /
-                                Number(r.prev_price)
-                            )}
-                          </span>
-                        ) : null}
-                      </p>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap align-top">
-                      {interest[r.id] ? (
-                        <button
-                          type="button"
-                          onClick={() => openDrawer(r.id)}
-                          className="text-neutral-300 underline decoration-white/30 decoration-dotted underline-offset-4 transition hover:text-white"
-                          title={`${interest[r.id].interest_events} clicks · ${interest[r.id].request_events} requests · last ${new Date(interest[r.id].last_event_at).toLocaleDateString()} — open for the day-by-day history`}
-                        >
-                          {interest[r.id].interest_sessions} looked
-                          {interest[r.id].request_sessions > 0 ? (
-                            <span className="text-green-400">
-                              {" "}
-                              · {interest[r.id].request_sessions} asked
-                            </span>
-                          ) : null}
-                        </button>
-                      ) : (
-                        <span className="text-neutral-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-center align-top">
-                      <input
-                        type="checkbox"
-                        checked={r.listed}
-                        disabled={savingIds.has(r.id)}
-                        onChange={(e) => toggleListed(r, e.target.checked)}
-                        className="admin-checkbox"
-                      />
-                    </td>
-                    <td className="px-3 py-2 align-top text-xs">
-                      {r.sold ? (
-                        <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
-                          Sold{(r.buyer_username ?? "").trim() ? ` · u/${r.buyer_username}` : ""}
-                        </span>
-                      ) : holdActive(r) ? (
-                        <span
-                          className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
-                          title={`Until ${new Date(r.hold_until as string).toLocaleString()}`}
-                        >
-                          Held · u/{r.hold_buyer}
-                        </span>
-                      ) : r.listed ? (
-                        <span className="text-neutral-500">on shop</span>
-                      ) : (
-                        <span className="text-neutral-600">hidden</span>
-                      )}
-                      {r.discogs_removed ? (
-                        <span className="ml-2 text-neutral-600" title="Removed from your Discogs collection">
-                          ✓ Discogs
-                        </span>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredRecords.map((r) => (
+                <CatalogRow
+                  key={r.id}
+                  r={r}
+                  selected={selectedIds.has(r.id)}
+                  isOpen={openId === r.id}
+                  saving={savingIds.has(r.id)}
+                  priceDraft={priceEdits[r.id]}
+                  stats={market[r.id]}
+                  interest={interest[r.id]}
+                  onToggleSelected={toggleSelected}
+                  onOpen={openDrawer}
+                  onDraftPrice={setPriceDraft}
+                  onSavePrice={savePrice}
+                  onToggleListed={toggleListed}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -1286,7 +1153,7 @@ export function CatalogPage() {
                             }))
                           }
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && edited) savePrice(r);
+                            if (e.key === "Enter" && edited) savePrice(r, priceEdits[r.id]);
                           }}
                           className={`w-20 ${inputClass}`}
                         />
@@ -1294,7 +1161,7 @@ export function CatalogPage() {
                           <button
                             type="button"
                             disabled={savingIds.has(r.id)}
-                            onClick={() => savePrice(r)}
+                            onClick={() => savePrice(r, priceEdits[r.id])}
                             className={buttonClass}
                           >
                             {savingIds.has(r.id) ? "…" : "Save"}

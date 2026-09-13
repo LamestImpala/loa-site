@@ -508,7 +508,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (outcome !== "failed") await flagDiscogsRemoved(r.id);
   }
 
-  function toggleSelected(id: number) {
+  // Stable identity (memoised catalog rows take it as a prop); it reads the
+  // current records through a ref rather than closing over them.
+  const recordsRef = useRef(records);
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
+  const toggleSelected = useCallback((id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -518,10 +524,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     // Seed the buyer input from an active hold the first time it's useful
     setSaleBuyer((prev) => {
       if (prev.trim()) return prev;
-      const r = records.find((x) => x.id === id);
+      const r = recordsRef.current.find((x) => x.id === id);
       return r && holdActive(r) && r.hold_buyer ? r.hold_buyer : prev;
     });
-  }
+  }, []);
 
   // The shared mark-sold path: sale desk and a paid pending invoice both
   // land here. Writes sold/price/buyer, clears holds, closes finished
