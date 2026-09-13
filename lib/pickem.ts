@@ -1,18 +1,33 @@
 // Shared pick'em types and pure helpers. Browser-safe: no secrets, no I/O.
 
 export const PICKEM_SEASON = 2026;
-// Weeks run Tuesday through Monday. Week 1 is the week of Sat Sept 5, 2026,
-// which is how the books label it (Aug 29 games were "Week 0").
-const WEEK1_TUESDAY_UTC = Date.UTC(2026, 8, 1); // 2026-09-01
+
+// Leagues. Each has its own Odds API feed and its own week numbering; the
+// rest of the model (markets, picks, units) is the same for both.
+export type League = "ncaaf" | "nfl";
+export const LEAGUES: League[] = ["ncaaf", "nfl"];
+
+export function parseLeague(s: string | null | undefined): League | null {
+  return s === "ncaaf" || s === "nfl" ? s : null;
+}
+
+// Weeks run Tuesday through Monday and roll over at 10:00 UTC (6 AM Eastern),
+// so a Monday-night game that kicks after midnight UTC stays in its week.
+// College week 1 is the week of Sat Sept 5, 2026, which is how the books label
+// it (Aug 29 games were "Week 0"). NFL week 1 opens Thu Sept 10, 2026.
+export const LEAGUE_META: Record<League, { label: string; short: string; oddsSport: string; week1TuesdayUtc: number }> = {
+  ncaaf: { label: "College football", short: "College", oddsSport: "americanfootball_ncaaf", week1TuesdayUtc: Date.UTC(2026, 8, 1, 10) },
+  nfl: { label: "NFL", short: "NFL", oddsSport: "americanfootball_nfl", week1TuesdayUtc: Date.UTC(2026, 8, 8, 10) },
+};
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function seasonWeek(date: Date): number {
-  return Math.floor((date.getTime() - WEEK1_TUESDAY_UTC) / WEEK_MS) + 1;
+export function seasonWeek(league: League, date: Date): number {
+  return Math.floor((date.getTime() - LEAGUE_META[league].week1TuesdayUtc) / WEEK_MS) + 1;
 }
 
 /** [start, end) of a season week, in UTC. */
-export function weekWindow(week: number): { start: Date; end: Date } {
-  const start = new Date(WEEK1_TUESDAY_UTC + (week - 1) * WEEK_MS);
+export function weekWindow(league: League, week: number): { start: Date; end: Date } {
+  const start = new Date(LEAGUE_META[league].week1TuesdayUtc + (week - 1) * WEEK_MS);
   return { start, end: new Date(start.getTime() + WEEK_MS) };
 }
 
@@ -34,6 +49,7 @@ export type HousePicks = { spread: HouseCall; total: HouseCall; ml: HouseCall };
 
 export type PickemGame = {
   id: string;
+  league: League;
   season: number;
   week: number;
   commence_time: string;
@@ -68,6 +84,7 @@ export type ParlayLeg = {
 
 export type PickemParlay = {
   id: number;
+  league: League;
   season: number;
   week: number;
   name: string;
@@ -100,6 +117,7 @@ export type LeaderboardRow = {
   losses: number;
   pushes: number;
   units: number;
+  league: League;
 };
 
 // ---------------------------------------------------------------------------
@@ -186,6 +204,13 @@ export function shortTeam(name: string): string {
   return i > 0 ? name.slice(0, i) : name;
 }
 
+/** The name the board shows: the school for college, the nickname for the NFL ("Kansas City Chiefs" is "Chiefs"). */
+export function displayTeam(league: League, name: string): string {
+  if (league === "ncaaf") return shortTeam(name);
+  const i = name.lastIndexOf(" ");
+  return i > 0 ? name.slice(i + 1) : name;
+}
+
 // Conference membership (and isPower) lives in pickem-conferences.ts.
 
 export const ALWAYS_FEATURED = ["Arkansas Razorbacks"];
@@ -194,8 +219,8 @@ export const ALWAYS_FEATURED = ["Arkansas Razorbacks"];
 // Parlay legs: how a pick on a game becomes a line, a price and a label.
 
 export function legLabel(g: PickemGame, market: Market, selection: Selection): string {
-  const home = shortTeam(g.home_team);
-  const away = shortTeam(g.away_team);
+  const home = displayTeam(g.league, g.home_team);
+  const away = displayTeam(g.league, g.away_team);
   if (market === "total") return `${selection === "over" ? "Over" : "Under"} ${g.total} (${away} @ ${home})`;
   const team = selection === "home" ? home : away;
   if (market === "ml") return `${team} ML`;

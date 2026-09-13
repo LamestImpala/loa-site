@@ -24,6 +24,7 @@ function game(id: string, opts: Opts = {}): PickemGame {
   };
   return {
     id,
+    league: "ncaaf",
     season: 2026,
     week: 2,
     commence_time: new Date(NOW + 3 * 3600_000).toISOString(),

@@ -18,6 +18,7 @@ const NOW = Date.parse("2026-09-12T19:00:00Z"); // Sat 3:00 PM ET
 function game(id: string, minutesFromNow: number, home: string, away: string, completed = false): PickemGame {
   return {
     id,
+    league: "ncaaf",
     season: 2026,
     week: 2,
     commence_time: new Date(NOW + minutesFromNow * 60_000).toISOString(),
