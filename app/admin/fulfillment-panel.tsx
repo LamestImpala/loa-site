@@ -106,6 +106,7 @@ export function FulfillmentPanel({
   onRecordPatched,
   getAccessToken,
   copyText,
+  pushToast,
   defaultThreadUrl,
 }: {
   records: DbRecord[]; // sold records only
@@ -120,6 +121,9 @@ export function FulfillmentPanel({
   getAccessToken: () => Promise<string>;
   // Shared clipboard helper — falls back to a copy-by-hand modal upstream.
   copyText: (text: string, fallbackTitle: string) => Promise<boolean>;
+  // Page-level toast stack, so failures and results are visible even when
+  // the card that produced them has scrolled away.
+  pushToast?: (kind: "error" | "success" | "info", text: string) => void;
   defaultThreadUrl: string; // the saved sale-post URL (settings reddit_post_url)
 }) {
   const [showDone, setShowDone] = useState(false);
@@ -215,8 +219,15 @@ export function FulfillmentPanel({
     else archivedByMonth.push([label, [g]]);
   }
 
-  function note(key: string, text: string) {
+  // Inline status under the card; outcomes (not progress text) also go to
+  // the page toast stack when one is wired in.
+  function note(
+    key: string,
+    text: string,
+    kind?: "error" | "success" | "info"
+  ) {
     setNotes((prev) => ({ ...prev, [key]: text }));
+    if (kind && text && pushToast) pushToast(kind, text);
   }
 
   function patchShipment(id: number, patch: Partial<Shipment>) {
@@ -234,7 +245,7 @@ export function FulfillmentPanel({
       .update({ tracking_number: value, updated_at: new Date().toISOString() })
       .in("id", recordIds);
     if (error) {
-      note("panel", `Saving tracking on records failed: ${error.message}`);
+      note("panel", `Saving tracking on records failed: ${error.message}`, "error");
       return;
     }
     for (const id of recordIds) onRecordPatched(id, { tracking_number: value });
@@ -261,7 +272,7 @@ export function FulfillmentPanel({
       .single();
     setBusy(null);
     if (error) {
-      note(g.key, `Couldn't create the parcel: ${error.message}`);
+      note(g.key, `Couldn't create the parcel: ${error.message}`, "error");
       return;
     }
     onShipmentsChange((prev) => [data as Shipment, ...prev]);
@@ -277,7 +288,7 @@ export function FulfillmentPanel({
     const { error } = await supabase.from("shipments").delete().eq("id", s.id);
     setBusy(null);
     if (error) {
-      note(`ship-${s.id}`, `Delete failed: ${error.message}`);
+      note(`ship-${s.id}`, `Delete failed: ${error.message}`, "error");
       return;
     }
     onShipmentsChange((prev) => prev.filter((x) => x.id !== s.id));
@@ -299,7 +310,7 @@ export function FulfillmentPanel({
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", s.id);
     if (error) {
-      note(`ship-${s.id}`, `Save failed: ${error.message}`);
+      note(`ship-${s.id}`, `Save failed: ${error.message}`, "error");
       return false;
     }
     patchShipment(s.id, patch);
@@ -338,7 +349,7 @@ export function FulfillmentPanel({
     if (raw === undefined) return;
     const value = parseMoney(raw);
     if (value === undefined) {
-      note(`ship-${s.id}`, `"${raw}" isn't a valid postage cost.`);
+      note(`ship-${s.id}`, `"${raw}" isn't a valid postage cost.`, "error");
       return;
     }
     // Postgres numerics arrive as strings — normalize before comparing.
@@ -364,7 +375,7 @@ export function FulfillmentPanel({
     if (!invoiceId) return;
     const value = parseMoney(raw);
     if (value === undefined) {
-      note(g.key, `"${raw}" isn't a valid amount.`);
+      note(g.key, `"${raw}" isn't a valid amount.`, "error");
       return;
     }
     const stored = invoiceById.get(invoiceId)?.[field];
@@ -379,7 +390,7 @@ export function FulfillmentPanel({
       .select()
       .single();
     if (error) {
-      note(g.key, `Saving the amount failed: ${error.message}`);
+      note(g.key, `Saving the amount failed: ${error.message}`, "error");
       return;
     }
     const saved = data as Invoice;
@@ -413,7 +424,7 @@ export function FulfillmentPanel({
       .select()
       .single();
     if (error) {
-      note(g.key, `Saving the thread URL failed: ${error.message}`);
+      note(g.key, `Saving the thread URL failed: ${error.message}`, "error");
       return;
     }
     const saved = data as Invoice;
@@ -455,7 +466,8 @@ export function FulfillmentPanel({
     } else {
       note(
         g.key,
-        "No thread URL — save the sale post in the Reddit section or type one here."
+        "No thread URL — save the sale post in the Reddit section or type one here.",
+        "error"
       );
     }
   }
@@ -499,7 +511,7 @@ export function FulfillmentPanel({
       })
       .in("id", recordIds);
     if (error) {
-      note(g.key, `Saving the invoice id failed: ${error.message}`);
+      note(g.key, `Saving the invoice id failed: ${error.message}`, "error");
       return;
     }
     for (const id of recordIds)
@@ -516,7 +528,7 @@ export function FulfillmentPanel({
         })
         .in("id", followerIds);
       if (shipError) {
-        note(g.key, `Updating parcels failed: ${shipError.message}`);
+        note(g.key, `Updating parcels failed: ${shipError.message}`, "error");
         return;
       }
       const followerSet = new Set(followerIds);
@@ -573,7 +585,7 @@ export function FulfillmentPanel({
         });
       }
       if (body.error) {
-        note(g.key, String(body.error));
+        note(g.key, String(body.error), "error");
         return;
       }
       const returned = (body.shipments ?? []) as Shipment[];
@@ -612,10 +624,11 @@ export function FulfillmentPanel({
           (body.feeNote as string | null) ?? null,
         ]
           .filter(Boolean)
-          .join(" ")
+          .join(" "),
+        "success"
       );
     } catch (e) {
-      note(g.key, e instanceof Error ? e.message : "Sync failed");
+      note(g.key, e instanceof Error ? e.message : "Sync failed", "error");
     } finally {
       setBusy(null);
     }
@@ -667,10 +680,11 @@ export function FulfillmentPanel({
           ...problems,
         ]
           .filter(Boolean)
-          .join(" ") || "Nothing to push."
+          .join(" ") || "Nothing to push.",
+        "success"
       );
     } catch (e) {
-      note(noteKey, e instanceof Error ? e.message : "Push failed");
+      note(noteKey, e instanceof Error ? e.message : "Push failed", "error");
     } finally {
       setBusy(null);
     }
