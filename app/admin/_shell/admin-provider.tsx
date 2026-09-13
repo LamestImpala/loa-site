@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -22,6 +23,7 @@ import type {
   Shipment,
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
+import { holdActive } from "@/lib/admin/records";
 import { useAdminSession } from "../admin-gate";
 import type { Toast } from "./ui";
 
@@ -77,6 +79,18 @@ type AdminContextValue = {
   setSaving: (id: number, on: boolean) => void;
   updateRecord: (id: number, patch: Partial<DbRecord>) => Promise<boolean>;
   upsertInvoiceLocal: (inv: Invoice) => void;
+  byId: Map<number, DbRecord>;
+
+  // Discogs collection removal, per record, with the last outcome per id.
+  discogsStatus: Record<number, string>;
+  setDiscogsStatus: Setter<Record<number, string>>;
+  discogsRemoveRequest: (
+    releaseId: number
+  ) => Promise<{ outcome: "removed" | "gone" | "failed"; error?: string }>;
+  flagDiscogsRemoved: (id: number) => Promise<void>;
+  removeFromDiscogs: (r: DbRecord) => Promise<void>;
+  // The one mark-sold path: sale desk, paid invoice, row and bulk checkboxes.
+  markRecordsSold: (targets: DbRecord[], buyer: string) => Promise<void>;
 
   // Sale-desk selection. `selectionMode` says why records are selected:
   // the sale desk (default) or the weekly Reddit post.
@@ -88,6 +102,8 @@ type AdminContextValue = {
   setSaleBuyer: Setter<string>;
   saleEmail: string;
   setSaleEmail: Setter<string>;
+  toggleSelected: (id: number) => void;
+  clearSelection: () => void;
 };
 
 const AdminContext = createContext<AdminContextValue | null>(null);
@@ -358,6 +374,194 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const byId = useMemo(
+    () => new Map(records.map((r) => [r.id, r])),
+    [records]
+  );
+  const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
+
+  // Shared by the per-record flow and the bulk "remove all sold" button.
+  // "gone" means Discogs already doesn't have it — success for our purposes.
+  async function discogsRemoveRequest(
+    releaseId: number
+  ): Promise<{ outcome: "removed" | "gone" | "failed"; error?: string }> {
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/discogs-remove", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ releaseId }),
+      });
+      if (res.ok) return { outcome: "removed" };
+      const body = await res.json();
+      if (res.status === 404) return { outcome: "gone", error: body.error };
+      return { outcome: "failed", error: body.error || "Failed" };
+    } catch {
+      return { outcome: "failed", error: "Request failed" };
+    }
+  }
+
+  // Persists that the copy is out of the Discogs collection so the bulk
+  // button can skip it on later runs. Deliberately quiet — no toast, and a
+  // failure just means the record gets retried (and 404s) next time.
+  async function flagDiscogsRemoved(id: number) {
+    const { error } = await supabase
+      .from("records")
+      .update({ discogs_removed: true, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (!error) {
+      setRecords((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, discogs_removed: true } : r))
+      );
+    }
+  }
+
+  async function removeFromDiscogs(r: DbRecord) {
+    if (!r.discogs_release_id) return;
+    setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
+    const { outcome, error } = await discogsRemoveRequest(r.discogs_release_id);
+    setDiscogsStatus((prev) => ({
+      ...prev,
+      [r.id]:
+        outcome === "removed"
+          ? "Removed from Discogs ✓"
+          : outcome === "gone"
+            ? "Already gone from Discogs ✓"
+            : error || "Failed",
+    }));
+    if (outcome !== "failed") await flagDiscogsRemoved(r.id);
+  }
+
+  function toggleSelected(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    // Seed the buyer input from an active hold the first time it's useful
+    setSaleBuyer((prev) => {
+      if (prev.trim()) return prev;
+      const r = records.find((x) => x.id === id);
+      return r && holdActive(r) && r.hold_buyer ? r.hold_buyer : prev;
+    });
+  }
+
+  // The shared mark-sold path: sale desk and a paid pending invoice both
+  // land here. Writes sold/price/buyer, clears holds, closes finished
+  // order requests, and offers the Discogs removal. No confirm — callers
+  // decide whether one is needed.
+  async function markRecordsSold(targets: DbRecord[], buyer: string) {
+    if (targets.length === 0) return;
+    try {
+      const patches = new Map(
+        targets.map((r) => [
+          r.id,
+          {
+            sold: true,
+            sold_at: new Date().toISOString(),
+            sold_price: Number(r.price),
+            buyer_username:
+              buyer || r.hold_buyer || (r.buyer_username ?? "").trim() || "",
+            hold_buyer: null,
+            hold_until: null,
+          } satisfies Partial<DbRecord>,
+        ])
+      );
+      // Track per-record success so the UI reflects exactly what landed in
+      // the DB, even when a chunk fails partway through.
+      const chunk = 10;
+      const done: number[] = [];
+      let failure: string | null = null;
+      for (let i = 0; i < targets.length && !failure; i += chunk) {
+        const slice = targets.slice(i, i + chunk);
+        const results = await Promise.all(
+          slice.map((r) =>
+            supabase
+              .from("records")
+              .update({
+                ...patches.get(r.id),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", r.id)
+          )
+        );
+        slice.forEach((r, j) => {
+          if (results[j].error) failure = failure ?? results[j].error!.message;
+          else done.push(r.id);
+        });
+      }
+      const doneSet = new Set(done);
+      if (done.length > 0) {
+        setRecords((prev) =>
+          prev.map((r) =>
+            doneSet.has(r.id) ? { ...r, ...patches.get(r.id) } : r
+          )
+        );
+      }
+      if (failure) {
+        pushToast(
+          "error",
+          `Marked ${done.length} of ${targets.length} sold before an error: ${failure}`
+        );
+        return;
+      }
+      pushToast("success", `Marked ${done.length} sold ✓`);
+      // Best-effort: close loaded order requests whose records are now all
+      // sold. Failures are non-fatal — the card keeps its manual buttons.
+      const finished = orderRequests.filter(
+        (req) =>
+          req.status === "loaded" &&
+          req.record_ids.every((id) => doneSet.has(id) || byId.get(id)?.sold)
+      );
+      if (finished.length > 0) {
+        supabase
+          .from("order_requests")
+          .update({ status: "completed", updated_at: new Date().toISOString() })
+          .in(
+            "id",
+            finished.map((r) => r.id)
+          )
+          .then(({ error }) => {
+            if (error) {
+              console.warn("order request auto-complete failed:", error.message);
+              return;
+            }
+            const finishedIds = new Set(finished.map((r) => r.id));
+            setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
+          });
+      }
+      const withDiscogs = targets.filter(
+        (r) => doneSet.has(r.id) && r.discogs_release_id && !r.discogs_removed
+      );
+      if (
+        withDiscogs.length > 0 &&
+        window.confirm(
+          `Also remove ${withDiscogs.length} record${withDiscogs.length > 1 ? "s" : ""} from your Discogs collection?`
+        )
+      ) {
+        // Sequential to be gentle on Discogs rate limits
+        for (const r of withDiscogs) {
+          await removeFromDiscogs(r);
+        }
+      }
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");
+    }
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setSelectionMode("sale");
+    setSaleBuyer("");
+    setSaleEmail("");
+  }
+
   const value: AdminContextValue = {
     supabase,
     session,
@@ -396,6 +600,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSaving,
     updateRecord,
     upsertInvoiceLocal,
+    byId,
+    discogsStatus,
+    setDiscogsStatus,
+    discogsRemoveRequest,
+    flagDiscogsRemoved,
+    removeFromDiscogs,
+    markRecordsSold,
     selectedIds,
     setSelectedIds,
     selectionMode,
@@ -404,6 +615,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSaleBuyer,
     saleEmail,
     setSaleEmail,
+    toggleSelected,
+    clearSelection,
   };
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;

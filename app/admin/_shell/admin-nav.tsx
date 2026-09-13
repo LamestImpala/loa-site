@@ -6,7 +6,8 @@ import { useSelectedLayoutSegment } from "next/navigation";
 // Top-level admin pages. `segment` is the path piece under /admin, or null
 // on /admin itself.
 const PAGES: { segment: string | null; href: string; label: string }[] = [
-  { segment: null, href: "/admin", label: "Records" },
+  { segment: null, href: "/admin", label: "Inbox" },
+  { segment: "catalog", href: "/admin/catalog", label: "Catalog" },
   { segment: "pricing", href: "/admin/pricing", label: "Pricing" },
   { segment: "reddit", href: "/admin/reddit", label: "Reddit" },
   { segment: "pickem", href: "/admin/pickem", label: "Pick'em" },
