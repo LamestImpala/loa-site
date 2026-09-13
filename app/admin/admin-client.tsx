@@ -506,7 +506,27 @@ export default function AdminClient() {
     "all"
   );
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
-  const [savingId, setSavingId] = useState<number | null>(null);
+  // Rows with a save in flight. A Set (not one id) so two quick blur-saves
+  // on different rows don't re-enable each other early.
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
+  const setSaving = useCallback((id: number, on: boolean) => {
+    setSavingIds((prev) => {
+      if (prev.has(id) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  const [expandedRowIds, setExpandedRowIds] = useState<Set<number>>(new Set());
+  function toggleRowExpanded(id: number) {
+    setExpandedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
   const [postUrl, setPostUrl] = useState("");
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
@@ -516,7 +536,6 @@ export default function AdminClient() {
     ids: number[];
     posted_at: string | null;
   }>({ ids: [], posted_at: null });
-  const [confirmCopiedId, setConfirmCopiedId] = useState<number | null>(null);
   const [tableCopied, setTableCopied] = useState(false);
   // Latest Discogs market stats per record, from the daily snapshots —
   // powers the demand-ranked picks and the Scarcity/Demand post column.
@@ -971,12 +990,12 @@ export default function AdminClient() {
   // For copies that were never actually sold (given away, no longer owned).
   // Real sales should stay as history — un-check "sold" instead.
   async function deleteRecord(r: DbRecord) {
-    setSavingId(r.id);
+    setSaving(r.id, true);
     const { data: parcels, error: parcelErr } = await supabase
       .from("shipments")
       .select("id")
       .contains("record_ids", [r.id]);
-    setSavingId(null);
+    setSaving(r.id, false);
     if (parcelErr) {
       pushToast("error", `Couldn't check parcels: ${parcelErr.message}`);
       return;
@@ -994,7 +1013,7 @@ export default function AdminClient() {
       )
     )
       return;
-    setSavingId(r.id);
+    setSaving(r.id, true);
     const paths = (r.photo_urls ?? [])
       .map((url) => url.split("/record-photos/")[1])
       .filter((p): p is string => !!p)
@@ -1003,7 +1022,7 @@ export default function AdminClient() {
       await supabase.storage.from("record-photos").remove(paths);
     }
     const { error } = await supabase.from("records").delete().eq("id", r.id);
-    setSavingId(null);
+    setSaving(r.id, false);
     if (error) {
       pushToast("error", `Delete failed: ${error.message}`);
       return;
@@ -1190,12 +1209,12 @@ export default function AdminClient() {
   }
 
   async function updateRecord(id: number, patch: Partial<DbRecord>) {
-    setSavingId(id);
+    setSaving(id, true);
     const { error } = await supabase
       .from("records")
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", id);
-    setSavingId(null);
+    setSaving(id, false);
     if (error) {
       pushToast("error", `Save failed: ${error.message}`);
       return false;
@@ -1446,35 +1465,18 @@ export default function AdminClient() {
       )
     )
       return;
-    // Selling a held record carries the hold's buyer over and clears the hold
-    const patch: Partial<DbRecord> = {
-      sold,
-      sold_at: sold ? new Date().toISOString() : null,
-    };
-    if (sold && r.hold_buyer && !(r.buyer_username ?? "").trim()) {
-      patch.buyer_username = r.hold_buyer;
+    if (!sold) {
+      await updateRecord(r.id, { sold: false, sold_at: null });
+      return;
     }
-    if (sold) {
-      patch.hold_buyer = null;
-      patch.hold_until = null;
-    }
-    const ok = await updateRecord(r.id, patch);
-    if (!ok || !sold || !r.discogs_release_id || r.discogs_removed) return;
-    if (
-      window.confirm(
-        `Also remove "${r.artist} — ${r.title}" from your Discogs collection?`
-      )
-    ) {
-      await removeFromDiscogs(r);
-    }
-  }
-
-  async function copyConfirmation(r: DbRecord) {
-    const buyer = (r.buyer_username ?? "").trim();
-    const text = `Confirming my sale of ${r.artist} — ${r.title} to u/${buyer}. Thanks!`;
-    if (await copyText(text, "Copy this confirmation comment")) {
-      setConfirmCopiedId(r.id);
-      setTimeout(() => setConfirmCopiedId(null), 2000);
+    // Selling goes through the same path as the sale desk, so the row
+    // checkbox also records the sold price, carries a hold's buyer over,
+    // closes the matching order request and offers the Discogs removal.
+    setSaving(r.id, true);
+    try {
+      await markRecordsSold([r], "");
+    } finally {
+      setSaving(r.id, false);
     }
   }
 
@@ -2612,12 +2614,27 @@ export default function AdminClient() {
       .map((r) => r.id);
     if (ids.length === 0) return;
     const label = field === "listed" ? "Shown" : "Sold";
+    const plural = ids.length === 1 ? "" : "s";
     if (
       !window.confirm(
-        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${ids.length === 1 ? "" : "s"} in the current filter?`
+        field === "sold" && value
+          ? `Mark all ${ids.length} unsold record${plural} in the current filter as sold? Each keeps its hold buyer (if any), records its current price as the sold price, and you'll be offered the Discogs removal once.`
+          : `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`
       )
     )
       return;
+    if (field === "sold" && value) {
+      setBulkSaving(true);
+      try {
+        await markRecordsSold(
+          filteredRecords.filter((r) => !r.sold),
+          ""
+        );
+      } finally {
+        setBulkSaving(false);
+      }
+      return;
+    }
     setBulkSaving(true);
     const patch: Partial<DbRecord> = { [field]: value };
     if (field === "sold") patch.sold_at = value ? new Date().toISOString() : null;
@@ -3976,10 +3993,46 @@ export default function AdminClient() {
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-white">
-                        {r.artist} — {r.title}
-                      </p>
-                      <p className="text-xs text-neutral-500">{r.pressing}</p>
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleRowExpanded(r.id)}
+                          aria-expanded={expandedRowIds.has(r.id)}
+                          title={
+                            expandedRowIds.has(r.id)
+                              ? "Hide details"
+                              : "Edit genres, grades, notes, photos"
+                          }
+                          className={`mt-0.5 text-xs text-neutral-500 transition-transform hover:text-white ${
+                            expandedRowIds.has(r.id) ? "rotate-90" : ""
+                          }`}
+                        >
+                          ▶
+                        </button>
+                        <div className="min-w-0">
+                          <p className="font-medium text-white">
+                            {r.artist} — {r.title}
+                          </p>
+                          <p className="text-xs text-neutral-500">{r.pressing}</p>
+                          {expandedRowIds.has(r.id) ? null : (
+                            <p className="mt-0.5 text-xs text-neutral-600">
+                              {[
+                                `${r.media}/${r.sleeve}`,
+                                (r.genres ?? []).join(", ") || null,
+                                r.collection || null,
+                                (r.photo_urls ?? []).length
+                                  ? `${(r.photo_urls ?? []).length} photo${(r.photo_urls ?? []).length === 1 ? "" : "s"}`
+                                  : null,
+                                (r.notes ?? "").trim() ? "notes" : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {expandedRowIds.has(r.id) ? (
+                        <>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <input
                           type="text"
@@ -4015,7 +4068,7 @@ export default function AdminClient() {
                           Media
                           <select
                             value={r.media}
-                            disabled={savingId === r.id}
+                            disabled={savingIds.has(r.id)}
                             onChange={(e) =>
                               updateRecord(r.id, { media: e.target.value })
                             }
@@ -4030,7 +4083,7 @@ export default function AdminClient() {
                           Sleeve
                           <select
                             value={r.sleeve}
-                            disabled={savingId === r.id}
+                            disabled={savingIds.has(r.id)}
                             onChange={(e) =>
                               updateRecord(r.id, { sleeve: e.target.value })
                             }
@@ -4122,7 +4175,7 @@ export default function AdminClient() {
                         </a>
                         <button
                           type="button"
-                          disabled={savingId === r.id}
+                          disabled={savingIds.has(r.id)}
                           onClick={() => deleteRecord(r)}
                           title="Permanently delete this record — for copies that were never actually sold (e.g. no longer owned)"
                           className="text-neutral-500 underline underline-offset-2 transition hover:text-red-400"
@@ -4130,6 +4183,8 @@ export default function AdminClient() {
                           Delete…
                         </button>
                       </p>
+                        </>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
@@ -4152,11 +4207,11 @@ export default function AdminClient() {
                         {edited ? (
                           <button
                             type="button"
-                            disabled={savingId === r.id}
+                            disabled={savingIds.has(r.id)}
                             onClick={() => savePrice(r)}
                             className={buttonClass}
                           >
-                            {savingId === r.id ? "…" : "Save"}
+                            {savingIds.has(r.id) ? "…" : "Save"}
                           </button>
                         ) : null}
                       </div>
@@ -4167,7 +4222,7 @@ export default function AdminClient() {
                         <input
                           type="checkbox"
                           checked={!!r.manual_price}
-                          disabled={savingId === r.id}
+                          disabled={savingIds.has(r.id)}
                           onChange={(e) =>
                             updateRecord(r.id, {
                               manual_price: e.target.checked,
@@ -4275,7 +4330,7 @@ export default function AdminClient() {
                       <input
                         type="checkbox"
                         checked={r.listed}
-                        disabled={savingId === r.id}
+                        disabled={savingIds.has(r.id)}
                         onChange={(e) => toggleListed(r, e.target.checked)}
                         className="admin-checkbox"
                       />
@@ -4284,7 +4339,7 @@ export default function AdminClient() {
                       <input
                         type="checkbox"
                         checked={r.sold}
-                        disabled={savingId === r.id}
+                        disabled={savingIds.has(r.id)}
                         onChange={(e) => markSold(r, e.target.checked)}
                         className="admin-checkbox"
                       />
@@ -4311,13 +4366,11 @@ export default function AdminClient() {
                             {(r.buyer_username ?? "").trim() ? (
                               <button
                                 type="button"
-                                onClick={() => copyConfirmation(r)}
-                                title="Copy a confirmation-thread comment for this sale"
-                                className={`whitespace-nowrap ${buttonClass}`}
+                                onClick={() => showOnly("fulfillment")}
+                                title="The swap-bot trade confirmation for this order is copied from its Fulfillment card"
+                                className="whitespace-nowrap text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                               >
-                                {confirmCopiedId === r.id
-                                  ? "Copied!"
-                                  : "Copy confirm"}
+                                confirm in Fulfillment
                               </button>
                             ) : null}
                           </div>
@@ -4433,7 +4486,7 @@ export default function AdminClient() {
                           />
                           <button
                             type="button"
-                            disabled={!holdBuyerInput.trim() || savingId === r.id}
+                            disabled={!holdBuyerInput.trim() || savingIds.has(r.id)}
                             onClick={() => confirmHold(r)}
                             className="rounded-lg border border-white/15 px-2 py-1 text-white transition hover:bg-white hover:text-black disabled:opacity-40"
                           >
@@ -4503,6 +4556,7 @@ export default function AdminClient() {
               return current?.access_token ?? "";
             }}
             copyText={copyText}
+            pushToast={pushToast}
             defaultThreadUrl={postUrl}
           />
         )}
