@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { LEAGUES, LEAGUE_META, type League } from "@/lib/pickem";
+import { useAdmin } from "../_shell/admin-provider";
+import { buttonClass as btn } from "../_shell/ui";
 
 // Buttons that run the pick'em jobs for one league on demand with the admin's
 // session token (the cron runs the same routes with CRON_SECRET).
-export function PickemPanel({ supabase }: { supabase: SupabaseClient }) {
+export function PickemPanel() {
+  const { supabase } = useAdmin();
   const [league, setLeague] = useState<League>("ncaaf");
   const [busy, setBusy] = useState<string | null>(null);
   const [log, setLog] = useState("");
@@ -30,9 +32,6 @@ export function PickemPanel({ supabase }: { supabase: SupabaseClient }) {
       setBusy(null);
     }
   }
-
-  const btn =
-    "rounded-lg border border-white/20 px-3 py-2 text-sm text-white transition hover:bg-white/10 disabled:opacity-50";
 
   return (
     <section className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-5">

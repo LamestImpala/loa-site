@@ -2,14 +2,11 @@
 
 import {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import Link from "next/link";
 import {
   FREE_SHIPPING_MIN,
   LETTERS,
@@ -21,18 +18,15 @@ import {
 import {
   type DbRecord,
   type Invoice,
-  type MarketSnapshotRow,
   type OrderRequest,
   type PendingPriceChange,
-  type PriceRun,
   type RecordEventRow,
-  type RecordInterest,
   type RedditPost,
-  type Shipment,
 } from "@/lib/supabase";
 import { FulfillmentPanel } from "./fulfillment-panel";
-import { useAdminSession } from "./admin-gate";
-import { blurOnEnter, buttonClass, inputClass } from "./ui";
+import { useAdmin } from "./_shell/admin-provider";
+import { blurOnEnter, buttonClass, inputClass, pct, timeAgo } from "./_shell/ui";
+import type { MarketStats, MarketMap } from "@/lib/admin/market";
 import {
   extractRefCode,
   matchLines,
@@ -109,16 +103,6 @@ function redditMarkdown(records: DbRecord[]) {
 // deliberately says nothing about scarcity or demand.
 
 // Latest known Discogs market stats per record id (from market_snapshots).
-type MarketStats = {
-  forSale: number | null;
-  want: number | null;
-  have: number | null;
-  suggested: number | null; // Discogs suggestion for the record's media grade
-  lowest: number | null; // raw Discogs lowest_price — any grade, any country
-  lowestPlausible: boolean | null; // did the price run treat it as comparable?
-};
-type MarketMap = Record<number, MarketStats>;
-
 // A price drop recent enough to headline a weekly post.
 const DROP_WINDOW_DAYS = 14;
 const isRecentDrop = (r: DbRecord) =>
@@ -286,7 +270,6 @@ const SECTIONS = [
   "add",
   "listings",
   "runs",
-  "account",
 ] as const;
 type SectionKey = (typeof SECTIONS)[number];
 const COLLAPSED_SECTIONS_KEY = "admin-collapsed-sections";
@@ -341,9 +324,7 @@ function detectCollection(rel: {
   return "";
 }
 
-function pct(n: number) {
-  return `${n > 0 ? "+" : ""}${(n * 100).toFixed(1)}%`;
-}
+
 
 const holdActive = (r: DbRecord) =>
   !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
@@ -351,25 +332,6 @@ const holdActive = (r: DbRecord) =>
 // Last week of snapshots, newest first — reduced by the caller to the
 // newest row per record (runs can skip a day). lowest_plausible arrives
 // with a migration; until it lands, fall back to the older column set.
-async function loadSnapshots(supabase: SupabaseClient) {
-  const since = new Date(Date.now() - 7 * 24 * 3600 * 1000)
-    .toISOString()
-    .slice(0, 10);
-  const query = (cols: string) =>
-    supabase
-      .from("market_snapshots")
-      .select(cols)
-      .gte("snapped_on", since)
-      .order("snapped_on", { ascending: false });
-  const full = await query(
-    "record_id,snapped_on,for_sale,want,have,suggested,lowest,lowest_plausible"
-  );
-  if (full.error && /lowest_plausible/.test(full.error.message)) {
-    return query("record_id,snapped_on,for_sale,want,have,suggested,lowest");
-  }
-  return full;
-}
-
 // Fisher–Yates; returns a new array.
 function shuffle<T>(arr: T[]): T[] {
   const out = [...arr];
@@ -379,25 +341,6 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return out;
 }
-
-function timeAgo(iso: string) {
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-// Transient feedback shown in a fixed stack near the bottom-right corner, so
-// results of an action are visible no matter how far down the page it fired.
-type Toast = {
-  id: number;
-  kind: "error" | "success" | "info";
-  text: string;
-  action?: { label: string; onClick: () => void };
-};
-let toastSeq = 0;
 
 // One local-calendar-day slice of shopper activity; "looked"/"asked" count
 // distinct anonymous sessions, "clicks" counts raw events. Days are bucketed
@@ -462,25 +405,47 @@ const OFF_MARKET_HIGH = 1.3;
 const OFF_MARKET_LOW = 0.6;
 
 export default function AdminClient() {
-  // Signed-in admin session, guaranteed by <AdminGate> in page.tsx.
-  const { supabase, session } = useAdminSession();
-
-  const [newPassword, setNewPassword] = useState("");
-  const [pwStatus, setPwStatus] = useState("");
-
-  const [records, setRecords] = useState<DbRecord[]>([]);
-  const [shipments, setShipments] = useState<Shipment[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [pending, setPending] = useState<PendingPriceChange[]>([]);
-  const [runs, setRuns] = useState<PriceRun[]>([]);
-  const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
-  const [loadError, setLoadError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const [clipboardFallback, setClipboardFallback] = useState<null | {
-    title: string;
-    text: string;
-  }>(null);
+  // Shared session, data and helpers from the /admin layout's provider.
+  const {
+    supabase,
+    records,
+    setRecords,
+    shipments,
+    setShipments,
+    invoices,
+    setInvoices,
+    pending,
+    setPending,
+    runs,
+    orderRequests,
+    setOrderRequests,
+    interest,
+    events,
+    market,
+    redditPosts,
+    setRedditPosts,
+    postUrl,
+    setPostUrl,
+    postedInfo,
+    setPostedInfo,
+    loading,
+    loadData,
+    pushToast,
+    copyText,
+    savingIds,
+    setSaving,
+    updateRecord,
+    upsertInvoiceLocal,
+    selectedIds,
+    setSelectedIds,
+    selectionMode,
+    setSelectionMode,
+    saleBuyer,
+    setSaleBuyer,
+    saleEmail,
+    setSaleEmail,
+    getAccessToken,
+  } = useAdmin();
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("artist");
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
@@ -491,9 +456,6 @@ export default function AdminClient() {
   const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
   const [genreFilter, setGenreFilter] = useState("all");
   const [collectionFilter, setCollectionFilter] = useState("all");
-  const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
-  // Raw click events from the last 60 days, for the day-by-day breakdowns.
-  const [events, setEvents] = useState<RecordEventRow[]>([]);
   // Record whose Interest cell is expanded to show its daily history.
   const [interestDetailId, setInterestDetailId] = useState<number | null>(null);
   const [interestFilter, setInterestFilter] =
@@ -506,18 +468,6 @@ export default function AdminClient() {
     "all"
   );
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
-  // Rows with a save in flight. A Set (not one id) so two quick blur-saves
-  // on different rows don't re-enable each other early.
-  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
-  const setSaving = useCallback((id: number, on: boolean) => {
-    setSavingIds((prev) => {
-      if (prev.has(id) === on) return prev;
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }, []);
   const [expandedRowIds, setExpandedRowIds] = useState<Set<number>>(new Set());
   function toggleRowExpanded(id: number) {
     setExpandedRowIds((prev) => {
@@ -528,20 +478,9 @@ export default function AdminClient() {
     });
   }
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
-  const [postUrl, setPostUrl] = useState("");
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
-  // Record ids included in the live weekly post, saved when the post is
-  // copied so "update post" can regenerate the exact posted list later.
-  const [postedInfo, setPostedInfo] = useState<{
-    ids: number[];
-    posted_at: string | null;
-  }>({ ids: [], posted_at: null });
   const [tableCopied, setTableCopied] = useState(false);
-  // Latest Discogs market stats per record, from the daily snapshots —
-  // powers the demand-ranked picks and the Scarcity/Demand post column.
-  const [market, setMarket] = useState<MarketMap>({});
-  // Archived Reddit posts (newest first) and per-row URL drafts.
-  const [redditPosts, setRedditPosts] = useState<RedditPost[]>([]);
+  // Per-row URL drafts for the archived Reddit posts.
   const [archiveUrlEdits, setArchiveUrlEdits] = useState<
     Record<number, string>
   >({});
@@ -604,41 +543,6 @@ export default function AdminClient() {
       }, 50);
     },
     [setCollapsed]
-  );
-
-  const pushToast = useCallback(
-    (kind: Toast["kind"], text: string, action?: Toast["action"]) => {
-      const id = ++toastSeq;
-      setToasts((prev) => [
-        // Only one success toast at a time — rapid blur-saves shouldn't stack
-        ...(kind === "success" ? prev.filter((t) => t.kind !== "success") : prev),
-        { id, kind, text, action },
-      ]);
-      const ttl = kind === "success" ? 2500 : kind === "info" ? 8000 : 10000;
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, ttl);
-    },
-    []
-  );
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
-  // Clipboard writes fall back to a copyable modal (window.prompt truncates
-  // multi-KB markdown). Returns whether the silent copy worked.
-  const copyText = useCallback(
-    async (text: string, fallbackTitle: string): Promise<boolean> => {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        setClipboardFallback({ title: fallbackTitle, text });
-        return false;
-      }
-    },
-    []
   );
 
   function sectionHeading(
@@ -1030,200 +934,6 @@ export default function AdminClient() {
     setRecords((prev) => prev.filter((x) => x.id !== r.id));
     setPending((prev) => prev.filter((x) => x.record_id !== r.id));
     pushToast("success", `Deleted "${r.artist} — ${r.title}"`);
-  }
-
-  const loadData = useCallback(async () => {
-    setLoadError("");
-    setLoading(true);
-    const [
-      recordsRes,
-      pendingRes,
-      runsRes,
-      settingsRes,
-      requestsRes,
-      interestRes,
-      eventsRes,
-      shipmentsRes,
-      invoicesRes,
-      snapshotsRes,
-      redditPostsRes,
-    ] = await Promise.all([
-        supabase.from("records").select("*").order("artist").order("title"),
-        supabase
-          .from("pending_price_changes")
-          .select("*, records(artist, title, pressing, price)")
-          .eq("status", "pending")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("price_runs")
-          .select("*")
-          .order("ran_at", { ascending: false })
-          .limit(14),
-        supabase
-          .from("settings")
-          .select("key,value")
-          .in("key", ["reddit_post_url", "reddit_post_records"]),
-        supabase
-          .from("order_requests")
-          .select("*")
-          .in("status", ["new", "loaded"])
-          .order("created_at", { ascending: false })
-          .limit(50),
-        supabase.from("record_interest").select("*"),
-        supabase
-          .from("record_events")
-          .select("record_id,event_type,session_id,created_at")
-          .gte(
-            "created_at",
-            new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-          )
-          .order("created_at", { ascending: false })
-          .limit(5000),
-        supabase
-          .from("shipments")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase.from("invoices").select("*"),
-        loadSnapshots(supabase),
-        supabase
-          .from("reddit_posts")
-          .select("*")
-          .order("created_at", { ascending: false }),
-      ]);
-    setLoading(false);
-    if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
-      setLoadError(
-        recordsRes.error?.message ||
-          pendingRes.error?.message ||
-          runsRes.error?.message ||
-          requestsRes.error?.message ||
-          "Failed to load"
-      );
-      return;
-    }
-    setRecords((recordsRes.data ?? []) as DbRecord[]);
-    // Shipments are non-fatal, like interest — an error just leaves the
-    // fulfillment panel empty, but say so instead of failing silently.
-    if (shipmentsRes.error) {
-      pushToast("error", `Shipments didn't load: ${shipmentsRes.error.message}`);
-    }
-    if (interestRes.error) {
-      pushToast("error", `Interest data didn't load: ${interestRes.error.message}`);
-    }
-    if (eventsRes.error) {
-      pushToast(
-        "error",
-        `Interest history didn't load: ${eventsRes.error.message}`
-      );
-    }
-    if (invoicesRes.error) {
-      pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
-    }
-    // Market data is non-fatal — without it, picks fall back to random
-    // order and the post just omits the scarcity/demand callouts.
-    if (snapshotsRes.error) {
-      pushToast(
-        "error",
-        `Market data didn't load: ${snapshotsRes.error.message}`
-      );
-    }
-    const latestMarket: MarketMap = {};
-    for (const s of (snapshotsRes.data ?? []) as unknown as MarketSnapshotRow[]) {
-      if (!(s.record_id in latestMarket)) {
-        latestMarket[s.record_id] = {
-          forSale: s.for_sale,
-          want: s.want,
-          have: s.have,
-          suggested: s.suggested == null ? null : Number(s.suggested),
-          lowest: s.lowest == null ? null : Number(s.lowest),
-          lowestPlausible: s.lowest_plausible ?? null,
-        };
-      }
-    }
-    setMarket(latestMarket);
-    if (redditPostsRes.error) {
-      pushToast(
-        "error",
-        `Post archive didn't load: ${redditPostsRes.error.message}`
-      );
-    }
-    setRedditPosts((redditPostsRes.data ?? []) as RedditPost[]);
-    setShipments((shipmentsRes.data ?? []) as Shipment[]);
-    setInvoices((invoicesRes.data ?? []) as Invoice[]);
-    setPending((pendingRes.data ?? []) as PendingPriceChange[]);
-    setRuns((runsRes.data ?? []) as PriceRun[]);
-    setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
-    const settingsMap = new Map(
-      ((settingsRes.data ?? []) as { key: string; value: string }[]).map(
-        (s) => [s.key, s.value]
-      )
-    );
-    setPostUrl(settingsMap.get("reddit_post_url") ?? "");
-    try {
-      const saved = JSON.parse(settingsMap.get("reddit_post_records") || "null");
-      if (saved && Array.isArray(saved.ids)) {
-        setPostedInfo({
-          ids: saved.ids.filter((id: unknown) => typeof id === "number"),
-          posted_at: typeof saved.posted_at === "string" ? saved.posted_at : null,
-        });
-      }
-    } catch {
-      // Malformed saved post list — treat as no saved post.
-    }
-    // Interest is non-fatal — a failed read shouldn't blank the admin.
-    setInterest(
-      Object.fromEntries(
-        ((interestRes.data ?? []) as RecordInterest[]).map((x) => [
-          x.record_id,
-          x,
-        ])
-      )
-    );
-    setEvents((eventsRes.data ?? []) as RecordEventRow[]);
-  }, [supabase, pushToast]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // Flag this browser so the owner's own shop browsing isn't tracked.
-  useEffect(() => {
-    try {
-      localStorage.setItem("cr_no_track", "1");
-    } catch {}
-  }, []);
-
-  async function savePassword() {
-    setPwStatus("");
-    if (newPassword.length < 8) {
-      setPwStatus("Password must be at least 8 characters.");
-      return;
-    }
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setPwStatus(
-      error
-        ? error.message
-        : "Password saved — next time you can sign in with it directly."
-    );
-    if (!error) setNewPassword("");
-  }
-
-  async function updateRecord(id: number, patch: Partial<DbRecord>) {
-    setSaving(id, true);
-    const { error } = await supabase
-      .from("records")
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    setSaving(id, false);
-    if (error) {
-      pushToast("error", `Save failed: ${error.message}`);
-      return false;
-    }
-    setRecords((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
-    );
-    pushToast("success", "Saved ✓");
-    return true;
   }
 
   async function savePrice(r: DbRecord) {
@@ -1731,14 +1441,11 @@ export default function AdminClient() {
   }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]);
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  // Why records are currently selected: the sale desk (default) or the
-  // weekly Reddit post. Weekly mode swaps the sticky sale-desk box for a
-  // slim picks bar so random picks don't look like a pending sale. Only
-  // explicit actions change the mode — checkbox toggles keep it.
-  const [selectionMode, setSelectionMode] = useState<"sale" | "weekly">("sale");
-  const [saleBuyer, setSaleBuyer] = useState("");
-  const [saleEmail, setSaleEmail] = useState("");
+  // selectedIds / selectionMode / saleBuyer / saleEmail live in the admin
+  // provider so the selection survives navigating between admin pages.
+  // Weekly mode swaps the sticky sale-desk box for a slim picks bar so
+  // random picks don't look like a pending sale. Only explicit actions
+  // change the mode — checkbox toggles keep it.
   const [saleBusy, setSaleBusy] = useState<null | "hold" | "sold" | "invoice">(null);
   const [saleStatus, setSaleStatus] = useState("");
   const [saleInvoice, setSaleInvoice] = useState<null | {
@@ -2202,16 +1909,6 @@ export default function AdminClient() {
   }>(null);
   const [pendingCopiedId, setPendingCopiedId] = useState<string | null>(null);
 
-  function upsertInvoiceLocal(inv: Invoice) {
-    setInvoices((prev) =>
-      prev.some((i) => i.paypal_invoice_id === inv.paypal_invoice_id)
-        ? prev.map((i) =>
-            i.paypal_invoice_id === inv.paypal_invoice_id ? { ...i, ...inv } : i
-          )
-        : [...prev, inv]
-    );
-  }
-
   function loadPendingIntoSaleDesk(p: { buyer: string; recs: DbRecord[] }) {
     if (!applySaleSelection(p.recs.map((r) => r.id))) return;
     setSaleBuyer((prev) => (prev.trim() ? prev : p.buyer));
@@ -2655,61 +2352,20 @@ export default function AdminClient() {
   }
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      <section className="mx-auto max-w-6xl px-4 py-12 md:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+    <>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-3xl font-semibold">Records Admin</h1>
-          <div className="flex items-center gap-3 text-sm text-neutral-400">
-            <span>{session.user.email}</span>
-            <button
-              type="button"
-              onClick={loadData}
-              disabled={loading}
-              title="Reload everything from the database — useful after working in another tab"
-              className={buttonClass}
-            >
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setCollapsed(allCollapsed ? new Set() : new Set(SECTIONS))
-              }
-              title="Collapse or expand every section on the page"
-              className={buttonClass}
-            >
-              {allCollapsed ? "Expand all" : "Collapse all"}
-            </button>
-            <Link
-              href="/admin/pickem"
-              title="Pick'em jobs live on their own page"
-              className={buttonClass}
-            >
-              Pick&apos;em
-            </Link>
-            <button
-              type="button"
-              onClick={() => supabase.auth.signOut()}
-              className={buttonClass}
-            >
-              Sign out
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setCollapsed(allCollapsed ? new Set() : new Set(SECTIONS))
+            }
+            title="Collapse or expand every section on the page"
+            className={buttonClass}
+          >
+            {allCollapsed ? "Expand all" : "Collapse all"}
+          </button>
         </div>
-
-        {loadError ? (
-          <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            <p>{loadError}</p>
-            <button
-              type="button"
-              onClick={() => setLoadError("")}
-              aria-label="Dismiss error"
-              className="text-red-300 transition hover:text-white"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
 
         {/* Section jump nav — the page is long; this stays pinned on scroll */}
         <nav
@@ -2725,7 +2381,6 @@ export default function AdminClient() {
               ["reddit", "Reddit"],
               ["add", "Add"],
               ["runs", "Runs"],
-              ["account", "Account"],
             ] as [SectionKey, string, number?][]
           ).map(([key, label, count]) => (
             <button
@@ -4549,12 +4204,7 @@ export default function AdminClient() {
                 prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
               )
             }
-            getAccessToken={async () => {
-              const {
-                data: { session: current },
-              } = await supabase.auth.getSession();
-              return current?.access_token ?? "";
-            }}
+            getAccessToken={getAccessToken}
             copyText={copyText}
             pushToast={pushToast}
             defaultThreadUrl={postUrl}
@@ -5053,120 +4703,6 @@ export default function AdminClient() {
           </div>
         )}
 
-        {/* Account */}
-        {sectionHeading("account", "Account", "mt-12 text-xl font-medium")}
-        {collapsedSections.has("account") ? null : (
-          <>
-        <p className="mt-1 text-sm text-neutral-400">
-          Set a password to sign in directly — magic-link emails are
-          rate-limited by Supabase.
-        </p>
-        <div className="mt-3 flex max-w-md flex-col gap-2 sm:flex-row">
-          <input
-            type="password"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="New password (8+ characters)"
-            className={`flex-1 ${inputClass}`}
-          />
-          <button type="button" onClick={savePassword} className={buttonClass}>
-            Save password
-          </button>
-        </div>
-        {pwStatus ? (
-          <p
-            className={`mt-2 text-sm ${
-              pwStatus.startsWith("Password saved")
-                ? "text-green-400"
-                : "text-red-400"
-            }`}
-          >
-            {pwStatus}
-          </p>
-        ) : null}
-          </>
-        )}
-      </section>
-
-      {/* Toast stack — action feedback that's visible from anywhere on the page */}
-      <div
-        role="status"
-        aria-live="polite"
-        className="fixed bottom-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur ${
-              t.kind === "error"
-                ? "border-red-500/40 bg-red-950/90 text-red-200"
-                : t.kind === "success"
-                  ? "border-emerald-500/40 bg-emerald-950/90 text-emerald-200"
-                  : "border-white/20 bg-neutral-900/95 text-neutral-200"
-            }`}
-          >
-            <span>{t.text}</span>
-            <span className="flex shrink-0 items-center gap-2">
-              {t.action ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    t.action!.onClick();
-                    dismissToast(t.id);
-                  }}
-                  className="rounded-md border border-white/25 px-2 py-0.5 text-xs text-white transition hover:bg-white hover:text-black"
-                >
-                  {t.action.label}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => dismissToast(t.id)}
-                aria-label="Dismiss"
-                className="text-current opacity-60 transition hover:opacity-100"
-              >
-                ×
-              </button>
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Clipboard fallback — shown when navigator.clipboard is unavailable */}
-      {clipboardFallback ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setClipboardFallback(null)}
-        >
-          <div
-            role="dialog"
-            aria-label={clipboardFallback.title}
-            className="w-full max-w-2xl rounded-2xl border border-white/15 bg-neutral-950 p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-sm text-neutral-300">
-              {clipboardFallback.title} — automatic copy was blocked, so select
-              and copy it from here:
-            </p>
-            <textarea
-              readOnly
-              autoFocus
-              value={clipboardFallback.text}
-              onFocus={(e) => e.currentTarget.select()}
-              rows={12}
-              className={`mt-3 w-full resize-y ${inputClass} font-mono text-xs`}
-            />
-            <button
-              type="button"
-              onClick={() => setClipboardFallback(null)}
-              className={`mt-3 ${buttonClass}`}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </main>
+    </>
   );
 }

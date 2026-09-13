@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DbRecord, Invoice, Shipment } from "@/lib/supabase";
-import { blurOnEnter, buttonClass, inputClass } from "./ui";
+import { blurOnEnter, buttonClass, inputClass, smallButtonClass } from "./_shell/ui";
 
 /*
  * Fulfillment: sold records grouped by buyer, split into parcels
@@ -23,8 +23,6 @@ import { blurOnEnter, buttonClass, inputClass } from "./ui";
  * transaction page). They feed the Net stats tile and the tax records.
  */
 
-const smallButtonClass =
-  "rounded-md border border-white/15 px-2 py-1 text-xs text-neutral-300 transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-300";
 
 const CARRIERS = ["USPS", "UPS", "FEDEX", "DHL", "OTHER"];
 
