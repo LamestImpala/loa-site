@@ -76,6 +76,10 @@ export type InvoiceResult = {
   warning?: string;
 };
 
+// Invoice statuses that count as paid for tracking and for closing a
+// pending order.
+export const PAID_STATUSES = new Set(["PAID", "MARKED_AS_PAID", "PARTIALLY_PAID"]);
+
 // Reads a paid invoice's PayPal transaction id, plus the shipping the
 // buyer was charged (off the invoice's amount breakdown) and the payment
 // date (which scopes the Transaction Search window for the fee lookup).
@@ -87,6 +91,7 @@ export async function getInvoicePayment(invoiceId: string): Promise<{
   transactionId: string | null;
   shippingCharged: number | null;
   paymentDate: string | null; // "2026-08-20"
+  recipientViewUrl: string | null; // the buyer's payment link
 }> {
   const token = await getPayPalAccessToken();
   const res = await fetch(
@@ -108,12 +113,44 @@ export async function getInvoicePayment(invoiceId: string): Promise<{
   const withId = transactions.find((t) => t.payment_id);
   const shippingRaw = invoice?.amount?.breakdown?.shipping?.amount?.value;
   const shipping = shippingRaw == null ? NaN : Number(shippingRaw);
+  const meta = invoice?.detail?.metadata ?? {};
   return {
     status: invoice?.status ?? "UNKNOWN",
     transactionId: withId?.payment_id ?? null,
     shippingCharged: Number.isFinite(shipping) ? shipping : null,
     paymentDate: withId?.payment_date ?? null,
+    recipientViewUrl: meta.recipient_view_url ?? meta.payer_view_url ?? null,
   };
+}
+
+// Cancels a sent invoice (the buyer's link stops working). A draft can't
+// be cancelled, only deleted, so fall back to DELETE when PayPal says
+// the invoice isn't in a cancellable state.
+export async function cancelInvoice(invoiceId: string): Promise<void> {
+  const token = await getPayPalAccessToken();
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+  const url = `${paypalBase()}/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}`;
+  const cancelRes = await fetch(`${url}/cancel`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ send_to_invoicer: false, send_to_recipient: false }),
+  });
+  if (cancelRes.ok) return;
+  const cancelDetail = await cancelRes.text().catch(() => "");
+  if (cancelRes.status === 422) {
+    const deleteRes = await fetch(url, { method: "DELETE", headers });
+    if (deleteRes.ok) return;
+    const deleteDetail = await deleteRes.text().catch(() => "");
+    throw new Error(
+      `PayPal invoice delete failed (${deleteRes.status}) ${deleteDetail.slice(0, 300)}`
+    );
+  }
+  throw new Error(
+    `PayPal invoice cancel failed (${cancelRes.status}) ${cancelDetail.slice(0, 300)}`
+  );
 }
 
 // The seller fee PayPal took on a transaction, via the Transaction Search

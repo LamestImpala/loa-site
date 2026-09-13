@@ -13,6 +13,7 @@ import {
   getTransactionFee,
   listTrackers,
   paypalConfigured,
+  PAID_STATUSES,
   type TrackerInput,
 } from "@/lib/paypal";
 
@@ -27,8 +28,6 @@ import {
 //
 // Credentials only exist server-side; Supabase writes go through the
 // caller's own token, so RLS still enforces the admin policy.
-
-const PAID_STATUSES = new Set(["PAID", "MARKED_AS_PAID", "PARTIALLY_PAID"]);
 
 type PushResult = {
   shipmentId: number;

@@ -4,15 +4,33 @@ import {
   ADMIN_EMAIL,
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
+  type Invoice,
 } from "@/lib/supabase";
 import { bundleBreakdown } from "@/lib/records";
-import { createAndSendInvoice, paypalConfigured } from "@/lib/paypal";
+import {
+  cancelInvoice,
+  createAndSendInvoice,
+  getInvoicePayment,
+  PAID_STATUSES,
+  paypalConfigured,
+} from "@/lib/paypal";
 
-// Creates and sends a PayPal invoice for a set of records claimed by a
-// Reddit buyer. PayPal credentials only exist server-side, so the admin
-// page calls this route instead of PayPal directly. Prices are re-read
-// from Supabase — the client only sends record ids.
-export async function POST(req: NextRequest) {
+// PayPal invoices for Reddit sales. PayPal credentials only exist
+// server-side, so the admin page calls this route instead of PayPal
+// directly. Supabase writes go through the caller's own token, so RLS
+// still enforces the admin policy.
+//
+//   POST   { ids, buyer, email? }  — create + send an invoice for a set of
+//     records, hold them for the buyer, and save a pending `invoices` row
+//     (with the payment link) so the order survives clearing the sale desk.
+//   GET    ?id=INV2-…              — read the invoice's status from PayPal
+//     and mirror it (status, payment link, paid_at) onto the row.
+//   DELETE ?id=INV2-…              — cancel the invoice on PayPal and
+//     release the records (stamp + hold cleared).
+
+const HOLD_HOURS = 48;
+
+async function adminClient(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     global: { headers: { Authorization: authHeader } },
@@ -21,7 +39,18 @@ export async function POST(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  if (!user || user.email !== ADMIN_EMAIL) return null;
+  return supabase;
+}
+
+function invoiceIdFrom(req: NextRequest): string | null {
+  const id = req.nextUrl.searchParams.get("id")?.trim() ?? "";
+  return /^[A-Z0-9-]{6,64}$/i.test(id) ? id : null;
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = await adminClient(req);
+  if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
 
@@ -97,23 +126,50 @@ export async function POST(req: NextRequest) {
       memo: `Reddit sale to u/${buyer}`,
       recipientEmail: email,
     });
+    const now = new Date().toISOString();
+    const holdUntil = new Date(Date.now() + HOLD_HOURS * 3600 * 1000).toISOString();
     // Link the records to the invoice so fulfillment can find the PayPal
-    // transaction later. Non-fatal: the invoice already exists.
+    // transaction later, and hold them for the buyer while they pay.
+    // Non-fatal: the invoice already exists.
     const { error: stampError } = await supabase
       .from("records")
       .update({
         paypal_invoice_id: result.invoiceId,
-        updated_at: new Date().toISOString(),
+        hold_buyer: buyer,
+        hold_until: holdUntil,
+        updated_at: now,
       })
       .in("id", ids);
     if (stampError) {
       console.error("paypal-invoice: failed to stamp invoice id:", stampError.message);
+    }
+    // The pending-order row: this is what the admin's Pending invoices
+    // panel lists, payment link included.
+    const row = {
+      paypal_invoice_id: result.invoiceId,
+      buyer_username: buyer,
+      recipient_view_url: result.recipientViewUrl,
+      status: result.status,
+      record_ids: ids,
+      total: breakdown.total,
+      updated_at: now,
+    };
+    const { data: saved, error: rowError } = await supabase
+      .from("invoices")
+      .upsert(row, { onConflict: "paypal_invoice_id" })
+      .select()
+      .single();
+    if (rowError) {
+      console.error("paypal-invoice: failed to save invoice row:", rowError.message);
     }
     const warning =
       [
         result.warning,
         stampError
           ? "Couldn't save the invoice id on the records — link it by hand in Fulfillment."
+          : null,
+        rowError
+          ? "Couldn't save the pending order — copy the payment link now; it won't be listed under Pending invoices."
           : null,
       ]
         .filter(Boolean)
@@ -122,6 +178,8 @@ export async function POST(req: NextRequest) {
       ...result,
       warning,
       invoiceStamped: !stampError,
+      holdUntil: stampError ? null : holdUntil,
+      invoice: rowError ? null : (saved as Invoice),
       subtotal: breakdown.subtotal,
       shipping: breakdown.shipping,
       total: breakdown.total,
@@ -129,6 +187,136 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // Surfaces PayPal's response body in the Vercel runtime logs
     console.error("paypal-invoice failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "PayPal request failed" },
+      { status: 502 }
+    );
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const supabase = await adminClient(req);
+  if (!supabase) {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+  if (!paypalConfigured()) {
+    return NextResponse.json(
+      { error: "PayPal credentials are not configured on the server" },
+      { status: 500 }
+    );
+  }
+  const id = invoiceIdFrom(req);
+  if (!id) {
+    return NextResponse.json({ error: "Invalid invoice id" }, { status: 400 });
+  }
+
+  try {
+    const payment = await getInvoicePayment(id);
+    const paid = PAID_STATUSES.has(payment.status);
+    const paidAt = paid
+      ? payment.paymentDate
+        ? new Date(payment.paymentDate).toISOString()
+        : new Date().toISOString()
+      : null;
+    const { data: existing } = await supabase
+      .from("invoices")
+      .select("recipient_view_url, paid_at")
+      .eq("paypal_invoice_id", id)
+      .maybeSingle();
+    const patch: Record<string, unknown> = {
+      paypal_invoice_id: id,
+      status: payment.status,
+      updated_at: new Date().toISOString(),
+    };
+    // Keep the first link and paid date we learned; PayPal's answer only
+    // fills gaps.
+    if (!existing?.recipient_view_url && payment.recipientViewUrl) {
+      patch.recipient_view_url = payment.recipientViewUrl;
+    }
+    if (paidAt && !existing?.paid_at) patch.paid_at = paidAt;
+    if (payment.shippingCharged != null) {
+      patch.shipping_charged = payment.shippingCharged;
+    }
+    const { data: saved, error } = await supabase
+      .from("invoices")
+      .upsert(patch, { onConflict: "paypal_invoice_id" })
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
+    }
+    return NextResponse.json({
+      status: payment.status,
+      paid,
+      paidAt: (saved as Invoice).paid_at,
+      recipientViewUrl: (saved as Invoice).recipient_view_url ?? null,
+      invoice: saved as Invoice,
+    });
+  } catch (e) {
+    console.error("paypal-invoice status failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "PayPal request failed" },
+      { status: 502 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const supabase = await adminClient(req);
+  if (!supabase) {
+    return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+  if (!paypalConfigured()) {
+    return NextResponse.json(
+      { error: "PayPal credentials are not configured on the server" },
+      { status: 500 }
+    );
+  }
+  const id = invoiceIdFrom(req);
+  if (!id) {
+    return NextResponse.json({ error: "Invalid invoice id" }, { status: 400 });
+  }
+
+  try {
+    // Never cancel something the buyer already paid.
+    const payment = await getInvoicePayment(id);
+    if (PAID_STATUSES.has(payment.status)) {
+      return NextResponse.json(
+        { error: `Invoice is ${payment.status} — it can't be cancelled.` },
+        { status: 409 }
+      );
+    }
+    if (payment.status !== "CANCELLED") await cancelInvoice(id);
+    const now = new Date().toISOString();
+    const { error: rowError } = await supabase
+      .from("invoices")
+      .upsert(
+        { paypal_invoice_id: id, status: "CANCELLED", cancelled_at: now, updated_at: now },
+        { onConflict: "paypal_invoice_id" }
+      );
+    if (rowError) {
+      return NextResponse.json({ error: rowError.message }, { status: 502 });
+    }
+    const { data: released, error: releaseError } = await supabase
+      .from("records")
+      .update({
+        paypal_invoice_id: null,
+        hold_buyer: null,
+        hold_until: null,
+        updated_at: now,
+      })
+      .eq("paypal_invoice_id", id)
+      .eq("sold", false)
+      .select("id");
+    if (releaseError) {
+      return NextResponse.json({ error: releaseError.message }, { status: 502 });
+    }
+    return NextResponse.json({
+      ok: true,
+      releasedIds: (released ?? []).map((r) => r.id),
+    });
+  } catch (e) {
+    console.error("paypal-invoice cancel failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "PayPal request failed" },
       { status: 502 }

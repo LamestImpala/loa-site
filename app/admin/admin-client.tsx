@@ -1896,6 +1896,19 @@ export default function AdminClient() {
       return;
     setSaleBusy("sold");
     try {
+      await markRecordsSold(targets, buyer);
+    } finally {
+      setSaleBusy(null);
+    }
+  }
+
+  // The shared mark-sold path: sale desk and a paid pending invoice both
+  // land here. Writes sold/price/buyer, clears holds, closes finished
+  // order requests, and offers the Discogs removal. No confirm — callers
+  // decide whether one is needed.
+  async function markRecordsSold(targets: DbRecord[], buyer: string) {
+    if (targets.length === 0) return;
+    try {
       const patches = new Map(
         targets.map((r) => [
           r.id,
@@ -1989,8 +2002,6 @@ export default function AdminClient() {
       }
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");
-    } finally {
-      setSaleBusy(null);
     }
   }
 
@@ -2035,20 +2046,27 @@ export default function AdminClient() {
         status: body.status,
         warning: body.warning,
       });
-      // The route stamps paypal_invoice_id on the records — mirror it locally
-      // so the fulfillment panel links up without a reload, but only when
-      // the stamp actually landed (otherwise the panel would show a link
-      // that vanishes on reload).
+      // The route stamps paypal_invoice_id + a 48h hold on the records —
+      // mirror it locally so the pending card and fulfillment panel link
+      // up without a reload, but only when the stamp actually landed
+      // (otherwise the panel would show a link that vanishes on reload).
       if (body.invoiceStamped !== false) {
         const invoicedIds = new Set(targets.map((r) => r.id));
         setRecords((prev) =>
           prev.map((r) =>
             invoicedIds.has(r.id)
-              ? { ...r, paypal_invoice_id: body.invoiceId }
+              ? {
+                  ...r,
+                  paypal_invoice_id: body.invoiceId,
+                  hold_buyer: buyer,
+                  hold_until: body.holdUntil ?? r.hold_until,
+                }
               : r
           )
         );
       }
+      // The saved pending-order row keeps the payment link after Clear.
+      if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
     } catch {
       setSaleStatus("Request failed");
     } finally {
@@ -2082,11 +2100,57 @@ export default function AdminClient() {
   const [saveParsedChecked, setSaveParsedChecked] = useState(true);
 
   // Orders in progress that have no inbox card: unsold records with an
-  // active hold, grouped per buyer.
+  // Invoices sent but not paid, each with the unsold records it covers.
+  // This is the durable "order in progress": it survives clearing the
+  // sale desk, and disappears once its records are marked sold (the
+  // group then shows up in Fulfillment) or the invoice is cancelled.
+  const pendingInvoices = useMemo(() => {
+    const byInvoice = new Map<string, DbRecord[]>();
+    for (const r of records) {
+      if (r.sold || !r.paypal_invoice_id) continue;
+      const list = byInvoice.get(r.paypal_invoice_id);
+      if (list) list.push(r);
+      else byInvoice.set(r.paypal_invoice_id, [r]);
+    }
+    return invoices
+      .filter((inv) => !inv.paid_at && inv.status !== "CANCELLED")
+      .map((inv) => {
+        // Prefer the live stamp; fall back to the ids saved at creation
+        // for invoices whose stamp never landed.
+        let recs = byInvoice.get(inv.paypal_invoice_id) ?? [];
+        if (recs.length === 0 && inv.record_ids?.length) {
+          recs = inv.record_ids
+            .map((id) => byId.get(id))
+            .filter((r): r is DbRecord => !!r && !r.sold);
+        }
+        const holdUntil = recs.reduce(
+          (max, r) =>
+            r.hold_until ? Math.max(max, new Date(r.hold_until).getTime()) : max,
+          0
+        );
+        return {
+          invoice: inv,
+          buyer: (inv.buyer_username ?? recs[0]?.hold_buyer ?? "").trim(),
+          recs,
+          totals: bundleBreakdown(recs),
+          holdUntil,
+        };
+      })
+      .filter((p) => p.recs.length > 0)
+      .sort((a, b) => b.invoice.created_at.localeCompare(a.invoice.created_at));
+  }, [invoices, records, byId]);
+  const pendingInvoiceIds = useMemo(
+    () => new Set(pendingInvoices.map((p) => p.invoice.paypal_invoice_id)),
+    [pendingInvoices]
+  );
+
+  // active hold, grouped per buyer. Records covered by a pending invoice
+  // are listed under that invoice instead, so an order shows once.
   const activeHolds = useMemo(() => {
     const groups = new Map<string, DbRecord[]>();
     for (const r of records) {
       if (r.sold || !holdActive(r)) continue;
+      if (r.paypal_invoice_id && pendingInvoiceIds.has(r.paypal_invoice_id)) continue;
       const buyer = (r.hold_buyer ?? "").trim() || "(no buyer name)";
       const list = groups.get(buyer);
       if (list) list.push(r);
@@ -2103,7 +2167,7 @@ export default function AdminClient() {
         ),
       }))
       .sort((a, b) => a.until - b.until);
-  }, [records]);
+  }, [records, pendingInvoiceIds]);
 
   // Replace the sale-desk selection (with confirmation when it differs),
   // open the Listings section, and scroll to the sticky bar.
@@ -2172,6 +2236,129 @@ export default function AdminClient() {
     setSaleBuyer((prev) =>
       prev.trim() || group.buyer.startsWith("(") ? prev : group.buyer
     );
+  }
+
+  // --- Pending invoices: sent-but-unpaid orders ---
+  const [pendingBusy, setPendingBusy] = useState<null | {
+    id: string;
+    action: "check" | "cancel";
+  }>(null);
+  const [pendingCopiedId, setPendingCopiedId] = useState<string | null>(null);
+
+  function upsertInvoiceLocal(inv: Invoice) {
+    setInvoices((prev) =>
+      prev.some((i) => i.paypal_invoice_id === inv.paypal_invoice_id)
+        ? prev.map((i) =>
+            i.paypal_invoice_id === inv.paypal_invoice_id ? { ...i, ...inv } : i
+          )
+        : [...prev, inv]
+    );
+  }
+
+  function loadPendingIntoSaleDesk(p: { buyer: string; recs: DbRecord[] }) {
+    if (!applySaleSelection(p.recs.map((r) => r.id))) return;
+    setSaleBuyer((prev) => (prev.trim() ? prev : p.buyer));
+  }
+
+  async function copyPendingLink(inv: Invoice) {
+    if (!inv.recipient_view_url) return;
+    if (await copyText(inv.recipient_view_url, "Copy the payment link")) {
+      setPendingCopiedId(inv.paypal_invoice_id);
+      setTimeout(() => setPendingCopiedId(null), 1600);
+    }
+  }
+
+  async function pendingInvoiceFetch(id: string, method: "GET" | "DELETE") {
+    const {
+      data: { session: current },
+    } = await supabase.auth.getSession();
+    const res = await fetch(
+      `/api/paypal-invoice?id=${encodeURIComponent(id)}`,
+      {
+        method,
+        headers: { Authorization: `Bearer ${current?.access_token ?? ""}` },
+      }
+    );
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+    return body;
+  }
+
+  // Ask PayPal where the invoice stands. Paid → the records are marked
+  // sold to the buyer right away and the order moves to Fulfillment.
+  async function checkPendingInvoice(p: {
+    invoice: Invoice;
+    buyer: string;
+    recs: DbRecord[];
+  }) {
+    const id = p.invoice.paypal_invoice_id;
+    if (pendingBusy) return;
+    setPendingBusy({ id, action: "check" });
+    try {
+      const body = await pendingInvoiceFetch(id, "GET");
+      if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
+      if (body.paid) {
+        pushToast(
+          "success",
+          `Invoice ${id} is ${body.status} ✓ — marking ${p.recs.length} record${p.recs.length === 1 ? "" : "s"} sold to u/${p.buyer || "?"}`
+        );
+        await markRecordsSold(p.recs, p.buyer);
+      } else {
+        pushToast(
+          "info",
+          `Invoice ${id}: not paid yet (${body.status}).${
+            body.recipientViewUrl && !p.invoice.recipient_view_url
+              ? " Payment link saved."
+              : ""
+          }`
+        );
+      }
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "PayPal check failed");
+    } finally {
+      setPendingBusy(null);
+    }
+  }
+
+  // Cancel on PayPal and put the records back on the shelf.
+  async function cancelPendingInvoice(p: {
+    invoice: Invoice;
+    buyer: string;
+    recs: DbRecord[];
+  }) {
+    const id = p.invoice.paypal_invoice_id;
+    if (pendingBusy) return;
+    if (
+      !window.confirm(
+        `Cancel invoice ${id}${p.buyer ? ` for u/${p.buyer}` : ""} on PayPal and release ${p.recs.length} record${p.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
+      )
+    )
+      return;
+    setPendingBusy({ id, action: "cancel" });
+    try {
+      const body = await pendingInvoiceFetch(id, "DELETE");
+      const released = new Set<number>(body.releasedIds ?? []);
+      const now = new Date().toISOString();
+      setInvoices((prev) =>
+        prev.map((i) =>
+          i.paypal_invoice_id === id
+            ? { ...i, status: "CANCELLED", cancelled_at: now, updated_at: now }
+            : i
+        )
+      );
+      setRecords((prev) =>
+        prev.map((r) =>
+          released.has(r.id)
+            ? { ...r, paypal_invoice_id: null, hold_buyer: null, hold_until: null }
+            : r
+        )
+      );
+      pushToast("success", `Invoice ${id} cancelled — ${released.size} record${released.size === 1 ? "" : "s"} released.`);
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Cancel failed");
+    } finally {
+      setPendingBusy(null);
+    }
   }
 
   // Track a paste-parsed order in the inbox like any buyer-submitted request.
@@ -3055,6 +3242,14 @@ export default function AdminClient() {
                             no username given
                           </span>
                         )}
+                        {req.record_ids.some((id) => {
+                          const inv = byId.get(id)?.paypal_invoice_id;
+                          return !!inv && pendingInvoiceIds.has(inv);
+                        }) ? (
+                          <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-300">
+                            invoice sent
+                          </span>
+                        ) : null}
                         <span className="ml-auto text-xs text-neutral-500">
                           {timeAgo(req.created_at)}
                         </span>
@@ -3122,6 +3317,129 @@ export default function AdminClient() {
                 })}
               </div>
             )}
+
+            {pendingInvoices.length > 0 ? (
+              <>
+                <h3 className="mt-8 text-lg font-medium">Pending invoices</h3>
+                <p className="mt-1 text-sm text-neutral-400">
+                  Invoices sent but not paid. Clear the sale desk freely —
+                  these stay here with the payment link. Check PayPal marks
+                  the records sold the moment it reports paid.
+                </p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {pendingInvoices.map((p) => {
+                    const inv = p.invoice;
+                    const id = inv.paypal_invoice_id;
+                    const busy = pendingBusy?.id === id ? pendingBusy.action : null;
+                    const hoursLeft = Math.round((p.holdUntil - Date.now()) / 3600000);
+                    const status = (inv.status ?? "SENT").toLowerCase();
+                    return (
+                      <div
+                        key={id}
+                        className="rounded-2xl border border-emerald-500/30 bg-white/5 p-4"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-white">
+                            {p.buyer ? `u/${p.buyer}` : "(no buyer name)"}
+                          </span>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-xs ${
+                              status === "draft"
+                                ? "border-white/15 text-neutral-400"
+                                : "border-emerald-500/40 text-emerald-300"
+                            }`}
+                          >
+                            invoice {status}
+                          </span>
+                          <span className="font-mono text-xs text-neutral-500">
+                            {id}
+                          </span>
+                          <span className="ml-auto text-xs text-neutral-500">
+                            {timeAgo(inv.created_at)}
+                            {" · "}
+                            {p.holdUntil > Date.now() ? (
+                              `~${hoursLeft}h hold left`
+                            ) : (
+                              <span className="text-amber-400">
+                                {p.holdUntil ? "hold expired" : "not on hold"}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <ul className="mt-3 space-y-1 text-sm">
+                          {p.recs.map((r) => (
+                            <li key={r.id}>
+                              {r.artist} — {r.title}{" "}
+                              <span className="text-neutral-500">
+                                {r.media}/{r.sleeve}
+                              </span>{" "}
+                              — ${r.price}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-sm text-neutral-400">
+                          Subtotal ${p.totals.subtotal} · Shipping $
+                          {p.totals.shipping} ·{" "}
+                          <span className="font-medium text-white">
+                            Total ${inv.total ?? p.totals.total}
+                          </span>
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {inv.recipient_view_url ? (
+                            <>
+                              <button
+                                type="button"
+                                className={buttonClass}
+                                onClick={() => copyPendingLink(inv)}
+                              >
+                                {pendingCopiedId === id
+                                  ? "Copied!"
+                                  : "Copy payment link"}
+                              </button>
+                              <a
+                                href={inv.recipient_view_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-neutral-400 underline hover:text-white"
+                              >
+                                Open ↗
+                              </a>
+                            </>
+                          ) : (
+                            <span className="text-xs text-neutral-500">
+                              No payment link saved — Check PayPal fetches it.
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            disabled={!!pendingBusy}
+                            onClick={() => checkPendingInvoice(p)}
+                          >
+                            {busy === "check" ? "Checking…" : "Check PayPal"}
+                          </button>
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            onClick={() => loadPendingIntoSaleDesk(p)}
+                          >
+                            Load into sale desk
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-neutral-500 underline transition hover:text-red-300 disabled:opacity-50"
+                            disabled={!!pendingBusy}
+                            onClick={() => cancelPendingInvoice(p)}
+                          >
+                            {busy === "cancel" ? "Cancelling…" : "Cancel invoice"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
 
             {activeHolds.length > 0 ? (
               <>
@@ -4020,6 +4338,9 @@ export default function AdminClient() {
                   {saleEmail.trim() && !saleInvoice.warning
                     ? " — PayPal also emailed the buyer."
                     : ""}
+                  {saleInvoice.warning
+                    ? ""
+                    : " Saved under Pending invoices — safe to Clear."}
                 </span>
                 {saleInvoice.url ? (
                   <>
