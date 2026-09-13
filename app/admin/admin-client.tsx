@@ -8,7 +8,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Session } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import {
   FREE_SHIPPING_MIN,
   LETTERS,
@@ -18,8 +19,6 @@ import {
   makeRefCode,
 } from "@/lib/records";
 import {
-  ADMIN_EMAIL,
-  getBrowserSupabase,
   type DbRecord,
   type Invoice,
   type MarketSnapshotRow,
@@ -32,7 +31,8 @@ import {
   type Shipment,
 } from "@/lib/supabase";
 import { FulfillmentPanel } from "./fulfillment-panel";
-import { PickemPanel } from "./pickem-panel";
+import { useAdminSession } from "./admin-gate";
+import { blurOnEnter, buttonClass, inputClass } from "./ui";
 import {
   extractRefCode,
   matchLines,
@@ -341,11 +341,6 @@ function detectCollection(rel: {
   return "";
 }
 
-const inputClass =
-  "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none";
-const buttonClass =
-  "rounded-lg border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white";
-
 function pct(n: number) {
   return `${n > 0 ? "+" : ""}${(n * 100).toFixed(1)}%`;
 }
@@ -356,7 +351,7 @@ const holdActive = (r: DbRecord) =>
 // Last week of snapshots, newest first — reduced by the caller to the
 // newest row per record (runs can skip a day). lowest_plausible arrives
 // with a migration; until it lands, fall back to the older column set.
-async function loadSnapshots(supabase: ReturnType<typeof getBrowserSupabase>) {
+async function loadSnapshots(supabase: SupabaseClient) {
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -403,11 +398,6 @@ type Toast = {
   action?: { label: string; onClick: () => void };
 };
 let toastSeq = 0;
-
-// Commit a blur-save field with the keyboard.
-function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
-  if (e.key === "Enter") e.currentTarget.blur();
-}
 
 // One local-calendar-day slice of shopper activity; "looked"/"asked" count
 // distinct anonymous sessions, "clicks" counts raw events. Days are bucketed
@@ -472,14 +462,9 @@ const OFF_MARKET_HIGH = 1.3;
 const OFF_MARKET_LOW = 0.6;
 
 export default function AdminClient() {
-  const supabase = getBrowserSupabase();
+  // Signed-in admin session, guaranteed by <AdminGate> in page.tsx.
+  const { supabase, session } = useAdminSession();
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [linkSent, setLinkSent] = useState(false);
-  const [authError, setAuthError] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [pwStatus, setPwStatus] = useState("");
 
@@ -548,9 +533,10 @@ export default function AdminClient() {
     () => {
       if (typeof window === "undefined") return new Set();
       try {
-        const saved = JSON.parse(
-          window.localStorage.getItem(COLLAPSED_SECTIONS_KEY) ?? "[]"
-        );
+        const raw = window.localStorage.getItem(COLLAPSED_SECTIONS_KEY);
+        // First visit: open just the inbox so the page reads as one task.
+        if (raw === null) return new Set(SECTIONS.filter((k) => k !== "requests"));
+        const saved = JSON.parse(raw);
         return new Set(
           (Array.isArray(saved) ? saved : []).filter(
             (k): k is SectionKey => (SECTIONS as readonly string[]).includes(k)
@@ -586,21 +572,19 @@ export default function AdminClient() {
 
   const allCollapsed = SECTIONS.every((k) => collapsedSections.has(k));
 
-  // Expand a section if needed, then scroll its heading under the jump nav.
-  const jumpToSection = useCallback(
+  // Show one section on its own: collapse the rest, then scroll its heading
+  // under the jump nav. The per-heading chevrons and "Expand all" still let
+  // several sections stay open side by side when that's useful.
+  const showOnly = useCallback(
     (key: SectionKey) => {
-      if (collapsedSections.has(key)) {
-        const next = new Set(collapsedSections);
-        next.delete(key);
-        setCollapsed(next);
-      }
+      setCollapsed(new Set(SECTIONS.filter((k) => k !== key)));
       setTimeout(() => {
         document
           .getElementById(`section-${key}`)
           ?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 50);
     },
-    [collapsedSections, setCollapsed]
+    [setCollapsed]
   );
 
   const pushToast = useCallback(
@@ -783,6 +767,8 @@ export default function AdminClient() {
     ];
     setSelectedIds(new Set(picks.map((r) => r.id)));
     setSelectionMode("weekly");
+    // The picks live in the listings table; take the seller there.
+    showOnly("listings");
   }
 
   const [weeklyCopied, setWeeklyCopied] = useState(false);
@@ -1027,19 +1013,6 @@ export default function AdminClient() {
     pushToast("success", `Deleted "${r.artist} — ${r.title}"`);
   }
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setSession(s);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, [supabase]);
-
-  const isAdmin = session?.user?.email === ADMIN_EMAIL;
-
   const loadData = useCallback(async () => {
     setLoadError("");
     setLoading(true);
@@ -1191,45 +1164,15 @@ export default function AdminClient() {
   }, [supabase, pushToast]);
 
   useEffect(() => {
-    if (isAdmin) loadData();
-  }, [isAdmin, loadData]);
+    loadData();
+  }, [loadData]);
 
   // Flag this browser so the owner's own shop browsing isn't tracked.
   useEffect(() => {
-    if (!isAdmin) return;
     try {
       localStorage.setItem("cr_no_track", "1");
     } catch {}
-  }, [isAdmin]);
-
-  async function sendMagicLink() {
-    setAuthError("");
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: window.location.origin + "/admin" },
-    });
-    if (error) setAuthError(error.message);
-    else setLinkSent(true);
-  }
-
-  async function signInWithPassword(e: React.FormEvent) {
-    e.preventDefault();
-    setAuthError("");
-    if (!password) {
-      setAuthError("Enter your password, or use the magic-link button.");
-      return;
-    }
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    if (error)
-      setAuthError(
-        error.message === "Invalid login credentials"
-          ? "Invalid login — if you haven't set a password yet, sign in with a magic link once and set one in the Account section."
-          : error.message
-      );
-  }
+  }, []);
 
   async function savePassword() {
     setPwStatus("");
@@ -1474,7 +1417,23 @@ export default function AdminClient() {
     }
   }
 
+  // Hiding is reversible, so it gets an Undo toast rather than a confirm.
+  async function toggleListed(r: DbRecord, listed: boolean) {
+    const ok = await updateRecord(r.id, { listed });
+    if (!ok || listed) return;
+    pushToast("info", `Hidden "${r.artist} — ${r.title}" from the shop`, {
+      label: "Undo",
+      onClick: () => updateRecord(r.id, { listed: true }),
+    });
+  }
+
   async function releaseHold(r: DbRecord) {
+    if (
+      !window.confirm(
+        `Release the hold on "${r.artist} — ${r.title}" for u/${r.hold_buyer}? It goes back on the shop immediately.`
+      )
+    )
+      return;
     await updateRecord(r.id, { hold_buyer: null, hold_until: null });
   }
 
@@ -2186,11 +2145,7 @@ export default function AdminClient() {
     }
     setSelectedIds(next);
     setSelectionMode("sale");
-    if (collapsedSections.has("listings")) {
-      const opened = new Set(collapsedSections);
-      opened.delete("listings");
-      setCollapsed(opened);
-    }
+    showOnly("listings");
     // The sticky bar only exists once the selection renders.
     setTimeout(() => {
       document
@@ -2682,90 +2637,6 @@ export default function AdminClient() {
     pushToast("success", `${label} ${value ? "on" : "off"} for ${ids.length} record${ids.length === 1 ? "" : "s"} ✓`);
   }
 
-  if (!authReady) {
-    return (
-      <main className="min-h-screen bg-black p-8 text-neutral-400">
-        Loading…
-      </main>
-    );
-  }
-
-  if (!session) {
-    return (
-      <main className="min-h-screen bg-black text-white">
-        <section className="mx-auto max-w-md px-4 py-24">
-          <h1 className="text-3xl font-semibold">Admin</h1>
-          <p className="mt-3 text-sm text-neutral-400">
-            Sign in with your password, or request a magic link.
-          </p>
-          {linkSent ? (
-            <p className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-neutral-300">
-              Check your inbox — a sign-in link is on its way. You can close
-              this tab.
-            </p>
-          ) : (
-            <form
-              onSubmit={signInWithPassword}
-              className="mt-6 flex flex-col gap-3"
-            >
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className={inputClass}
-              />
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className={inputClass}
-              />
-              <button type="submit" className={buttonClass}>
-                Sign in
-              </button>
-              <button
-                type="button"
-                onClick={sendMagicLink}
-                className="text-sm text-neutral-500 transition hover:text-white"
-              >
-                Email me a magic link instead
-              </button>
-              {authError ? (
-                <p className="text-sm text-red-400">{authError}</p>
-              ) : null}
-            </form>
-          )}
-        </section>
-      </main>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <main className="min-h-screen bg-black text-white">
-        <section className="mx-auto max-w-md px-4 py-24">
-          <h1 className="text-3xl font-semibold">Not authorized</h1>
-          <p className="mt-3 text-sm text-neutral-400">
-            Signed in as {session.user.email}, which doesn&apos;t have access
-            to this page.
-          </p>
-          <button
-            type="button"
-            onClick={() => supabase.auth.signOut()}
-            className={`mt-6 ${buttonClass}`}
-          >
-            Sign out
-          </button>
-        </section>
-      </main>
-    );
-  }
-
   return (
     <main className="min-h-screen bg-black text-white">
       <section className="mx-auto max-w-6xl px-4 py-12 md:px-8">
@@ -2792,6 +2663,13 @@ export default function AdminClient() {
             >
               {allCollapsed ? "Expand all" : "Collapse all"}
             </button>
+            <Link
+              href="/admin/pickem"
+              title="Pick'em jobs live on their own page"
+              className={buttonClass}
+            >
+              Pick&apos;em
+            </Link>
             <button
               type="button"
               onClick={() => supabase.auth.signOut()}
@@ -2823,12 +2701,12 @@ export default function AdminClient() {
         >
           {(
             [
-              ["reddit", "Reddit", 0],
               ["requests", "Requests", orderRequests.length],
-              ["fulfillment", "Fulfillment", draftParcelCount],
               ["pending", "Pending", pending.length],
-              ["add", "Add"],
               ["listings", "Listings", records.length],
+              ["fulfillment", "Fulfillment", draftParcelCount],
+              ["reddit", "Reddit"],
+              ["add", "Add"],
               ["runs", "Runs"],
               ["account", "Account"],
             ] as [SectionKey, string, number?][]
@@ -2836,8 +2714,14 @@ export default function AdminClient() {
             <button
               key={key}
               type="button"
-              onClick={() => jumpToSection(key)}
-              className={`rounded-lg border border-white/10 px-2.5 py-1 text-xs transition hover:bg-white hover:text-black ${
+              onClick={() => showOnly(key)}
+              aria-current={collapsedSections.has(key) ? undefined : "true"}
+              title="Show this section on its own"
+              className={`rounded-lg border px-2.5 py-1 text-xs transition hover:bg-white hover:text-black ${
+                collapsedSections.has(key)
+                  ? "border-white/10"
+                  : "border-white/40 bg-white/10"
+              } ${
                 key === "requests" && newRequestCount > 0
                   ? "text-amber-300"
                   : "text-neutral-300"
@@ -2959,222 +2843,6 @@ export default function AdminClient() {
             </div>
           </div>
         ) : null}
-
-        {/* Reddit tools */}
-        {sectionHeading("reddit", "Reddit tools", "mt-10 text-xl font-medium")}
-        {collapsedSections.has("reddit") ? null : (
-          <>
-        <p className="mt-1 text-sm text-neutral-400">
-          The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20: drops + scarce&rdquo;
-          (biggest recent price drops first, then highest Discogs want/have
-          ratio, scarcest breaking ties; a
-          weekly-post bar appears above the listings instead of the sale
-          desk) and adjust the checkboxes, or pick by hand. Each row shows
-          price, year, and grades, with the title linked to its Discogs
-          release. Copy, and the list is remembered so you can post an
-          update later with sold records crossed out (no price shown).
-          &ldquo;Copy Reddit table&rdquo; is still the full catalog.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={copyRedditTable} className={buttonClass}>
-            {tableCopied ? "Copied!" : "Copy Reddit table"}
-          </button>
-          <button
-            type="button"
-            onClick={randomizeWeeklyPicks}
-            className={buttonClass}
-            title="Selects up to 10 of the biggest price drops from the last two weeks, then fills to 20 with the highest Discogs want/have ratio, scarcest first on ties (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
-          >
-            Pick 20: drops + scarce
-          </button>
-          <button
-            type="button"
-            onClick={copyWeeklyPost}
-            className={buttonClass}
-            disabled={saleRecords.length === 0}
-            title="Builds the weekly post from the records selected in the listings table"
-          >
-            {weeklyCopied
-              ? "Copied!"
-              : `Copy weekly post (${saleRecords.length} selected)`}
-          </button>
-          <button
-            type="button"
-            onClick={copyUpdatePost}
-            className={buttonClass}
-            disabled={postedInfo.ids.length === 0}
-            title="Regenerates the last copied weekly post with sold records crossed out — paste over the live post's body"
-          >
-            {updateCopied
-              ? "Copied!"
-              : `Copy post update${
-                  postedInfo.ids.length
-                    ? ` (${postedInfo.ids.filter((id) => byId.get(id)?.sold).length} sold / ${postedInfo.ids.length} posted)`
-                    : ""
-                }`}
-          </button>
-        </div>
-        {saleRecords.length > 0 &&
-        (saleRecords.length < 10 || saleRecords.length > 20) ? (
-          <p className="mt-2 text-xs text-amber-400">
-            Tip: 10&ndash;20 records works well for a weekly post — you have{" "}
-            {saleRecords.length} selected.
-          </p>
-        ) : null}
-        {postedInfo.posted_at ? (
-          <p className="mt-2 text-xs text-neutral-500">
-            Current post: {postedInfo.ids.length} records, copied{" "}
-            {new Date(postedInfo.posted_at).toLocaleDateString()}.
-          </p>
-        ) : null}
-
-        <h3 className="mt-8 text-lg font-medium">Active Reddit post</h3>
-        <p className="mt-1 text-sm text-neutral-400">
-          Paste the URL of your current sale post. Buyers then get a
-          &ldquo;Comment on the post&rdquo; button that copies a &ldquo;Sent
-          you a DM&rdquo; comment and opens the post. Kept in sync
-          automatically when you save the URL on the newest archived post
-          below.
-        </p>
-        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
-          <input
-            type="url"
-            value={postUrl}
-            onChange={(e) => setPostUrl(e.target.value)}
-            placeholder="https://www.reddit.com/r/VinylCollectors/comments/…"
-            className={`flex-1 ${inputClass}`}
-          />
-          <button type="button" onClick={savePostUrl} className={buttonClass}>
-            {postUrlStatus === "saved" ? "Saved!" : "Save"}
-          </button>
-        </div>
-
-        <h3 className="mt-8 text-lg font-medium">Post archive</h3>
-        <p className="mt-1 text-sm text-neutral-400">
-          Every copied post lands here (r/VinylCollectors doesn&rsquo;t allow
-          deleting posts). After posting, paste the post&rsquo;s URL into its
-          row. When a new post goes up, use &ldquo;Copy retire body&rdquo; on
-          the older posts and paste it over their body on Reddit — it keeps
-          the original table, strikes out anything sold, and links readers to
-          the newest post.
-        </p>
-        {topLevelPosts.length === 0 ? (
-          <p className="mt-3 text-sm text-neutral-500">
-            No archived posts yet — the next post you copy will appear here.
-          </p>
-        ) : (
-          <div className="mt-3 flex max-w-3xl flex-col gap-3">
-            {topLevelPosts.map((post) => {
-              const isCurrent = post.id === newestPost?.id;
-              const soldCount = post.record_ids.filter(
-                (id) => byId.get(id)?.sold
-              ).length;
-              const updateCount = redditPosts.filter(
-                (p) => p.parent_id === post.id
-              ).length;
-              const urlDraft =
-                archiveUrlEdits[post.id] ?? post.reddit_url ?? "";
-              return (
-                <div
-                  key={post.id}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs uppercase tracking-wide text-neutral-300">
-                      {post.kind === "full" ? "Full catalog" : "Weekly"}
-                    </span>
-                    <span className="text-neutral-300">
-                      {new Date(post.created_at).toLocaleDateString()}
-                    </span>
-                    <span className="text-neutral-500">
-                      {post.record_ids.length} records
-                      {soldCount ? ` · ${soldCount} now sold` : ""}
-                      {updateCount
-                        ? ` · ${updateCount} update${updateCount === 1 ? "" : "s"}`
-                        : ""}
-                    </span>
-                    {isCurrent ? (
-                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">
-                        Current
-                      </span>
-                    ) : null}
-                    {post.retired_at ? (
-                      <span
-                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
-                        title={`Retire body copied ${new Date(post.retired_at).toLocaleDateString()}`}
-                      >
-                        Retired
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="url"
-                      value={urlDraft}
-                      onChange={(e) =>
-                        setArchiveUrlEdits((prev) => ({
-                          ...prev,
-                          [post.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="https://www.reddit.com/r/VinylCollectors/comments/…"
-                      className={`flex-1 ${inputClass}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => saveArchivedPostUrl(post)}
-                      className={buttonClass}
-                    >
-                      Save URL
-                    </button>
-                    {post.reddit_url ? (
-                      <a
-                        href={post.reddit_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`${buttonClass} text-center`}
-                      >
-                        Open ↗
-                      </a>
-                    ) : null}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => copyRetireBody(post)}
-                      className={buttonClass}
-                      disabled={isCurrent || !newestUrl}
-                      title={
-                        isCurrent
-                          ? "This is the current post — retire it after the next post goes up"
-                          : !newestUrl
-                            ? "Save the newest post's URL first so the banner has somewhere to point"
-                            : "Copies the outdated-post body — paste it over this post's body on Reddit"
-                      }
-                    >
-                      {archiveCopiedKey === `retire-${post.id}`
-                        ? "Copied!"
-                        : `Copy retire body${soldCount ? ` (${soldCount} sold)` : ""}`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => copyArchivedUpdateBody(post)}
-                      className={buttonClass}
-                      title="Copies this post's body with sold records crossed out — paste over the post's body on Reddit"
-                    >
-                      {archiveCopiedKey === `update-${post.id}`
-                        ? "Copied!"
-                        : "Copy update body"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-          </>
-        )}
 
         {/* Incoming order requests */}
         {sectionHeading(
@@ -3721,45 +3389,6 @@ export default function AdminClient() {
           </>
         )}
 
-        {/* Pick'em jobs: refresh lines, generate house picks */}
-        <PickemPanel supabase={supabase} />
-
-        {/* Fulfillment: parcels + tracking for sold records */}
-        {sectionHeading(
-          "fulfillment",
-          <>
-            Fulfillment{" "}
-            <span className="text-sm text-neutral-400">
-              ({draftParcelCount} parcel{draftParcelCount === 1 ? "" : "s"}{" "}
-              awaiting tracking)
-            </span>
-          </>,
-          "mt-10 text-xl font-medium"
-        )}
-        {collapsedSections.has("fulfillment") ? null : (
-          <FulfillmentPanel
-            records={records.filter((r) => r.sold)}
-            shipments={shipments}
-            invoices={invoices}
-            supabase={supabase}
-            onShipmentsChange={setShipments}
-            onInvoicesChange={setInvoices}
-            onRecordPatched={(id, patch) =>
-              setRecords((prev) =>
-                prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
-              )
-            }
-            getAccessToken={async () => {
-              const {
-                data: { session: current },
-              } = await supabase.auth.getSession();
-              return current?.access_token ?? "";
-            }}
-            copyText={copyText}
-            defaultThreadUrl={postUrl}
-          />
-        )}
-
         {/* Pending price approvals */}
         {sectionHeading(
           "pending",
@@ -3873,150 +3502,6 @@ export default function AdminClient() {
                 </div>
               ))}
             </div>
-          </>
-        )}
-
-        {/* Add record */}
-        {sectionHeading("add", "Add a record", "mt-12 text-xl font-medium")}
-        {collapsedSections.has("add") ? null : (
-          <>
-        <p className="mt-1 text-sm text-neutral-400">
-          Paste a Discogs release URL or ID and Fetch fills in the details and
-          cover art. Leave the price at 0 and tonight&apos;s run will set it to
-          85% of the Discogs suggested price for its grade.
-        </p>
-        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
-          <input
-            type="text"
-            value={newRelInput}
-            onChange={(e) => setNewRelInput(e.target.value)}
-            placeholder="https://www.discogs.com/release/16426854-…  or  16426854"
-            className={`flex-1 ${inputClass}`}
-          />
-          <button
-            type="button"
-            onClick={fetchReleaseDetails}
-            disabled={fetchingRelease}
-            className={buttonClass}
-          >
-            {fetchingRelease ? "Fetching…" : "Fetch"}
-          </button>
-        </div>
-        {addError ? (
-          <p className="mt-2 text-sm text-red-400">{addError}</p>
-        ) : null}
-        {draft ? (
-          <div className="mt-4 flex max-w-2xl flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex gap-4">
-              {draft.cover_image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={draft.cover_image}
-                  alt="Cover"
-                  className="h-24 w-24 rounded-lg object-cover"
-                />
-              ) : null}
-              <div className="flex flex-1 flex-col gap-2">
-                <input
-                  type="text"
-                  value={draft.artist}
-                  onChange={(e) => setDraft({ ...draft, artist: e.target.value })}
-                  placeholder="Artist"
-                  className={inputClass}
-                />
-                <input
-                  type="text"
-                  value={draft.title}
-                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="Title"
-                  className={inputClass}
-                />
-                <input
-                  type="text"
-                  value={draft.pressing}
-                  onChange={(e) =>
-                    setDraft({ ...draft, pressing: e.target.value })
-                  }
-                  placeholder="Pressing"
-                  className={inputClass}
-                />
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={draft.genres}
-                    onChange={(e) =>
-                      setDraft({ ...draft, genres: e.target.value })
-                    }
-                    placeholder="Genres (comma-separated)"
-                    className={`flex-1 ${inputClass}`}
-                  />
-                  <input
-                    type="text"
-                    value={draft.collection}
-                    onChange={(e) =>
-                      setDraft({ ...draft, collection: e.target.value })
-                    }
-                    placeholder="Collection (VMP…)"
-                    className={`w-36 ${inputClass}`}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                Media
-                <select
-                  value={draft.media}
-                  onChange={(e) => setDraft({ ...draft, media: e.target.value })}
-                  className={`${inputClass} [&>option]:bg-neutral-900`}
-                >
-                  {GRADES.map((g) => (
-                    <option key={g}>{g}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                Sleeve
-                <select
-                  value={draft.sleeve}
-                  onChange={(e) =>
-                    setDraft({ ...draft, sleeve: e.target.value })
-                  }
-                  className={`${inputClass} [&>option]:bg-neutral-900`}
-                >
-                  {GRADES.map((g) => (
-                    <option key={g}>{g}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                $
-                <input
-                  type="number"
-                  min="0"
-                  value={draft.price}
-                  onChange={(e) => setDraft({ ...draft, price: e.target.value })}
-                  className={`w-24 ${inputClass}`}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={addRecord}
-                disabled={addingRecord}
-                className={buttonClass}
-              >
-                {addingRecord ? "Adding…" : "Add record"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDraft(null)}
-                className="text-sm text-neutral-500 transition hover:text-white"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : null}
           </>
         )}
 
@@ -4791,9 +4276,7 @@ export default function AdminClient() {
                         type="checkbox"
                         checked={r.listed}
                         disabled={savingId === r.id}
-                        onChange={(e) =>
-                          updateRecord(r.id, { listed: e.target.checked })
-                        }
+                        onChange={(e) => toggleListed(r, e.target.checked)}
                         className="admin-checkbox"
                       />
                     </td>
@@ -4875,7 +4358,7 @@ export default function AdminClient() {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => jumpToSection("fulfillment")}
+                                onClick={() => showOnly("fulfillment")}
                                 title="Tracking numbers are managed per parcel in the Fulfillment section"
                                 className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                               >
@@ -4892,7 +4375,14 @@ export default function AdminClient() {
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => removeFromDiscogs(r)}
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        `Remove "${r.artist} — ${r.title}" from your Discogs collection? This can't be undone from here.`
+                                      )
+                                    )
+                                      removeFromDiscogs(r);
+                                  }}
                                   className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
                                 >
                                   Remove from Discogs collection
@@ -4978,6 +4468,402 @@ export default function AdminClient() {
             </tbody>
           </table>
         </div>
+          </>
+        )}
+
+        {/* Fulfillment: parcels + tracking for sold records */}
+        {sectionHeading(
+          "fulfillment",
+          <>
+            Fulfillment{" "}
+            <span className="text-sm text-neutral-400">
+              ({draftParcelCount} parcel{draftParcelCount === 1 ? "" : "s"}{" "}
+              awaiting tracking)
+            </span>
+          </>,
+          "mt-10 text-xl font-medium"
+        )}
+        {collapsedSections.has("fulfillment") ? null : (
+          <FulfillmentPanel
+            records={records.filter((r) => r.sold)}
+            shipments={shipments}
+            invoices={invoices}
+            supabase={supabase}
+            onShipmentsChange={setShipments}
+            onInvoicesChange={setInvoices}
+            onRecordPatched={(id, patch) =>
+              setRecords((prev) =>
+                prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
+              )
+            }
+            getAccessToken={async () => {
+              const {
+                data: { session: current },
+              } = await supabase.auth.getSession();
+              return current?.access_token ?? "";
+            }}
+            copyText={copyText}
+            defaultThreadUrl={postUrl}
+          />
+        )}
+
+        {/* Reddit tools */}
+        {sectionHeading("reddit", "Reddit tools", "mt-12 text-xl font-medium")}
+        {collapsedSections.has("reddit") ? null : (
+          <>
+        <p className="mt-1 text-sm text-neutral-400">
+          The weekly post uses the records ticked in the listings table&rsquo;s
+          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20: drops + scarce&rdquo;
+          (biggest recent price drops first, then highest Discogs want/have
+          ratio, scarcest breaking ties; a
+          weekly-post bar appears above the listings instead of the sale
+          desk) and adjust the checkboxes, or pick by hand. Each row shows
+          price, year, and grades, with the title linked to its Discogs
+          release. Copy, and the list is remembered so you can post an
+          update later with sold records crossed out (no price shown).
+          &ldquo;Copy Reddit table&rdquo; is still the full catalog.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={copyRedditTable} className={buttonClass}>
+            {tableCopied ? "Copied!" : "Copy Reddit table"}
+          </button>
+          <button
+            type="button"
+            onClick={randomizeWeeklyPicks}
+            className={buttonClass}
+            title="Selects up to 10 of the biggest price drops from the last two weeks, then fills to 20 with the highest Discogs want/have ratio, scarcest first on ties (skips sold, on-hold, and last week's picks) — adjust with the Sel checkboxes"
+          >
+            Pick 20: drops + scarce
+          </button>
+          <button
+            type="button"
+            onClick={copyWeeklyPost}
+            className={buttonClass}
+            disabled={saleRecords.length === 0}
+            title="Builds the weekly post from the records selected in the listings table"
+          >
+            {weeklyCopied
+              ? "Copied!"
+              : `Copy weekly post (${saleRecords.length} selected)`}
+          </button>
+          <button
+            type="button"
+            onClick={copyUpdatePost}
+            className={buttonClass}
+            disabled={postedInfo.ids.length === 0}
+            title="Regenerates the last copied weekly post with sold records crossed out — paste over the live post's body"
+          >
+            {updateCopied
+              ? "Copied!"
+              : `Copy post update${
+                  postedInfo.ids.length
+                    ? ` (${postedInfo.ids.filter((id) => byId.get(id)?.sold).length} sold / ${postedInfo.ids.length} posted)`
+                    : ""
+                }`}
+          </button>
+        </div>
+        {saleRecords.length > 0 &&
+        (saleRecords.length < 10 || saleRecords.length > 20) ? (
+          <p className="mt-2 text-xs text-amber-400">
+            Tip: 10&ndash;20 records works well for a weekly post — you have{" "}
+            {saleRecords.length} selected.
+          </p>
+        ) : null}
+        {postedInfo.posted_at ? (
+          <p className="mt-2 text-xs text-neutral-500">
+            Current post: {postedInfo.ids.length} records, copied{" "}
+            {new Date(postedInfo.posted_at).toLocaleDateString()}.
+          </p>
+        ) : null}
+
+        <h3 className="mt-8 text-lg font-medium">Active Reddit post</h3>
+        <p className="mt-1 text-sm text-neutral-400">
+          Paste the URL of your current sale post. Buyers then get a
+          &ldquo;Comment on the post&rdquo; button that copies a &ldquo;Sent
+          you a DM&rdquo; comment and opens the post. Kept in sync
+          automatically when you save the URL on the newest archived post
+          below.
+        </p>
+        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
+          <input
+            type="url"
+            value={postUrl}
+            onChange={(e) => setPostUrl(e.target.value)}
+            placeholder="https://www.reddit.com/r/VinylCollectors/comments/…"
+            className={`flex-1 ${inputClass}`}
+          />
+          <button type="button" onClick={savePostUrl} className={buttonClass}>
+            {postUrlStatus === "saved" ? "Saved!" : "Save"}
+          </button>
+        </div>
+
+        <h3 className="mt-8 text-lg font-medium">Post archive</h3>
+        <p className="mt-1 text-sm text-neutral-400">
+          Every copied post lands here (r/VinylCollectors doesn&rsquo;t allow
+          deleting posts). After posting, paste the post&rsquo;s URL into its
+          row. When a new post goes up, use &ldquo;Copy retire body&rdquo; on
+          the older posts and paste it over their body on Reddit — it keeps
+          the original table, strikes out anything sold, and links readers to
+          the newest post.
+        </p>
+        {topLevelPosts.length === 0 ? (
+          <p className="mt-3 text-sm text-neutral-500">
+            No archived posts yet — the next post you copy will appear here.
+          </p>
+        ) : (
+          <div className="mt-3 flex max-w-3xl flex-col gap-3">
+            {topLevelPosts.map((post) => {
+              const isCurrent = post.id === newestPost?.id;
+              const soldCount = post.record_ids.filter(
+                (id) => byId.get(id)?.sold
+              ).length;
+              const updateCount = redditPosts.filter(
+                (p) => p.parent_id === post.id
+              ).length;
+              const urlDraft =
+                archiveUrlEdits[post.id] ?? post.reddit_url ?? "";
+              return (
+                <div
+                  key={post.id}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs uppercase tracking-wide text-neutral-300">
+                      {post.kind === "full" ? "Full catalog" : "Weekly"}
+                    </span>
+                    <span className="text-neutral-300">
+                      {new Date(post.created_at).toLocaleDateString()}
+                    </span>
+                    <span className="text-neutral-500">
+                      {post.record_ids.length} records
+                      {soldCount ? ` · ${soldCount} now sold` : ""}
+                      {updateCount
+                        ? ` · ${updateCount} update${updateCount === 1 ? "" : "s"}`
+                        : ""}
+                    </span>
+                    {isCurrent ? (
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">
+                        Current
+                      </span>
+                    ) : null}
+                    {post.retired_at ? (
+                      <span
+                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+                        title={`Retire body copied ${new Date(post.retired_at).toLocaleDateString()}`}
+                      >
+                        Retired
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="url"
+                      value={urlDraft}
+                      onChange={(e) =>
+                        setArchiveUrlEdits((prev) => ({
+                          ...prev,
+                          [post.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="https://www.reddit.com/r/VinylCollectors/comments/…"
+                      className={`flex-1 ${inputClass}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveArchivedPostUrl(post)}
+                      className={buttonClass}
+                    >
+                      Save URL
+                    </button>
+                    {post.reddit_url ? (
+                      <a
+                        href={post.reddit_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`${buttonClass} text-center`}
+                      >
+                        Open ↗
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyRetireBody(post)}
+                      className={buttonClass}
+                      disabled={isCurrent || !newestUrl}
+                      title={
+                        isCurrent
+                          ? "This is the current post — retire it after the next post goes up"
+                          : !newestUrl
+                            ? "Save the newest post's URL first so the banner has somewhere to point"
+                            : "Copies the outdated-post body — paste it over this post's body on Reddit"
+                      }
+                    >
+                      {archiveCopiedKey === `retire-${post.id}`
+                        ? "Copied!"
+                        : `Copy retire body${soldCount ? ` (${soldCount} sold)` : ""}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyArchivedUpdateBody(post)}
+                      className={buttonClass}
+                      title="Copies this post's body with sold records crossed out — paste over the post's body on Reddit"
+                    >
+                      {archiveCopiedKey === `update-${post.id}`
+                        ? "Copied!"
+                        : "Copy update body"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+          </>
+        )}
+
+        {/* Add record */}
+        {sectionHeading("add", "Add a record", "mt-12 text-xl font-medium")}
+        {collapsedSections.has("add") ? null : (
+          <>
+        <p className="mt-1 text-sm text-neutral-400">
+          Paste a Discogs release URL or ID and Fetch fills in the details and
+          cover art. Leave the price at 0 and tonight&apos;s run will set it to
+          85% of the Discogs suggested price for its grade.
+        </p>
+        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
+          <input
+            type="text"
+            value={newRelInput}
+            onChange={(e) => setNewRelInput(e.target.value)}
+            placeholder="https://www.discogs.com/release/16426854-…  or  16426854"
+            className={`flex-1 ${inputClass}`}
+          />
+          <button
+            type="button"
+            onClick={fetchReleaseDetails}
+            disabled={fetchingRelease}
+            className={buttonClass}
+          >
+            {fetchingRelease ? "Fetching…" : "Fetch"}
+          </button>
+        </div>
+        {addError ? (
+          <p className="mt-2 text-sm text-red-400">{addError}</p>
+        ) : null}
+        {draft ? (
+          <div className="mt-4 flex max-w-2xl flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex gap-4">
+              {draft.cover_image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={draft.cover_image}
+                  alt="Cover"
+                  className="h-24 w-24 rounded-lg object-cover"
+                />
+              ) : null}
+              <div className="flex flex-1 flex-col gap-2">
+                <input
+                  type="text"
+                  value={draft.artist}
+                  onChange={(e) => setDraft({ ...draft, artist: e.target.value })}
+                  placeholder="Artist"
+                  className={inputClass}
+                />
+                <input
+                  type="text"
+                  value={draft.title}
+                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                  placeholder="Title"
+                  className={inputClass}
+                />
+                <input
+                  type="text"
+                  value={draft.pressing}
+                  onChange={(e) =>
+                    setDraft({ ...draft, pressing: e.target.value })
+                  }
+                  placeholder="Pressing"
+                  className={inputClass}
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={draft.genres}
+                    onChange={(e) =>
+                      setDraft({ ...draft, genres: e.target.value })
+                    }
+                    placeholder="Genres (comma-separated)"
+                    className={`flex-1 ${inputClass}`}
+                  />
+                  <input
+                    type="text"
+                    value={draft.collection}
+                    onChange={(e) =>
+                      setDraft({ ...draft, collection: e.target.value })
+                    }
+                    placeholder="Collection (VMP…)"
+                    className={`w-36 ${inputClass}`}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-neutral-400">
+                Media
+                <select
+                  value={draft.media}
+                  onChange={(e) => setDraft({ ...draft, media: e.target.value })}
+                  className={`${inputClass} [&>option]:bg-neutral-900`}
+                >
+                  {GRADES.map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-400">
+                Sleeve
+                <select
+                  value={draft.sleeve}
+                  onChange={(e) =>
+                    setDraft({ ...draft, sleeve: e.target.value })
+                  }
+                  className={`${inputClass} [&>option]:bg-neutral-900`}
+                >
+                  {GRADES.map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-400">
+                $
+                <input
+                  type="number"
+                  min="0"
+                  value={draft.price}
+                  onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+                  className={`w-24 ${inputClass}`}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={addRecord}
+                disabled={addingRecord}
+                className={buttonClass}
+              >
+                {addingRecord ? "Adding…" : "Add record"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft(null)}
+                className="text-sm text-neutral-500 transition hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
           </>
         )}
 

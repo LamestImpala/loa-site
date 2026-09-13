@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DbRecord, Invoice, Shipment } from "@/lib/supabase";
+import { blurOnEnter, buttonClass, inputClass } from "./ui";
 
 /*
  * Fulfillment: sold records grouped by buyer, split into parcels
@@ -22,10 +23,6 @@ import type { DbRecord, Invoice, Shipment } from "@/lib/supabase";
  * transaction page). They feed the Net stats tile and the tax records.
  */
 
-const inputClass =
-  "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none";
-const buttonClass =
-  "rounded-lg border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white";
 const smallButtonClass =
   "rounded-md border border-white/15 px-2 py-1 text-xs text-neutral-300 transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-300";
 
@@ -627,6 +624,12 @@ export function FulfillmentPanel({
   async function pushToPayPal(list: Shipment[], noteKey: string) {
     const ids = list.map((s) => s.id);
     if (ids.length === 0 || busy) return;
+    if (
+      !window.confirm(
+        `Push ${ids.length} tracking number${ids.length === 1 ? "" : "s"} to PayPal? PayPal emails the buyer a shipping notification.`
+      )
+    )
+      return;
     setBusy(noteKey);
     note(noteKey, "Pushing…");
     try {
@@ -821,6 +824,7 @@ export function FulfillmentPanel({
                       }))
                     }
                     onBlur={() => saveInvoiceId(g)}
+                    onKeyDown={blurOnEnter}
                     placeholder="PayPal invoice id (INV2-…)"
                     className={`w-64 ${inputClass}`}
                   />
@@ -886,6 +890,7 @@ export function FulfillmentPanel({
                           }))
                         }
                         onBlur={() => saveThreadUrl(g)}
+                        onKeyDown={blurOnEnter}
                         placeholder="confirmation thread URL (this sale)"
                         title="Used instead of the saved sale-post URL for this sale — e.g. when it came from a weekly post. Blank = default."
                         className={`w-72 ${inputClass}`}
@@ -904,6 +909,7 @@ export function FulfillmentPanel({
                           }))
                         }
                         onBlur={() => saveInvoiceCost(g, "paypal_fee")}
+                        onKeyDown={blurOnEnter}
                         placeholder="PayPal fee $"
                         title="PayPal's transaction fee, from the transaction details page — a deductible cost"
                         className={`w-28 ${inputClass}`}
@@ -918,6 +924,7 @@ export function FulfillmentPanel({
                           }))
                         }
                         onBlur={() => saveInvoiceCost(g, "shipping_charged")}
+                        onKeyDown={blurOnEnter}
                         placeholder="shipping charged $"
                         title="Shipping the buyer paid on this invoice — counted as income in the Net stat"
                         className={`w-36 ${inputClass}`}
@@ -1056,6 +1063,7 @@ export function FulfillmentPanel({
                             }))
                           }
                           onBlur={() => saveTracking(s)}
+                          onKeyDown={blurOnEnter}
                           placeholder="tracking #"
                           className={`w-56 ${inputClass}`}
                         />
@@ -1089,6 +1097,7 @@ export function FulfillmentPanel({
                             }))
                           }
                           onBlur={() => savePostage(s)}
+                          onKeyDown={blurOnEnter}
                           placeholder="postage $"
                           title="What this label cost — a deductible cost, feeds the Net stat"
                           className={`w-28 ${inputClass}`}
