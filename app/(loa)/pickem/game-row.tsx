@@ -47,6 +47,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
   const mlRes = grade(mlPick);
   const h = g.house;
 
+  const showHouse = () => onToggleExpand(g.id);
   const toggle = (
     <button
       type="button"
@@ -79,7 +80,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           main={fmtSpread(spreadAway)} sub={fmtPrice(g.best.spread_away?.price)}
           book={bookCode(g.best.spread_away?.book)} bookTitle={g.best.spread_away?.book}
           moved={move(g.open_spread_home == null ? null : -g.open_spread_home, spreadAway, fmtSpread)}
-          house={h?.spread.pick === "away" ? h.spread.confidence : undefined}
+          house={h?.spread.pick === "away" ? h.spread.confidence : undefined} why={h?.spread.why} onShowHouse={showHouse}
           result={spreadPick?.selection === "away" ? spreadRes : null}
           on={spreadPick?.selection === "away"} label={`${away} ${fmtSpread(spreadAway)}`}
         />
@@ -88,7 +89,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           main={`O ${g.total ?? "—"}`} sub={fmtPrice(g.best.over?.price)}
           book={bookCode(g.best.over?.book)} bookTitle={g.best.over?.book}
           moved={move(g.open_total, g.total, (v) => `${v}`)}
-          house={h?.total.pick === "over" ? h.total.confidence : undefined}
+          house={h?.total.pick === "over" ? h.total.confidence : undefined} why={h?.total.why} onShowHouse={showHouse}
           result={totalPick?.selection === "over" ? totalRes : null}
           on={totalPick?.selection === "over"} label={`Over ${g.total ?? ""}`}
         />
@@ -97,7 +98,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           main={fmtPrice(g.ml_away)} sub={g.best.ml_away ? fmtPrice(g.best.ml_away.price) : undefined}
           book={bookCode(g.best.ml_away?.book)} bookTitle={g.best.ml_away?.book}
           moved={move(g.open_ml_away, g.ml_away, fmtPrice)}
-          house={h?.ml.pick === "away" ? h.ml.confidence : undefined}
+          house={h?.ml.pick === "away" ? h.ml.confidence : undefined} why={h?.ml.why} onShowHouse={showHouse}
           result={mlPick?.selection === "away" ? mlRes : null}
           on={mlPick?.selection === "away"} label={`${away} moneyline ${fmtPrice(g.ml_away)}`}
         />
@@ -108,7 +109,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           main={fmtSpread(g.spread_home)} sub={fmtPrice(g.best.spread_home?.price)}
           book={bookCode(g.best.spread_home?.book)} bookTitle={g.best.spread_home?.book}
           moved={move(g.open_spread_home, g.spread_home, fmtSpread)}
-          house={h?.spread.pick === "home" ? h.spread.confidence : undefined}
+          house={h?.spread.pick === "home" ? h.spread.confidence : undefined} why={h?.spread.why} onShowHouse={showHouse}
           result={spreadPick?.selection === "home" ? spreadRes : null}
           on={spreadPick?.selection === "home"} label={`${home} ${fmtSpread(g.spread_home)}`}
         />
@@ -117,7 +118,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           main={`U ${g.total ?? "—"}`} sub={fmtPrice(g.best.under?.price)}
           book={bookCode(g.best.under?.book)} bookTitle={g.best.under?.book}
           moved={move(g.open_total, g.total, (v) => `${v}`)}
-          house={h?.total.pick === "under" ? h.total.confidence : undefined}
+          house={h?.total.pick === "under" ? h.total.confidence : undefined} why={h?.total.why} onShowHouse={showHouse}
           result={totalPick?.selection === "under" ? totalRes : null}
           on={totalPick?.selection === "under"} label={`Under ${g.total ?? ""}`}
         />
@@ -126,7 +127,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           main={fmtPrice(g.ml_home)} sub={g.best.ml_home ? fmtPrice(g.best.ml_home.price) : undefined}
           book={bookCode(g.best.ml_home?.book)} bookTitle={g.best.ml_home?.book}
           moved={move(g.open_ml_home, g.ml_home, fmtPrice)}
-          house={h?.ml.pick === "home" ? h.ml.confidence : undefined}
+          house={h?.ml.pick === "home" ? h.ml.confidence : undefined} why={h?.ml.why} onShowHouse={showHouse}
           result={mlPick?.selection === "home" ? mlRes : null}
           on={mlPick?.selection === "home"} label={`${home} moneyline ${fmtPrice(g.ml_home)}`}
         />
