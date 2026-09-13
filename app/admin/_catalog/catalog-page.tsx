@@ -14,7 +14,7 @@ import {
   type InterestFilter,
   type SortKey,
 } from "@/lib/admin/catalog-filter";
-import { useAdmin } from "../_shell/admin-provider";
+import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { blurOnEnter, buttonClass, inputClass, pct } from "../_shell/ui";
 
 const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
@@ -87,6 +87,11 @@ export function CatalogPage() {
   // back button leaves the catalog rather than walking through records.
   const searchParams = useSearchParams();
   const openId = Number(searchParams.get("record")) || null;
+  // Interest counts and Discogs context feed the table; raw events only
+  // matter once a drawer opens (its day-by-day history).
+  useSlice("interest");
+  useSlice("market");
+  useSlice("events", openId != null);
   const openRecord = useMemo(
     () => (openId == null ? null : records.find((r) => r.id === openId) ?? null),
     [records, openId]

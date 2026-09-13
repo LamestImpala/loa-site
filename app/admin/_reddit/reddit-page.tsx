@@ -11,7 +11,7 @@ import {
   redditUpdateMarkdown,
   redditWeeklyMarkdown,
 } from "@/lib/admin/reddit";
-import { useAdmin } from "../_shell/admin-provider";
+import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { buttonClass, inputClass, useCopied } from "../_shell/ui";
 
 // Reddit tools: copy the full-catalog post, build the weekly picks post
@@ -35,6 +35,8 @@ export function RedditPage() {
     copyText,
   } = useAdmin();
 
+  useSlice("market");
+  const archiveStatus = useSlice("redditPosts");
   const byId = useMemo(
     () => new Map(records.map((r) => [r.id, r])),
     [records]
@@ -401,7 +403,9 @@ export function RedditPage() {
         </p>
         {topLevelPosts.length === 0 ? (
           <p className="mt-3 text-sm text-neutral-500">
-            No archived posts yet — the next post you copy will appear here.
+            {archiveStatus === "loading"
+              ? "Loading…"
+              : "No archived posts yet — the next post you copy will appear here."}
           </p>
         ) : (
           <div className="mt-3 flex max-w-3xl flex-col gap-3">

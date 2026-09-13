@@ -16,7 +16,7 @@ import {
 } from "@/lib/order-parse";
 import { recentDays } from "@/lib/admin/interest";
 import { activeHoldGroups, pendingInvoiceGroups } from "@/lib/admin/sales";
-import { useAdmin } from "../_shell/admin-provider";
+import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
 
@@ -55,6 +55,7 @@ export function InboxPage() {
     clearSelection,
   } = useAdmin();
 
+  useSlice("events");
   const dailyStrip = useMemo(() => recentDays(events), [events]);
   const stripMax = Math.max(1, ...dailyStrip.map((d) => d.looked));
 

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -40,6 +41,26 @@ import type { Toast } from "./ui";
 export type PostedInfo = { ids: number[]; posted_at: string | null };
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
+// Tables only some pages need. They load the first time a page asks
+// (useSlice), so the inbox opens without the 5,000-row events query or
+// a week of market snapshots; Refresh reloads whatever has been asked for.
+export type SliceName =
+  | "pending"
+  | "runs"
+  | "interest"
+  | "events"
+  | "market"
+  | "redditPosts";
+export type SliceStatus = "idle" | "loading" | "loaded" | "error";
+const SLICE_NAMES: SliceName[] = [
+  "pending",
+  "runs",
+  "interest",
+  "events",
+  "market",
+  "redditPosts",
+];
+
 type AdminContextValue = {
   supabase: SupabaseClient;
   session: Session;
@@ -70,6 +91,8 @@ type AdminContextValue = {
   loadError: string;
   setLoadError: Setter<string>;
   loadData: () => Promise<void>;
+  sliceStatus: Record<SliceName, SliceStatus>;
+  ensureSlice: (name: SliceName) => void;
 
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], text: string, action?: Toast["action"]) => void;
@@ -117,6 +140,17 @@ export function useAdmin(): AdminContextValue {
   const ctx = useContext(AdminContext);
   if (!ctx) throw new Error("useAdmin must be used inside <AdminProvider>");
   return ctx;
+}
+
+// Ask for a lazily-loaded table from a page; returns its load state so the
+// page can show "Loading…" instead of an empty state. `when` defers the
+// request (e.g. events only once a drawer opens).
+export function useSlice(name: SliceName, when = true): SliceStatus {
+  const { sliceStatus, ensureSlice } = useAdmin();
+  useEffect(() => {
+    if (when) ensureSlice(name);
+  }, [name, when, ensureSlice]);
+  return sliceStatus[name];
 }
 
 let toastSeq = 0;
@@ -208,72 +242,132 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     return current?.access_token ?? "";
   }, [supabase]);
 
+  // --- Lazy slices ---
+  const [sliceStatus, setSliceStatus] = useState<Record<SliceName, SliceStatus>>(
+    () =>
+      Object.fromEntries(SLICE_NAMES.map((n) => [n, "idle"])) as Record<
+        SliceName,
+        SliceStatus
+      >
+  );
+  // Slices some page has asked for; Refresh reloads exactly these.
+  const requestedSlices = useRef<Set<SliceName>>(new Set());
+
+  const loadSlice = useCallback(
+    async (name: SliceName) => {
+      setSliceStatus((prev) => ({ ...prev, [name]: "loading" }));
+      const fail = (what: string, message: string) => {
+        setSliceStatus((prev) => ({ ...prev, [name]: "error" }));
+        pushToast("error", `${what} didn't load: ${message}`);
+      };
+      const ok = () =>
+        setSliceStatus((prev) => ({ ...prev, [name]: "loaded" }));
+      switch (name) {
+        case "pending": {
+          const res = await supabase
+            .from("pending_price_changes")
+            .select("*, records(artist, title, pressing, price)")
+            .eq("status", "pending")
+            .order("created_at", { ascending: false });
+          if (res.error) return fail("Pending price changes", res.error.message);
+          setPending((res.data ?? []) as PendingPriceChange[]);
+          return ok();
+        }
+        case "runs": {
+          const res = await supabase
+            .from("price_runs")
+            .select("*")
+            .order("ran_at", { ascending: false })
+            .limit(14);
+          if (res.error) return fail("Price runs", res.error.message);
+          setRuns((res.data ?? []) as PriceRun[]);
+          return ok();
+        }
+        case "interest": {
+          const res = await supabase.from("record_interest").select("*");
+          if (res.error) return fail("Interest data", res.error.message);
+          setInterest(
+            Object.fromEntries(
+              ((res.data ?? []) as RecordInterest[]).map((x) => [x.record_id, x])
+            )
+          );
+          return ok();
+        }
+        case "events": {
+          const res = await supabase
+            .from("record_events")
+            .select("record_id,event_type,session_id,created_at")
+            .gte(
+              "created_at",
+              new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+            )
+            .order("created_at", { ascending: false })
+            .limit(5000);
+          if (res.error) return fail("Interest history", res.error.message);
+          setEvents((res.data ?? []) as RecordEventRow[]);
+          return ok();
+        }
+        case "market": {
+          // Without market data, picks fall back to random order and the
+          // post just omits the scarcity/demand callouts.
+          const res = await loadSnapshots(supabase);
+          if (res.error) return fail("Market data", res.error.message);
+          setMarket(
+            latestMarket((res.data ?? []) as unknown as MarketSnapshotRow[])
+          );
+          return ok();
+        }
+        case "redditPosts": {
+          const res = await supabase
+            .from("reddit_posts")
+            .select("*")
+            .order("created_at", { ascending: false });
+          if (res.error) return fail("Post archive", res.error.message);
+          setRedditPosts((res.data ?? []) as RedditPost[]);
+          return ok();
+        }
+      }
+    },
+    [supabase, pushToast]
+  );
+
+  const ensureSlice = useCallback(
+    (name: SliceName) => {
+      if (requestedSlices.current.has(name)) return;
+      requestedSlices.current.add(name);
+      void loadSlice(name);
+    },
+    [loadSlice]
+  );
+
+  // The tables every page needs: records, the reddit settings, open order
+  // requests, parcels, and invoices. Page-specific tables are slices.
   const loadData = useCallback(async () => {
     setLoadError("");
     setLoading(true);
-    const [
-      recordsRes,
-      pendingRes,
-      runsRes,
-      settingsRes,
-      requestsRes,
-      interestRes,
-      eventsRes,
-      shipmentsRes,
-      invoicesRes,
-      snapshotsRes,
-      redditPostsRes,
-    ] = await Promise.all([
-      supabase.from("records").select("*").order("artist").order("title"),
-      supabase
-        .from("pending_price_changes")
-        .select("*, records(artist, title, pressing, price)")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("price_runs")
-        .select("*")
-        .order("ran_at", { ascending: false })
-        .limit(14),
-      supabase
-        .from("settings")
-        .select("key,value")
-        .in("key", ["reddit_post_url", "reddit_post_records"]),
-      supabase
-        .from("order_requests")
-        .select("*")
-        .in("status", ["new", "loaded"])
-        .order("created_at", { ascending: false })
-        .limit(50),
-      supabase.from("record_interest").select("*"),
-      supabase
-        .from("record_events")
-        .select("record_id,event_type,session_id,created_at")
-        .gte(
-          "created_at",
-          new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-        )
-        .order("created_at", { ascending: false })
-        .limit(5000),
-      supabase
-        .from("shipments")
-        .select("*")
-        .order("created_at", { ascending: false }),
-      supabase.from("invoices").select("*"),
-      loadSnapshots(supabase),
-      supabase
-        .from("reddit_posts")
-        .select("*")
-        .order("created_at", { ascending: false }),
-    ]);
+    const [recordsRes, settingsRes, requestsRes, shipmentsRes, invoicesRes] =
+      await Promise.all([
+        supabase.from("records").select("*").order("artist").order("title"),
+        supabase
+          .from("settings")
+          .select("key,value")
+          .in("key", ["reddit_post_url", "reddit_post_records"]),
+        supabase
+          .from("order_requests")
+          .select("*")
+          .in("status", ["new", "loaded"])
+          .order("created_at", { ascending: false })
+          .limit(50),
+        supabase
+          .from("shipments")
+          .select("*")
+          .order("created_at", { ascending: false }),
+        supabase.from("invoices").select("*"),
+      ]);
     setLoading(false);
-    if (recordsRes.error || pendingRes.error || runsRes.error || requestsRes.error) {
+    if (recordsRes.error || requestsRes.error) {
       setLoadError(
-        recordsRes.error?.message ||
-          pendingRes.error?.message ||
-          runsRes.error?.message ||
-          requestsRes.error?.message ||
-          "Failed to load"
+        recordsRes.error?.message || requestsRes.error?.message || "Failed to load"
       );
       return;
     }
@@ -283,31 +377,11 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (shipmentsRes.error) {
       pushToast("error", `Shipments didn't load: ${shipmentsRes.error.message}`);
     }
-    if (interestRes.error) {
-      pushToast("error", `Interest data didn't load: ${interestRes.error.message}`);
-    }
-    if (eventsRes.error) {
-      pushToast("error", `Interest history didn't load: ${eventsRes.error.message}`);
-    }
     if (invoicesRes.error) {
       pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
     }
-    // Without market data, picks fall back to random order and the post
-    // just omits the scarcity/demand callouts.
-    if (snapshotsRes.error) {
-      pushToast("error", `Market data didn't load: ${snapshotsRes.error.message}`);
-    }
-    setMarket(
-      latestMarket((snapshotsRes.data ?? []) as unknown as MarketSnapshotRow[])
-    );
-    if (redditPostsRes.error) {
-      pushToast("error", `Post archive didn't load: ${redditPostsRes.error.message}`);
-    }
-    setRedditPosts((redditPostsRes.data ?? []) as RedditPost[]);
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setInvoices((invoicesRes.data ?? []) as Invoice[]);
-    setPending((pendingRes.data ?? []) as PendingPriceChange[]);
-    setRuns((runsRes.data ?? []) as PriceRun[]);
     setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
     const settingsMap = new Map(
       ((settingsRes.data ?? []) as { key: string; value: string }[]).map(
@@ -326,16 +400,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     } catch {
       // Malformed saved post list — treat as no saved post.
     }
-    setInterest(
-      Object.fromEntries(
-        ((interestRes.data ?? []) as RecordInterest[]).map((x) => [
-          x.record_id,
-          x,
-        ])
-      )
-    );
-    setEvents((eventsRes.data ?? []) as RecordEventRow[]);
-  }, [supabase, pushToast]);
+    await Promise.all([...requestedSlices.current].map(loadSlice));
+  }, [supabase, pushToast, loadSlice]);
 
   useEffect(() => {
     loadData();
@@ -579,6 +645,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     loadError,
     setLoadError,
     loadData,
+    sliceStatus,
+    ensureSlice,
     toasts,
     pushToast,
     dismissToast,
