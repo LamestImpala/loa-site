@@ -143,6 +143,11 @@ for (const [conf, schools] of Object.entries(MEMBERS) as [Conference, string[]][
   for (const s of schools) BY_SCHOOL.set(s, conf);
 }
 
+/** Every FBS school in the map, for tests that need the full roster. */
+export function knownSchools(): string[] {
+  return [...BY_SCHOOL.keys()];
+}
+
 const warned = new Set<string>();
 
 /**
