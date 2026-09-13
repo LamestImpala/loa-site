@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import AdminClient from "./admin-client";
+import { AdminGate } from "./admin-gate";
 
 export const metadata: Metadata = {
   title: "Admin — Late Onset Audiophile",
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminPage() {
-  return <AdminClient />;
+  return (
+    <AdminGate>
+      <AdminClient />
+    </AdminGate>
+  );
 }
