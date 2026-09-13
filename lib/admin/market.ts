@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { MarketSnapshotRow } from "@/lib/supabase";
+import type { MarketSnapshotRow } from "../supabase.ts";
 
 // Latest daily Discogs market snapshot per record, as the admin uses it for
 // price context and weekly-post ranking.

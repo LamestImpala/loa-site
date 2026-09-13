@@ -1,6 +1,7 @@
-import type { DbRecord } from "@/lib/supabase";
+import type { DbRecord } from "../supabase.ts";
 
 // A 48h hold that hasn't expired yet. hold_until is public (the shop drops
-// held records from bundles); hold_buyer is admin-only.
-export const holdActive = (r: DbRecord) =>
-  !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
+// held records from bundles); hold_buyer is admin-only. `now` is injectable
+// for tests.
+export const holdActive = (r: DbRecord, now: number = Date.now()) =>
+  !!r.hold_until && new Date(r.hold_until).getTime() > now;

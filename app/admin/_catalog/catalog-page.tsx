@@ -7,6 +7,13 @@ import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 import { holdActive } from "@/lib/admin/records";
 import { bucketEventsByDay } from "@/lib/admin/interest";
+import { detectCollection } from "@/lib/admin/collection";
+import {
+  filterRecords,
+  sortRecords,
+  type InterestFilter,
+  type SortKey,
+} from "@/lib/admin/catalog-filter";
 import { useAdmin } from "../_shell/admin-provider";
 import { blurOnEnter, buttonClass, inputClass, pct } from "../_shell/ui";
 
@@ -25,53 +32,6 @@ type NewRecordDraft = {
   collection: string;
 };
 
-// Known curated series, matched against Discogs label/series/company names
-// and format descriptions. Order matters: first match wins, so the more
-// specific series (e.g. UHQR) come before their parent label.
-const COLLECTION_PATTERNS: [RegExp, string][] = [
-  [/vinyl me,? please/i, "VMP"],
-  [/interscope vinyl collective/i, "IVC"],
-  [/uhqr|ultra high quality record/i, "UHQR"],
-  [/rhino high fidelity|rhino hi-?fi/i, "RHF"],
-  [/atlantic 75/i, "Atlantic 75"],
-  [/definitive sound/i, "Definitive Sound"],
-  [/tone poet/i, "Tone Poet"],
-  [/mobile fidelity|mofi/i, "MoFi"],
-  [/acoustic sounds/i, "Acoustic Sounds"],
-  [/analogue productions/i, "Analogue Productions"],
-];
-
-function detectCollection(rel: {
-  labels?: { name?: string }[];
-  series?: { name?: string }[];
-  companies?: { name?: string }[];
-  formats?: { descriptions?: string[]; text?: string }[];
-}): string {
-  const haystack = [
-    ...[...(rel.labels ?? []), ...(rel.series ?? []), ...(rel.companies ?? [])].map(
-      (x) => x.name ?? ""
-    ),
-    ...(rel.formats ?? []).flatMap((f) => [
-      ...(f.descriptions ?? []),
-      f.text ?? "",
-    ]),
-  ];
-  for (const [re, tag] of COLLECTION_PATTERNS) {
-    if (haystack.some((n) => re.test(n))) return tag;
-  }
-  return "";
-}
-
-
-
-
-type SortKey = "artist" | "price-desc" | "price-asc" | "interest" | "added";
-// "manual-off-market": hand-priced records sitting far from the Discogs
-// grade suggestion — the audit list for deciding what to hand back to the
-// daily run (uncheck "manual").
-type InterestFilter = "all" | "clicked-no-request" | "manual-off-market";
-const OFF_MARKET_HIGH = 1.3;
-const OFF_MARKET_LOW = 0.6;
 
 // The catalog: every record, with filters, the listings table, per-record
 // editing, holds, sold state, Discogs removal, and adding a record.
@@ -429,78 +389,27 @@ export function CatalogPage() {
     [openId, events]
   );
 
-  // Same heuristic as the email: a cut worth acting on is modest (≤30%)
-  // with several copies competing, or any cut on a stocked release (30+
-  // copies — the price run chases the cheapest listing there); everything
-  // else is likely condition noise, a scarce copy, or a suggestion-based
-  // increase.
-  const filteredRecords = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let list = records.filter((r) => {
-      if (genreFilter !== "all" && !(r.genres ?? []).includes(genreFilter))
-        return false;
-      if (collectionFilter === "none" && r.collection) return false;
-      if (
-        collectionFilter !== "all" &&
-        collectionFilter !== "none" &&
-        r.collection !== collectionFilter
-      )
-        return false;
-      if (letterFilter && artistLetter(r.artist) !== letterFilter) return false;
-      if (shownFilter === "shown" && !r.listed) return false;
-      if (shownFilter === "hidden" && r.listed) return false;
-      if (soldFilter === "sold" && !r.sold) return false;
-      if (soldFilter === "unsold" && r.sold) return false;
-      if (interestFilter === "clicked-no-request") {
-        const i = interest[r.id];
-        const held =
-          !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
-        if (
-          !i ||
-          i.interest_sessions === 0 ||
-          i.request_sessions > 0 ||
-          r.sold ||
-          held
-        )
-          return false;
-      }
-      if (interestFilter === "manual-off-market") {
-        const sugg = market[r.id]?.suggested;
-        if (!r.manual_price || r.sold || !r.listed || !sugg) return false;
-        const ratio = r.price / sugg;
-        if (ratio <= OFF_MARKET_HIGH && ratio >= OFF_MARKET_LOW) return false;
-      }
-      if (!q) return true;
-      return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""}`
-        .toLowerCase()
-        .includes(q);
-    });
-    if (sortBy !== "artist") {
-      const alpha = (a: DbRecord, b: DbRecord) =>
-        (a.artist + a.title).localeCompare(b.artist + b.title);
-      list = [...list].sort((a, b) => {
-        switch (sortBy) {
-          case "price-desc":
-            return b.price - a.price || alpha(a, b);
-          case "price-asc":
-            return a.price - b.price || alpha(a, b);
-          case "interest":
-            return (
-              (interest[b.id]?.interest_sessions ?? 0) -
-                (interest[a.id]?.interest_sessions ?? 0) || alpha(a, b)
-            );
-          case "added":
-            return (
-              (b.created_at ?? "").localeCompare(a.created_at ?? "") ||
-              b.id - a.id
-            );
-          default:
-            return alpha(a, b);
-        }
-      });
-    }
-    return list;
-  }, [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]);
+  const filteredRecords = useMemo(
+    () =>
+      sortRecords(
+        filterRecords(
+          records,
+          {
+            search,
+            genre: genreFilter,
+            collection: collectionFilter,
+            letter: letterFilter,
+            shown: shownFilter,
+            sold: soldFilter,
+            interest: interestFilter,
+          },
+          { interest, market }
+        ),
+        sortBy,
+        interest
+      ),
+    [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]
+  );
 
   // From records, not filteredRecords — selection survives filter changes.
   const selectedRecords = useMemo(

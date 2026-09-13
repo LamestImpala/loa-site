@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { PendingPriceChange } from "@/lib/supabase";
+import { forSaleById as forSaleFromRuns, isActionable as actionable } from "@/lib/admin/pricing";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass, pct } from "../_shell/ui";
 
@@ -19,26 +20,9 @@ export function PricingPage() {
 
   // copies-for-sale per record, from the most recent run summaries — used
   // to split pending cuts the same way the email report does.
-  const forSaleById = useMemo(() => {
-    const m = new Map<number, number>();
-    for (const run of runs) {
-      for (const s of run.summary ?? []) {
-        if (s.for_sale != null && !m.has(s.record_id)) {
-          m.set(s.record_id, s.for_sale);
-        }
-      }
-    }
-    return m;
-  }, [runs]);
-
-  // Site-wide daily activity for the "Interest by day" strip: a contiguous
-  // run of the last 14 local days, zero-filled so quiet days show as gaps.
+  const forSaleById = useMemo(() => forSaleFromRuns(runs), [runs]);
   const isActionable = useCallback(
-    (p: PendingPriceChange) => {
-      if (p.pct_change >= 0) return false;
-      const forSale = forSaleById.get(p.record_id) ?? 0;
-      return forSale >= 30 || (Math.abs(p.pct_change) <= 0.3 && forSale >= 3);
-    },
+    (p: PendingPriceChange) => actionable(p, forSaleById),
     [forSaleById]
   );
 
