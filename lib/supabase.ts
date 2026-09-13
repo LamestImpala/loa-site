@@ -73,6 +73,14 @@ export type Invoice = {
   shipping_charged: number | null; // shipping the buyer paid (income)
   paid_at: string | null; // set by the pull sync once PayPal reports the invoice paid
   reddit_thread_url: string | null; // per-sale confirmation thread; blank = the saved sale post
+  // Pending-order fields, written when the invoice is created so the
+  // order survives clearing the sale desk.
+  buyer_username?: string | null;
+  recipient_view_url?: string | null; // buyer's payment link
+  status?: string | null; // PayPal status: DRAFT / SENT / PAID / CANCELLED …
+  record_ids?: number[] | null;
+  total?: number | null;
+  cancelled_at?: string | null;
   created_at: string;
   updated_at: string;
 };
