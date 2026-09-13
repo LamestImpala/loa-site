@@ -12,7 +12,7 @@ import {
   redditWeeklyMarkdown,
 } from "@/lib/admin/reddit";
 import { useAdmin } from "../_shell/admin-provider";
-import { buttonClass, inputClass } from "../_shell/ui";
+import { buttonClass, inputClass, useCopied } from "../_shell/ui";
 
 // Reddit tools: copy the full-catalog post, build the weekly picks post
 // from the sale-desk selection, keep the active post URL, and manage the
@@ -46,13 +46,13 @@ export function RedditPage() {
   );
 
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
-  const [tableCopied, setTableCopied] = useState(false);
+  // Which copy button just fired: "table", "weekly", "update", or
+  // `retire-${postId}` / `update-${postId}` in the archive.
+  const { isCopied, flash } = useCopied();
   // Per-row URL drafts for the archived Reddit posts.
   const [archiveUrlEdits, setArchiveUrlEdits] = useState<
     Record<number, string>
   >({});
-  // "retire-3" / "update-3" — which archive button just copied.
-  const [archiveCopiedKey, setArchiveCopiedKey] = useState<string | null>(null);
 
   // The archive lists whole posts; update repastes hang off them as children.
   const topLevelPosts = redditPosts.filter((p) => p.parent_id === null);
@@ -121,8 +121,7 @@ export function RedditPage() {
     warnIfStillLive("full");
     const md = redditMarkdown(records);
     if (await copyText(md, "Copy the Reddit table")) {
-      setTableCopied(true);
-      setTimeout(() => setTableCopied(false), 1600);
+      flash("table");
     }
     warnIfOverRedditLimit(md);
     const listedIds = records
@@ -142,7 +141,6 @@ export function RedditPage() {
     );
   }
 
-  const [weeklyCopied, setWeeklyCopied] = useState(false);
   async function copyWeeklyPost() {
     const picks = records.filter((r) => selectedIds.has(r.id) && !r.sold);
     if (picks.length === 0) return;
@@ -152,8 +150,7 @@ export function RedditPage() {
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.
     if (await copyText(md, "Copy the weekly post")) {
-      setWeeklyCopied(true);
-      setTimeout(() => setWeeklyCopied(false), 1600);
+      flash("weekly");
     }
     warnIfOverRedditLimit(md);
     await savePostedIds(picks.map((r) => r.id));
@@ -192,14 +189,12 @@ export function RedditPage() {
       .filter((r): r is DbRecord => Boolean(r));
   }
 
-  const [updateCopied, setUpdateCopied] = useState(false);
   async function copyUpdatePost() {
     const posted = resolvePostedRecords(postedInfo.ids);
     if (posted.length === 0) return;
     const md = redditUpdateMarkdown(posted);
     if (await copyText(md, "Copy the post update")) {
-      setUpdateCopied(true);
-      setTimeout(() => setUpdateCopied(false), 1600);
+      flash("update");
     }
     // Archive as a child of the archived post it refreshes, when one exists
     // (the live post may predate the archive).
@@ -218,14 +213,6 @@ export function RedditPage() {
     );
   }
 
-  function flashArchiveCopied(key: string) {
-    setArchiveCopiedKey(key);
-    setTimeout(
-      () => setArchiveCopiedKey((prev) => (prev === key ? null : prev)),
-      1600
-    );
-  }
-
   // Generate the "this post is outdated" body for a superseded post and
   // stamp it retired. Re-copying any time is fine — it refreshes the sold
   // strikethroughs and the newest-post link.
@@ -234,7 +221,7 @@ export function RedditPage() {
     if (posted.length === 0 || !newestUrl) return;
     const md = redditStaleMarkdown(post, posted, newestUrl);
     if (await copyText(md, "Copy the retire body")) {
-      flashArchiveCopied(`retire-${post.id}`);
+      flash(`retire-${post.id}`);
     }
     const retired_at = new Date().toISOString();
     const { error } = await supabase
@@ -257,7 +244,7 @@ export function RedditPage() {
     if (posted.length === 0) return;
     const md = redditUpdateMarkdown(posted);
     if (await copyText(md, "Copy the update body")) {
-      flashArchiveCopied(`update-${post.id}`);
+      flash(`update-${post.id}`);
     }
     await archivePost("update", null, md, posted.map((r) => r.id), post.id);
   }
@@ -324,7 +311,7 @@ export function RedditPage() {
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={copyRedditTable} className={buttonClass}>
-            {tableCopied ? "Copied!" : "Copy Reddit table"}
+            {isCopied("table") ? "Copied!" : "Copy Reddit table"}
           </button>
           <button
             type="button"
@@ -348,7 +335,7 @@ export function RedditPage() {
             disabled={saleRecords.length === 0}
             title="Builds the weekly post from the records selected in the listings table"
           >
-            {weeklyCopied
+            {isCopied("weekly")
               ? "Copied!"
               : `Copy weekly post (${saleRecords.length} selected)`}
           </button>
@@ -359,7 +346,7 @@ export function RedditPage() {
             disabled={postedInfo.ids.length === 0}
             title="Regenerates the last copied weekly post with sold records crossed out — paste over the live post's body"
           >
-            {updateCopied
+            {isCopied("update")
               ? "Copied!"
               : `Copy post update${
                   postedInfo.ids.length
@@ -506,7 +493,7 @@ export function RedditPage() {
                             : "Copies the outdated-post body — paste it over this post's body on Reddit"
                       }
                     >
-                      {archiveCopiedKey === `retire-${post.id}`
+                      {isCopied(`retire-${post.id}`)
                         ? "Copied!"
                         : `Copy retire body${soldCount ? ` (${soldCount} sold)` : ""}`}
                     </button>
@@ -516,7 +503,7 @@ export function RedditPage() {
                       className={buttonClass}
                       title="Copies this post's body with sold records crossed out — paste over the post's body on Reddit"
                     >
-                      {archiveCopiedKey === `update-${post.id}`
+                      {isCopied(`update-${post.id}`)
                         ? "Copied!"
                         : "Copy update body"}
                     </button>

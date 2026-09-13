@@ -18,7 +18,7 @@ import { recentDays } from "@/lib/admin/interest";
 import { activeHoldGroups, pendingInvoiceGroups } from "@/lib/admin/sales";
 import { useAdmin } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
-import { buttonClass, inputClass, timeAgo } from "../_shell/ui";
+import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
 
 // The inbox: everything between "a buyer wants records" and "the parcel
 // is on its way" — requests, the sale desk, pending invoices, holds,
@@ -72,8 +72,9 @@ export function InboxPage() {
     status: string;
     warning?: string;
   }>(null);
-  const [replyCopied, setReplyCopied] = useState(false);
-  const [invoiceLinkCopied, setInvoiceLinkCopied] = useState(false);
+  // Which copy button just fired: "reply", "invoice-link", `ref-${id}`,
+  // or `pending-${invoiceId}`.
+  const { isCopied, flash } = useCopied();
 
   // From records, not filteredRecords — selection survives filter changes.
   const selectedRecords = useMemo(
@@ -100,8 +101,7 @@ export function InboxPage() {
       "\n"
     )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
     if (await copyText(text, "Copy this reply")) {
-      setReplyCopied(true);
-      setTimeout(() => setReplyCopied(false), 1600);
+      flash("reply");
     }
   }
 
@@ -220,14 +220,12 @@ export function InboxPage() {
   async function copyInvoiceLink() {
     if (!saleInvoice?.url) return;
     if (await copyText(saleInvoice.url, "Copy the payment link")) {
-      setInvoiceLinkCopied(true);
-      setTimeout(() => setInvoiceLinkCopied(false), 1600);
+      flash("invoice-link");
     }
   }
 
   const newRequestCount = orderRequests.filter((r) => r.status === "new").length;
 
-  const [refCopiedId, setRefCopiedId] = useState<number | null>(null);
   const [pasteText, setPasteText] = useState("");
   const [parseResult, setParseResult] = useState<null | {
     ref: string | null;
@@ -327,7 +325,6 @@ export function InboxPage() {
     id: string;
     action: "check" | "cancel";
   }>(null);
-  const [pendingCopiedId, setPendingCopiedId] = useState<string | null>(null);
 
   function loadPendingIntoSaleDesk(p: { buyer: string; recs: DbRecord[] }) {
     if (!applySaleSelection(p.recs.map((r) => r.id))) return;
@@ -337,8 +334,7 @@ export function InboxPage() {
   async function copyPendingLink(inv: Invoice) {
     if (!inv.recipient_view_url) return;
     if (await copyText(inv.recipient_view_url, "Copy the payment link")) {
-      setPendingCopiedId(inv.paypal_invoice_id);
-      setTimeout(() => setPendingCopiedId(null), 1600);
+      flash(`pending-${inv.paypal_invoice_id}`);
     }
   }
 
@@ -501,8 +497,7 @@ export function InboxPage() {
 
   async function copyRefCode(req: OrderRequest) {
     if (await copyText(req.ref_code, "Copy the ref code")) {
-      setRefCopiedId(req.id);
-      setTimeout(() => setRefCopiedId(null), 1600);
+      flash(`ref-${req.id}`);
     }
   }
 
@@ -660,7 +655,7 @@ export function InboxPage() {
                 disabled={saleRecords.length === 0}
                 onClick={copySaleReply}
               >
-                {replyCopied ? "Copied!" : "Copy reply"}
+                {isCopied("reply") ? "Copied!" : "Copy reply"}
               </button>
               <button
                 type="button"
@@ -708,7 +703,7 @@ export function InboxPage() {
                       className="rounded-lg border border-white/15 px-2 py-1 text-white transition hover:bg-white hover:text-black"
                       onClick={copyInvoiceLink}
                     >
-                      {invoiceLinkCopied ? "Copied!" : "Copy payment link"}
+                      {isCopied("invoice-link") ? "Copied!" : "Copy payment link"}
                     </button>
                     <a
                       href={saleInvoice.url}
@@ -888,7 +883,7 @@ export function InboxPage() {
                           title="Copy ref code"
                           className="font-mono text-sm text-amber-300 transition hover:text-amber-100"
                         >
-                          {refCopiedId === req.id ? "Copied!" : req.ref_code}
+                          {isCopied(`ref-${req.id}`) ? "Copied!" : req.ref_code}
                         </button>
                         <span
                           className={`rounded-full border px-2 py-0.5 text-xs ${
@@ -1058,7 +1053,7 @@ export function InboxPage() {
                                 className={buttonClass}
                                 onClick={() => copyPendingLink(inv)}
                               >
-                                {pendingCopiedId === id
+                                {isCopied(`pending-${id}`)
                                   ? "Copied!"
                                   : "Copy payment link"}
                               </button>
