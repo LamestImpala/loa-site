@@ -4,7 +4,7 @@
 // computed from the house picks. Tailable until the first leg kicks off.
 import { fmtPrice, gradePick, winUnits, type PickemGame, type PickemParlay, type PickResult } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
-import ConfidenceBadge from "./confidence-badge";
+import HouseBadge from "./house-badge";
 
 type Props = { parlays: PickemParlay[]; games: PickemGame[]; tails: Set<number>; now: number };
 
@@ -44,7 +44,7 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
                       <li key={i} className="flex items-center justify-between gap-3 border-t border-white/10 py-1.5 first:border-t-0">
                         <span className="inline-flex items-center gap-1.5">
                           {l.label}
-                          {l.confidence != null ? <ConfidenceBadge value={l.confidence} /> : null}
+                          {l.confidence != null ? <HouseBadge value={l.confidence} why={g?.house?.[l.market]?.why} label={l.label} /> : null}
                         </span>
                         <span className="flex items-center gap-2 tabular-nums text-neutral-400">
                           {fmtPrice(l.price)} <Result result={res} />
