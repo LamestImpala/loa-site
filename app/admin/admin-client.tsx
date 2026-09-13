@@ -2146,6 +2146,12 @@ export default function AdminClient() {
       return;
     }
     if (!applySaleSelection(available)) return;
+    // Seed the buyer field from what the buyer typed on the shop, without
+    // clobbering a name the admin already entered.
+    if (req.buyer_username) {
+      const name = req.buyer_username;
+      setSaleBuyer((prev) => (prev.trim() ? prev : name));
+    }
     if (req.status === "new") {
       const { error } = await supabase
         .from("order_requests")
@@ -2278,6 +2284,8 @@ export default function AdminClient() {
   function applyParsedSelection() {
     if (parsedIds.length === 0) return;
     if (!applySaleSelection(parsedIds)) return;
+    const typedBuyer = parseResult?.refRequest?.buyer_username;
+    if (typedBuyer) setSaleBuyer((prev) => (prev.trim() ? prev : typedBuyer));
     // Don't double-track: a DM whose ref matched a saved request is already
     // in the inbox.
     if (saveParsedChecked && !parseResult?.refRequest) {
@@ -3038,6 +3046,15 @@ export default function AdminClient() {
                         >
                           {req.status}
                         </span>
+                        {req.buyer_username ? (
+                          <span className="text-sm text-white">
+                            u/{req.buyer_username}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-neutral-500">
+                            no username given
+                          </span>
+                        )}
                         <span className="ml-auto text-xs text-neutral-500">
                           {timeAgo(req.created_at)}
                         </span>
@@ -3221,6 +3238,9 @@ export default function AdminClient() {
                       </span>{" "}
                       ({parseResult.refRequest.record_ids.length} records, $
                       {parseResult.refRequest.total}
+                      {parseResult.refRequest.buyer_username
+                        ? ` · u/${parseResult.refRequest.buyer_username}`
+                        : ""}
                       {parseResult.refRequest.status !== "new" &&
                       parseResult.refRequest.status !== "loaded"
                         ? ` · ${parseResult.refRequest.status}`

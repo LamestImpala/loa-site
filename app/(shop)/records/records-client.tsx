@@ -132,17 +132,19 @@ function discogsUrl(r: DbRecord) {
     : `https://www.discogs.com/search/?q=${encodeURIComponent(`${r.artist} ${r.title}`)}&type=release`;
 }
 
-function requestToBuyUrl(r: DbRecord, hasPost: boolean) {
+// DM for one record. The Ref line ties the DM to the order_requests row
+// saved when the buyer clicks send, same as the bundle flow.
+function singleRequestMessage(r: DbRecord, hasPost: boolean, refCode: string) {
   const subject = `Record purchase: ${r.artist} — ${r.title}`;
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
   const shipping = combinedShipping(1);
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
-  return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
+  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  return { subject, message };
 }
 
-// One combined DM for a bundle of records; parallels requestToBuyUrl but drops
+// One combined DM for a bundle of records; parallels singleRequestMessage but drops
 // the pressing line per record to keep the compose URL short. The Ref line
 // ties the DM to the order_requests row saved when the buyer clicks send.
 function combinedRequestMessage(
@@ -161,19 +163,30 @@ function combinedRequestMessage(
   return { subject, message };
 }
 
-function combinedRequestUrl(list: DbRecord[], hasPost: boolean, refCode: string) {
-  const { subject, message } = combinedRequestMessage(list, hasPost, refCode);
-  return `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}&message=${encodeURIComponent(message)}`;
+function composeUrl(subject: string, message?: string) {
+  const base = `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}`;
+  return message === undefined
+    ? base
+    : `${base}&message=${encodeURIComponent(message)}`;
 }
 
 // Fire-and-forget: save the request so /admin can load it by ref code. The
 // trigger revalidates ids and recomputes totals server-side; errors are
 // swallowed because the DM must go out regardless (paste parser is the
 // fallback). No .select() — the anon role has no read access to the table.
-function persistOrderRequest(refCode: string, ids: number[]) {
+function persistOrderRequest(
+  refCode: string,
+  ids: number[],
+  buyerUsername: string
+) {
+  const buyer = buyerUsername.trim().replace(/^\/?u\//i, "");
   getBrowserSupabase()
     .from("order_requests")
-    .insert({ ref_code: refCode, record_ids: ids })
+    .insert({
+      ref_code: refCode,
+      record_ids: ids,
+      buyer_username: buyer || null,
+    })
     .then(({ error }) => {
       if (error) console.warn("order request not saved:", error.message);
     });
@@ -208,6 +221,9 @@ export default function RecordsClient({
   const [combinedCommentCopied, setCombinedCommentCopied] = useState(false);
   const [combinedMessageCopied, setCombinedMessageCopied] = useState(false);
   const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
+  // Optional Reddit handle typed on the buy sheet; saved with the request so
+  // the admin doesn't have to retype it from the DM.
+  const [buyerName, setBuyerName] = useState("");
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [detail, setDetail] = useState<DbRecord | null>(null);
   const [view, setView] = useState<ViewOption | null>(null);
@@ -268,28 +284,29 @@ export default function RecordsClient({
   const bundleSubtotal = selectedRecords.reduce((s, r) => s + r.price, 0);
   const bundleShipping = combinedShipping(selectedRecords.length);
 
-  async function sendCombinedRequest() {
-    for (const r of selectedRecords) track(r.id, "buy_request");
+  // Save the request (single record or bundle) and open the pre-filled DM.
+  async function sendRequest(list: DbRecord[]) {
+    for (const r of list) track(r.id, "buy_request");
     const hasPost = Boolean(redditPostUrl);
     const refCode = makeRefCode();
-    const url = combinedRequestUrl(selectedRecords, hasPost, refCode);
+    const { subject, message } =
+      list.length === 1
+        ? singleRequestMessage(list[0], hasPost, refCode)
+        : combinedRequestMessage(list, hasPost, refCode);
     // Insert before window.open but without awaiting — popup blockers only
     // tolerate window.open inside the click gesture.
     persistOrderRequest(
       refCode,
-      selectedRecords.map((r) => r.id)
+      list.map((r) => r.id),
+      buyerName
     );
+    const url = composeUrl(subject, message);
     if (url.length <= 2000) {
       window.open(url, "_blank", "noopener");
       return;
     }
     // Compose URLs past ~2k chars get truncated — copy the body instead and
     // open the compose window with just the subject.
-    const { subject, message } = combinedRequestMessage(
-      selectedRecords,
-      hasPost,
-      refCode
-    );
     try {
       await navigator.clipboard.writeText(message);
       setCombinedMessageCopied(true);
@@ -298,11 +315,7 @@ export default function RecordsClient({
     } catch {
       window.prompt("Copy this message, then paste it into the DM:", message);
     }
-    window.open(
-      `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}`,
-      "_blank",
-      "noopener"
-    );
+    window.open(composeUrl(subject), "_blank", "noopener");
   }
 
   async function copyCombinedCommentAndOpenPost() {
@@ -1150,29 +1163,34 @@ export default function RecordsClient({
                 : "This opens a pre-filled Reddit DM — edit anything before sending."}{" "}
               Everything happens on Reddit; no account needed here.
             </p>
-            {buySheet.kind === "single" ? (
-              <a
-                className="btn btn-primary btn-block"
-                href={requestToBuyUrl(buySheet.record, hasPost)}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => track(buySheet.record.id, "buy_request")}
-              >
-                {hasPost ? "1. Open the pre-filled DM ↗" : "Open the pre-filled DM ↗"}
-              </a>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                onClick={sendCombinedRequest}
-              >
-                {combinedMessageCopied
-                  ? "Message copied — paste into the DM"
-                  : hasPost
-                    ? "1. Open the pre-filled DM ↗"
-                    : "Open the pre-filled DM ↗"}
-              </button>
-            )}
+            <label className="shop-dialog-field">
+              <span>Your Reddit username (optional)</span>
+              <span className="shop-dialog-field-input">
+                <span aria-hidden="true">u/</span>
+                <input
+                  type="text"
+                  className="input"
+                  value={buyerName}
+                  onChange={(e) => setBuyerName(e.target.value)}
+                  placeholder="so I know who to reply to"
+                  maxLength={24}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </span>
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              onClick={() => sendRequest(sheetItems)}
+            >
+              {combinedMessageCopied
+                ? "Message copied — paste into the DM"
+                : hasPost
+                  ? "1. Open the pre-filled DM ↗"
+                  : "Open the pre-filled DM ↗"}
+            </button>
             {hasPost ? (
               <button
                 type="button"

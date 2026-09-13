@@ -1099,6 +1099,22 @@ html:has(.shop) {
   color: var(--color-neutral-700);
   margin: 0;
 }
+.shop-dialog-field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: 13.5px;
+  color: var(--color-neutral-700);
+}
+.shop-dialog-field-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+}
+.shop-dialog-field-input .input {
+  flex: 1;
+  min-width: 0;
+}
 
 .shop-lightbox {
   margin: auto;
