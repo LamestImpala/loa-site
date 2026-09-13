@@ -2,21 +2,24 @@
 
 import { useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DbRecord, Invoice, Shipment } from "@/lib/supabase";
+import type { DbRecord, Invoice, Order, Shipment } from "@/lib/supabase";
 import {
   buyerNudge,
   confirmationComment,
-  groupOrdersByBuyer,
+  groupOrders,
   inPayPal,
   needsRepush,
   pushNotNeeded,
   type OrderGroup,
 } from "@/lib/admin/fulfillment";
 import { blurOnEnter, buttonClass, inputClass, smallButtonClass, useCopied } from "./_shell/ui";
+import { BuyerField } from "./_shell/buyer-field";
 
 /*
- * Fulfillment: sold records grouped by buyer, split into parcels
- * (shipments rows) that each carry one tracking number.
+ * Fulfillment: sold records grouped by order, split into parcels
+ * (shipments rows) that each carry one tracking number. The buyer's name
+ * lives on the order and is edited on the card; sales that predate the
+ * orders table still group by buyer name.
  *
  * The usual flow is labels bought inside PayPal from the paid invoice —
  * "Sync from PayPal" pulls those tracking numbers down. Labels bought
@@ -45,10 +48,13 @@ export function FulfillmentPanel({
   records,
   shipments,
   invoices,
+  orders,
   supabase,
   onShipmentsChange,
   onInvoicesChange,
+  onOrdersChange,
   onRecordPatched,
+  onRenameBuyer,
   getAccessToken,
   copyText,
   pushToast,
@@ -57,12 +63,16 @@ export function FulfillmentPanel({
   records: DbRecord[]; // sold records only
   shipments: Shipment[];
   invoices: Invoice[];
+  orders: Order[];
   supabase: SupabaseClient;
   // Functional-updater form so async handlers can't clobber each other
   // with a stale copy of the list.
   onShipmentsChange: (update: (prev: Shipment[]) => Shipment[]) => void;
   onInvoicesChange: (update: (prev: Invoice[]) => Invoice[]) => void;
+  onOrdersChange: (update: (prev: Order[]) => Order[]) => void;
   onRecordPatched: (id: number, patch: Partial<DbRecord>) => void;
+  // Renames the buyer on the order and mirrors it to records and parcels.
+  onRenameBuyer: (order: Order, buyer: string) => Promise<boolean>;
   getAccessToken: () => Promise<string>;
   // Shared clipboard helper — falls back to a copy-by-hand modal upstream.
   copyText: (text: string, fallbackTitle: string) => Promise<boolean>;
@@ -92,8 +102,8 @@ export function FulfillmentPanel({
   );
 
   const groups = useMemo(
-    () => groupOrdersByBuyer(records, shipments),
-    [records, shipments]
+    () => groupOrders(records, shipments, orders),
+    [records, shipments, orders]
   );
 
   // Fulfilled orders age out of the completed list into a month-grouped
@@ -162,6 +172,7 @@ export function FulfillmentPanel({
       .from("shipments")
       .insert({
         buyer_username: g.buyer,
+        order_id: g.order?.id ?? null,
         record_ids: ids,
         mode: "manual",
         status: "draft",
@@ -411,6 +422,27 @@ export function FulfillmentPanel({
     }
     for (const id of recordIds)
       onRecordPatched(id, { paypal_invoice_id: value || null });
+    // The order remembers its invoice; that's what sync and the pending
+    // card read.
+    if (g.order) {
+      const orderId = g.order.id;
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({
+          paypal_invoice_id: value || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", orderId);
+      if (orderError) {
+        note(g.key, `Saving the invoice on the order failed: ${orderError.message}`, "error");
+        return;
+      }
+      onOrdersChange((prev) =>
+        prev.map((o) =>
+          o.id === orderId ? { ...o, paypal_invoice_id: value || null } : o
+        )
+      );
+    }
     // Parcels not yet known to PayPal follow the group's invoice.
     const followers = g.shipments.filter((s) => !s.paypal_tracker_id);
     if (followers.length > 0) {
@@ -595,7 +627,7 @@ export function FulfillmentPanel({
   return (
     <div className="mt-3">
       <p className="text-sm text-neutral-400">
-        Sold records grouped by buyer. Split each order into parcels, one
+        One card per order. Split each order into parcels, one
         tracking number per parcel. &ldquo;Sync from PayPal&rdquo; pulls the
         numbers from labels bought inside PayPal; a manual parcel&rsquo;s
         number can be pushed the other way (PayPal emails the buyer). PayPal
@@ -686,9 +718,20 @@ export function FulfillmentPanel({
                 className="rounded-2xl border border-white/10 bg-white/5 p-4"
               >
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-medium">
-                    {g.buyer ? `u/${g.buyer}` : "No buyer set"}
-                  </span>
+                  {g.order ? (
+                    <BuyerField
+                      value={g.buyer}
+                      disabled={groupBusy}
+                      onSave={(next) => onRenameBuyer(g.order!, next)}
+                    />
+                  ) : (
+                    <span
+                      className="font-medium"
+                      title="Sold before the orders table existed — grouped by the buyer name on the records"
+                    >
+                      {g.buyer ? `u/${g.buyer}` : "No buyer set"}
+                    </span>
+                  )}
                   {g.records.length > 0 ? (
                     <span
                       className="text-sm text-green-400"

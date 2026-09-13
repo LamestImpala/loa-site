@@ -4,6 +4,7 @@ import {
   ADMIN_EMAIL,
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
+  type Order,
   type Shipment,
 } from "@/lib/supabase";
 import {
@@ -128,15 +129,25 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     { data: recs, error: recError },
     { data: existing, error: shipError },
     { data: sameCode, error: dupError },
+    { data: orderRow },
   ] = await Promise.all([
     supabase
       .from("records")
-      .select("id, buyer_username")
+      .select("id, buyer_username, order_id")
       .eq("paypal_invoice_id", invoiceId),
     supabase.from("shipments").select("*").eq("paypal_invoice_id", invoiceId),
     // A manual parcel typed before the invoice was linked still counts —
     // match by tracking number so sync doesn't duplicate it.
     supabase.from("shipments").select("*").in("tracking_code", trackerNumbers),
+    // The invoice's order names the buyer and owns the parcels.
+    supabase
+      .from("orders")
+      .select("*")
+      .eq("paypal_invoice_id", invoiceId)
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
   if (recError || shipError || dupError) {
     return NextResponse.json(
@@ -144,9 +155,17 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
       { status: 502 }
     );
   }
-  const records = (recs ?? []) as { id: number; buyer_username: string }[];
+  const records = (recs ?? []) as {
+    id: number;
+    buyer_username: string;
+    order_id: number | null;
+  }[];
   const shipments = (existing ?? []) as Shipment[];
-  const buyer = records.find((r) => r.buyer_username?.trim())?.buyer_username ?? "";
+  const order = (orderRow ?? null) as Order | null;
+  const orderId = order?.id ?? records.find((r) => r.order_id != null)?.order_id ?? null;
+  const buyer =
+    order?.buyer_username.trim() ||
+    (records.find((r) => r.buyer_username?.trim())?.buyer_username ?? "");
 
   const known = new Set(
     [...shipments, ...((sameCode ?? []) as Shipment[])]
@@ -166,6 +185,7 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
       .insert(
         fresh.map((t) => ({
           buyer_username: buyer,
+          order_id: orderId,
           record_ids: soleParcel ? records.map((r) => r.id) : [],
           mode: "paypal",
           status: "shipped",

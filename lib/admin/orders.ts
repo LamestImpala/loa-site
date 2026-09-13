@@ -1,0 +1,135 @@
+import type {
+  DbRecord,
+  Invoice,
+  Order,
+  OrderRequest,
+  OrderStatus,
+} from "../supabase.ts";
+import { bundleBreakdown } from "../records.ts";
+import { holdActive } from "./records.ts";
+
+// Order rules: which order a sale lands in, what the inbox shows while an
+// order is open, and which request an order came from. Pure — no React,
+// no Supabase. The writes live in orders-db.ts.
+
+const RANK: Record<OrderStatus, number> = {
+  held: 0,
+  invoiced: 1,
+  paid: 2,
+  cancelled: 3,
+};
+
+// An order only moves forward: holding records that are already invoiced
+// keeps the invoice; marking them sold makes the order paid.
+export function advanceStatus(current: OrderStatus, next: OrderStatus) {
+  return RANK[next] > RANK[current] ? next : current;
+}
+
+export const isOpen = (o: Pick<Order, "status">) =>
+  o.status === "held" || o.status === "invoiced";
+
+const sameBuyer = (a: string, b: string) =>
+  a.trim().toLowerCase() === b.trim().toLowerCase();
+
+// The open order a set of records already belongs to, if the sale can
+// continue in it: the records that have an order all share one, it is
+// still open, and the buyer matches (a blank buyer defers to the order's).
+// Otherwise the sale starts a new order and the records move to it.
+export function pickOrder(
+  targets: Pick<DbRecord, "order_id">[],
+  buyer: string,
+  orders: Map<number, Order>
+): Order | null {
+  const ids = new Set(
+    targets.map((r) => r.order_id).filter((id): id is number => id != null)
+  );
+  if (ids.size !== 1) return null;
+  const order = orders.get([...ids][0]);
+  if (!order || !isOpen(order)) return null;
+  if (buyer.trim() && !sameBuyer(buyer, order.buyer_username)) return null;
+  return order;
+}
+
+// The buyer a new order is named for when the desk left the field blank:
+// a hold's buyer, then whatever an earlier sale wrote on the row.
+export function fallbackBuyer(
+  targets: Pick<DbRecord, "hold_buyer" | "buyer_username">[]
+) {
+  for (const r of targets) {
+    const b = (r.hold_buyer ?? "").trim() || (r.buyer_username ?? "").trim();
+    if (b) return b;
+  }
+  return "";
+}
+
+// The shop request this order fulfils: an open request whose records are
+// all in the order. The first (newest) match wins.
+export function requestForOrder(
+  targetIds: number[],
+  requests: OrderRequest[]
+): OrderRequest | null {
+  const ids = new Set(targetIds);
+  return (
+    requests.find(
+      (req) =>
+        (req.status === "loaded" || req.status === "new") &&
+        req.record_ids.length > 0 &&
+        req.record_ids.every((id) => ids.has(id))
+    ) ?? null
+  );
+}
+
+// An order in the inbox: held or invoiced, with the unsold records it
+// still covers. A held order lasts only while a hold is active on some
+// member — an expired hold puts the records back on the shop, and the
+// order lapses with it. An invoiced order stays until it's paid or
+// cancelled, even with no records left, so a live PayPal invoice is
+// never forgotten. Newest first.
+export type OpenOrder = {
+  order: Order;
+  buyer: string;
+  invoice: Invoice | null;
+  recs: DbRecord[];
+  totals: ReturnType<typeof bundleBreakdown>;
+  holdUntil: number; // latest hold expiry among members (ms), 0 if none
+  expired: boolean; // held order whose holds have all lapsed
+};
+
+export function openOrders(
+  orders: Order[],
+  records: DbRecord[],
+  invoices: Invoice[],
+  now: number = Date.now()
+): OpenOrder[] {
+  const invoiceById = new Map(invoices.map((i) => [i.paypal_invoice_id, i]));
+  const members = new Map<number, DbRecord[]>();
+  for (const r of records) {
+    if (r.sold || r.order_id == null) continue;
+    const list = members.get(r.order_id);
+    if (list) list.push(r);
+    else members.set(r.order_id, [r]);
+  }
+  return orders
+    .filter(isOpen)
+    .map((order) => {
+      const recs = members.get(order.id) ?? [];
+      const holdUntil = recs.reduce(
+        (max, r) =>
+          r.hold_until ? Math.max(max, new Date(r.hold_until).getTime()) : max,
+        0
+      );
+      return {
+        order,
+        buyer: order.buyer_username.trim(),
+        invoice: order.paypal_invoice_id
+          ? (invoiceById.get(order.paypal_invoice_id) ?? null)
+          : null,
+        recs,
+        totals: bundleBreakdown(recs),
+        holdUntil,
+        expired: order.status === "held" && !recs.some((r) => holdActive(r, now)),
+      };
+    })
+    .filter((o) => o.order.status === "invoiced" || o.recs.length > 0)
+    .sort((a, b) => b.order.created_at.localeCompare(a.order.created_at));
+}

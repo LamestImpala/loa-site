@@ -15,6 +15,7 @@ import type {
   DbRecord,
   Invoice,
   MarketSnapshotRow,
+  Order,
   OrderRequest,
   PendingPriceChange,
   PriceRun,
@@ -25,6 +26,12 @@ import type {
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
 import { holdActive } from "@/lib/admin/records";
+import {
+  placeOrder as placeOrderDb,
+  releaseOrder as releaseOrderDb,
+  renameOrderBuyer,
+  type PlacedOrder,
+} from "@/lib/admin/orders-db";
 import {
   discogsCandidates,
   finishedRequests,
@@ -72,6 +79,9 @@ type AdminContextValue = {
   setShipments: Setter<Shipment[]>;
   invoices: Invoice[];
   setInvoices: Setter<Invoice[]>;
+  orders: Order[];
+  setOrders: Setter<Order[]>;
+  ordersById: Map<number, Order>;
   pending: PendingPriceChange[];
   setPending: Setter<PendingPriceChange[]>;
   runs: PriceRun[];
@@ -120,6 +130,21 @@ type AdminContextValue = {
   // The one mark-sold path: sale desk, paid invoice, row and bulk checkboxes.
   markRecordsSold: (targets: DbRecord[], buyer: string) => Promise<void>;
 
+  // Orders. placeOrder puts records in an order (continuing the open one
+  // they share, else a new one) and mirrors the result locally; null
+  // when the write failed (already toasted). The rest edit one order.
+  placeOrder: (
+    targets: DbRecord[],
+    buyer: string,
+    status: "held" | "invoiced" | "paid"
+  ) => Promise<PlacedOrder | null>;
+  applyPlacedOrder: (placed: PlacedOrder) => void;
+  upsertOrderLocal: (order: Order) => void;
+  renameBuyer: (order: Order, buyer: string) => Promise<boolean>;
+  releaseOrder: (order: Order) => Promise<boolean>;
+  // Release one record's hold; a held order it leaves empty is cancelled.
+  releaseHold: (r: DbRecord) => Promise<boolean>;
+
   // Sale-desk selection. `selectionMode` says why records are selected:
   // the sale desk (default) or the weekly Reddit post.
   selectedIds: Set<number>;
@@ -161,6 +186,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [records, setRecords] = useState<DbRecord[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [pending, setPending] = useState<PendingPriceChange[]>([]);
   const [runs, setRuns] = useState<PriceRun[]>([]);
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
@@ -341,12 +367,18 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   );
 
   // The tables every page needs: records, the reddit settings, open order
-  // requests, parcels, and invoices. Page-specific tables are slices.
+  // requests, parcels, invoices, and orders. Page-specific tables are slices.
   const loadData = useCallback(async () => {
     setLoadError("");
     setLoading(true);
-    const [recordsRes, settingsRes, requestsRes, shipmentsRes, invoicesRes] =
-      await Promise.all([
+    const [
+      recordsRes,
+      settingsRes,
+      requestsRes,
+      shipmentsRes,
+      invoicesRes,
+      ordersRes,
+    ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
           .from("settings")
@@ -363,6 +395,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .select("*")
           .order("created_at", { ascending: false }),
         supabase.from("invoices").select("*"),
+        supabase
+          .from("orders")
+          .select("*")
+          .order("created_at", { ascending: false }),
       ]);
     setLoading(false);
     if (recordsRes.error || requestsRes.error) {
@@ -380,8 +416,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (invoicesRes.error) {
       pushToast("error", `Invoice costs didn't load: ${invoicesRes.error.message}`);
     }
+    if (ordersRes.error) {
+      pushToast("error", `Orders didn't load: ${ordersRes.error.message}`);
+    }
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setInvoices((invoicesRes.data ?? []) as Invoice[]);
+    setOrders((ordersRes.data ?? []) as Order[]);
     setOrderRequests((requestsRes.data ?? []) as OrderRequest[]);
     const settingsMap = new Map(
       ((settingsRes.data ?? []) as { key: string; value: string }[]).map(
@@ -449,6 +489,112 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     () => new Map(records.map((r) => [r.id, r])),
     [records]
   );
+  const ordersById = useMemo(
+    () => new Map(orders.map((o) => [o.id, o])),
+    [orders]
+  );
+
+  // --- Orders ---
+  const upsertOrderLocal = useCallback((order: Order) => {
+    setOrders((prev) =>
+      prev.some((o) => o.id === order.id)
+        ? prev.map((o) => (o.id === order.id ? { ...o, ...order } : o))
+        : [order, ...prev]
+    );
+  }, []);
+
+  // Mirror a placement: the order row, the held orders it emptied, and
+  // the records that moved into it.
+  const applyPlacedOrder = useCallback(
+    (placed: PlacedOrder) => {
+      upsertOrderLocal(placed.order);
+      if (placed.cancelledIds.length > 0) {
+        const gone = new Set(placed.cancelledIds);
+        setOrders((prev) =>
+          prev.map((o) => (gone.has(o.id) ? { ...o, status: "cancelled" } : o))
+        );
+      }
+      if (placed.movedIds.length > 0) {
+        const moved = new Set(placed.movedIds);
+        setRecords((prev) =>
+          prev.map((r) =>
+            moved.has(r.id) ? { ...r, order_id: placed.order.id } : r
+          )
+        );
+      }
+    },
+    [upsertOrderLocal]
+  );
+
+  async function placeOrder(
+    targets: DbRecord[],
+    buyer: string,
+    status: "held" | "invoiced" | "paid"
+  ): Promise<PlacedOrder | null> {
+    try {
+      const placed = await placeOrderDb(supabase, targets, buyer, status, {
+        requests: orderRequests,
+      });
+      applyPlacedOrder(placed);
+      return placed;
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Couldn't save the order");
+      return null;
+    }
+  }
+
+  async function renameBuyer(order: Order, buyer: string) {
+    try {
+      const saved = await renameOrderBuyer(supabase, order, buyer);
+      upsertOrderLocal(saved);
+      const name = saved.buyer_username;
+      setRecords((prev) =>
+        prev.map((r) =>
+          r.order_id !== order.id
+            ? r
+            : r.sold
+              ? { ...r, buyer_username: name }
+              : r.hold_buyer != null
+                ? { ...r, hold_buyer: name }
+                : r
+        )
+      );
+      setShipments((prev) =>
+        prev.map((s) =>
+          s.order_id === order.id ? { ...s, buyer_username: name } : s
+        )
+      );
+      pushToast("success", `Buyer renamed to u/${name} ✓`);
+      return true;
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Rename failed");
+      return false;
+    }
+  }
+
+  async function releaseOrder(order: Order) {
+    try {
+      const released = new Set(await releaseOrderDb(supabase, order));
+      setRecords((prev) =>
+        prev.map((r) =>
+          released.has(r.id)
+            ? { ...r, hold_buyer: null, hold_until: null, order_id: null }
+            : r
+        )
+      );
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o))
+      );
+      pushToast(
+        "success",
+        `Released ${released.size} record${released.size === 1 ? "" : "s"} — back on the shop.`
+      );
+      return true;
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Release failed");
+      return false;
+    }
+  }
   const [discogsStatus, setDiscogsStatus] = useState<Record<number, string>>({});
 
   // Shared by the per-record flow and the bulk "remove all sold" button.
@@ -529,16 +675,55 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // The shared mark-sold path: sale desk and a paid pending invoice both
-  // land here. Writes sold/price/buyer, clears holds, closes finished
-  // order requests, and offers the Discogs removal. No confirm — callers
+  // Release one record's hold. The record leaves a held order (which is
+  // cancelled once empty); an invoiced order keeps it, since the invoice
+  // still covers it.
+  async function releaseHold(r: DbRecord) {
+    const order = r.order_id != null ? ordersById.get(r.order_id) : null;
+    const leaving = order?.status === "held";
+    const ok = await updateRecord(r.id, {
+      hold_buyer: null,
+      hold_until: null,
+      ...(leaving ? { order_id: null } : {}),
+    });
+    if (!ok || !leaving || !order) return ok;
+    const others = recordsRef.current.some(
+      (x) => x.id !== r.id && x.order_id === order.id && !x.sold
+    );
+    if (others) return true;
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .eq("id", order.id);
+    if (!error) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o))
+      );
+    }
+    return true;
+  }
+
+  // The shared mark-sold path: sale desk, paid invoice, row and bulk
+  // checkboxes all land here. Puts the records in an order (paid), then
+  // writes sold/price/buyer, clears holds, closes finished order
+  // requests, and offers the Discogs removal. No confirm — callers
   // decide whether one is needed.
   async function markRecordsSold(targets: DbRecord[], buyer: string) {
     if (targets.length === 0) return;
     try {
+      // The order first: it names the buyer when the desk left it blank
+      // (a hold's buyer, or the order the records were invoiced on).
+      const placed = await placeOrder(targets, buyer, "paid");
+      const buyerName = buyer.trim() || placed?.order.buyer_username || "";
       const now = new Date();
       const patches = new Map(
-        targets.map((r) => [r.id, soldPatch(r, buyer, now)])
+        targets.map((r) => [
+          r.id,
+          {
+            ...soldPatch(r, buyerName, now),
+            order_id: placed?.order.id ?? r.order_id ?? null,
+          },
+        ])
       );
       // Track per-record success so the UI reflects exactly what landed in
       // the DB, even when a chunk fails partway through.
@@ -633,6 +818,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setShipments,
     invoices,
     setInvoices,
+    orders,
+    setOrders,
+    ordersById,
     pending,
     setPending,
     runs,
@@ -670,6 +858,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     flagDiscogsRemoved,
     removeFromDiscogs,
     markRecordsSold,
+    placeOrder,
+    applyPlacedOrder,
+    upsertOrderLocal,
+    renameBuyer,
+    releaseOrder,
+    releaseHold,
     selectedIds,
     setSelectedIds,
     selectionMode,

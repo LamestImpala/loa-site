@@ -1,4 +1,4 @@
-import type { DbRecord, Invoice, Shipment } from "../supabase.ts";
+import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
 
 // Builders for the lib/admin node tests: a fully-populated record, invoice,
 // and parcel that each test overrides only where the rule under test cares.
@@ -60,6 +60,7 @@ export function shipment(over: Partial<Shipment> = {}): Shipment {
     address_verified: null,
     parcel: {},
     paypal_invoice_id: null,
+    order_id: null,
     rate_amount: null,
     service: null,
     label_url: null,
@@ -71,6 +72,19 @@ export function shipment(over: Partial<Shipment> = {}): Shipment {
     paypal_tracker_id: null,
     paypal_tracked_number: null,
     paypal_synced_at: null,
+    ...over,
+  };
+}
+
+export function order(over: Partial<Order> = {}): Order {
+  return {
+    id: over.id ?? nextId++,
+    buyer_username: "buyer",
+    status: "held",
+    paypal_invoice_id: null,
+    request_id: null,
+    created_at: "2026-09-10T00:00:00.000Z",
+    updated_at: "2026-09-10T00:00:00.000Z",
     ...over,
   };
 }

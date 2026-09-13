@@ -1,6 +1,6 @@
-import type { DbRecord, Shipment } from "../supabase.ts";
+import type { DbRecord, Order, Shipment } from "../supabase.ts";
 
-// Fulfillment rules: how sold records and parcels group per buyer, what
+// Fulfillment rules: how sold records and parcels group per order, what
 // PayPal already knows about a parcel, and the r/VinylCollectors trade
 // confirmation texts. Pure — no React, no Supabase.
 
@@ -57,29 +57,38 @@ export function buyerNudge(buyer: string, threadUrl: string) {
 
 export type OrderGroup = {
   key: string;
+  order: Order | null; // null for sold records that predate the orders table
   buyer: string;
   records: DbRecord[];
   shipments: Shipment[];
-  invoiceId: string; // unique invoice id among member records, if any
+  invoiceId: string; // the order's invoice, else the one id shared by member records
   unassigned: DbRecord[];
   done: boolean;
   lastActivity: number; // most recent shipment update (ms) — drives archiving
 };
 
-// One group per buyer (case-insensitive), from sold records and their
-// non-refunded parcels. Open orders first, then alphabetical by buyer.
-export function groupOrdersByBuyer(
+// One group per order, from sold records and their non-refunded parcels.
+// Records and parcels without an order fall back to grouping by buyer
+// name (case-insensitive), the pre-orders rule. Open orders first, then
+// alphabetical by buyer.
+export function groupOrders(
   records: DbRecord[],
-  shipments: Shipment[]
+  shipments: Shipment[],
+  orders: Order[]
 ): OrderGroup[] {
+  const orderById = new Map(orders.map((o) => [o.id, o]));
   const map = new Map<string, OrderGroup>();
-  const groupOf = (buyer: string) => {
-    const key = buyer.trim().toLowerCase() || "(no buyer)";
+  const groupFor = (orderId: number | null | undefined, buyer: string) => {
+    const order = orderId != null ? (orderById.get(orderId) ?? null) : null;
+    const key = order
+      ? `order-${order.id}`
+      : `buyer-${buyer.trim().toLowerCase() || "(no buyer)"}`;
     let g = map.get(key);
     if (!g) {
       g = {
         key,
-        buyer: buyer.trim(),
+        order,
+        buyer: (order?.buyer_username ?? buyer).trim(),
         records: [],
         shipments: [],
         invoiceId: "",
@@ -91,10 +100,10 @@ export function groupOrdersByBuyer(
     }
     return g;
   };
-  for (const r of records) groupOf(r.buyer_username ?? "").records.push(r);
+  for (const r of records) groupFor(r.order_id, r.buyer_username ?? "").records.push(r);
   for (const s of shipments) {
     if (s.status === "refunded") continue;
-    groupOf(s.buyer_username ?? "").shipments.push(s);
+    groupFor(s.order_id, s.buyer_username ?? "").shipments.push(s);
   }
   for (const g of map.values()) {
     const invoices = [
@@ -102,7 +111,8 @@ export function groupOrdersByBuyer(
         g.records.map((r) => r.paypal_invoice_id).filter(Boolean) as string[]
       ),
     ];
-    g.invoiceId = invoices.length === 1 ? invoices[0] : "";
+    g.invoiceId =
+      g.order?.paypal_invoice_id ?? (invoices.length === 1 ? invoices[0] : "");
     const assigned = new Set(g.shipments.flatMap((s) => s.record_ids ?? []));
     g.unassigned = g.records.filter((r) => !assigned.has(r.id));
     g.done =

@@ -5,12 +5,12 @@ import {
   SWAP_BOT,
   buyerNudge,
   confirmationComment,
-  groupOrdersByBuyer,
+  groupOrders,
   inPayPal,
   needsRepush,
   pushNotNeeded,
 } from "./fulfillment.ts";
-import { rec, shipment } from "./fixtures.ts";
+import { order, rec, shipment } from "./fixtures.ts";
 
 test("PayPal tracker state per parcel", () => {
   const synced = shipment({ paypal_tracker_id: "T-1", tracking_code: "9400", paypal_tracked_number: "9400" });
@@ -47,44 +47,52 @@ test("buyer nudge points at the thread when there is one", () => {
   assert.ok(buyerNudge("amy", "").startsWith("Hey u/amy"));
 });
 
-test("orders group per buyer, case-insensitively, open before done", () => {
+test("orders group by order id; orderless rows fall back to the buyer name", () => {
+  const orders = [
+    order({ id: 1, buyer_username: "Zed", status: "paid", paypal_invoice_id: "INV-1" }),
+    order({ id: 2, buyer_username: "amy", status: "paid", paypal_invoice_id: "INV-2" }),
+    order({ id: 3, buyer_username: "amy", status: "paid", paypal_invoice_id: "INV-3" }),
+  ];
   const records = [
-    rec({ id: 1, buyer_username: "Zed", paypal_invoice_id: "INV-1" }),
-    rec({ id: 2, buyer_username: "zed ", paypal_invoice_id: "INV-1" }),
-    rec({ id: 3, buyer_username: "amy", paypal_invoice_id: "INV-2" }),
-    rec({ id: 4, buyer_username: "amy", paypal_invoice_id: "INV-3" }),
+    rec({ id: 1, buyer_username: "zed", order_id: 1 }),
+    rec({ id: 2, buyer_username: "Zed ", order_id: 1 }),
+    rec({ id: 3, buyer_username: "amy", order_id: 2 }),
+    rec({ id: 4, buyer_username: "amy", order_id: 3 }),
     rec({ id: 5, buyer_username: "" }),
-    rec({ id: 6, buyer_username: "bob" }),
+    rec({ id: 6, buyer_username: "Bob", paypal_invoice_id: "INV-6" }),
+    rec({ id: 7, buyer_username: "bob", paypal_invoice_id: "INV-7" }),
   ];
   const shipments = [
-    shipment({ id: 10, buyer_username: "ZED", record_ids: [1, 2], tracking_code: "9400", updated_at: "2026-09-12T00:00:00Z" }),
-    shipment({ id: 11, buyer_username: "amy", record_ids: [3], tracking_code: "9401", updated_at: "2026-09-11T00:00:00Z" }),
-    shipment({ id: 12, buyer_username: "amy", record_ids: [4], status: "refunded", tracking_code: "x" }),
+    shipment({ id: 10, buyer_username: "ZED", order_id: 1, record_ids: [1, 2], tracking_code: "9400", updated_at: "2026-09-12T00:00:00Z" }),
+    shipment({ id: 11, buyer_username: "amy", order_id: 2, record_ids: [3], tracking_code: "9401", updated_at: "2026-09-11T00:00:00Z" }),
+    shipment({ id: 12, buyer_username: "amy", order_id: 3, record_ids: [4], status: "refunded", tracking_code: "x" }),
     shipment({ id: 13, buyer_username: "bob", record_ids: [6], tracking_code: null, created_at: "2026-09-09T00:00:00Z", updated_at: "2026-09-10T00:00:00Z" }),
   ];
-  const groups = groupOrdersByBuyer(records, shipments);
+  const groups = groupOrders(records, shipments, orders);
   assert.deepEqual(
-    groups.map((g) => [g.key, g.buyer, g.records.length, g.unassigned.map((r) => r.id), g.invoiceId, g.done]),
+    groups.map((g) => [g.key, g.buyer, g.records.map((r) => r.id), g.unassigned.map((r) => r.id), g.invoiceId, g.done]),
     [
-      ["(no buyer)", "", 1, [5], "", false],
-      ["amy", "amy", 2, [4], "", false],
-      ["bob", "bob", 1, [], "", false],
-      ["zed", "Zed", 2, [], "INV-1", true],
-    ]
+      ["buyer-(no buyer)", "", [5], [5], "", false],
+      ["order-3", "amy", [4], [4], "INV-3", false],
+      ["buyer-bob", "Bob", [6, 7], [7], "", false],
+      ["order-2", "amy", [3], [], "INV-2", true],
+      ["order-1", "Zed", [1, 2], [], "INV-1", true],
+    ],
+    "two orders to one buyer stay apart; the buyer name comes from the order"
   );
-  const amy = groups[1];
-  assert.deepEqual(amy.shipments.map((s) => s.id), [11], "refunded parcels are ignored");
-  assert.equal(amy.invoiceId, "", "two invoices — no single id to sync");
-  assert.equal(groups[3].lastActivity, Date.parse("2026-09-12T00:00:00Z"));
+  assert.deepEqual(groups[1].shipments, [], "refunded parcels are ignored");
+  assert.equal(groups[2].invoiceId, "", "orderless group with two invoices — no single id to sync");
+  assert.equal(groups[4].lastActivity, Date.parse("2026-09-12T00:00:00Z"));
   assert.equal(groups[2].lastActivity, Date.parse("2026-09-10T00:00:00Z"), "updated_at over created_at");
   assert.equal(groups[0].lastActivity, 0, "no parcels yet");
 });
 
 test("a group is done only when every record is in a tracked parcel", () => {
-  const records = [rec({ id: 1, buyer_username: "b" }), rec({ id: 2, buyer_username: "b" })];
-  const all = shipment({ buyer_username: "b", record_ids: [1, 2], tracking_code: "1" });
-  assert.equal(groupOrdersByBuyer(records, [all])[0].done, true);
-  assert.equal(groupOrdersByBuyer(records, [{ ...all, tracking_code: null }])[0].done, false);
-  assert.equal(groupOrdersByBuyer(records, [{ ...all, record_ids: [1] }])[0].done, false);
-  assert.equal(groupOrdersByBuyer([], [all])[0].done, false, "a parcel with no records is not an order");
+  const o = order({ id: 1, buyer_username: "b", status: "paid" });
+  const records = [rec({ id: 1, order_id: 1 }), rec({ id: 2, order_id: 1 })];
+  const all = shipment({ order_id: 1, record_ids: [1, 2], tracking_code: "1" });
+  assert.equal(groupOrders(records, [all], [o])[0].done, true);
+  assert.equal(groupOrders(records, [{ ...all, tracking_code: null }], [o])[0].done, false);
+  assert.equal(groupOrders(records, [{ ...all, record_ids: [1] }], [o])[0].done, false);
+  assert.equal(groupOrders([], [all], [o])[0].done, false, "a parcel with no records is not an order");
 });

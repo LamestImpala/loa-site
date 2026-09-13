@@ -6,7 +6,7 @@ import {
   bundleBreakdown,
   makeRefCode,
 } from "@/lib/records";
-import type { DbRecord, Invoice, OrderRequest } from "@/lib/supabase";
+import type { DbRecord, Invoice, Order, OrderRequest } from "@/lib/supabase";
 import {
   extractRefCode,
   matchLines,
@@ -15,14 +15,15 @@ import {
   type LineMatch,
 } from "@/lib/order-parse";
 import { recentDays } from "@/lib/admin/interest";
-import { activeHoldGroups, pendingInvoiceGroups } from "@/lib/admin/sales";
+import { openOrders, type OpenOrder } from "@/lib/admin/orders";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
+import { BuyerField } from "../_shell/buyer-field";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
 
 // The inbox: everything between "a buyer wants records" and "the parcel
-// is on its way" — requests, the sale desk, pending invoices, holds,
-// pasted DMs, and fulfillment — in one top-to-bottom flow.
+// is on its way" — requests, the sale desk, open orders (held or
+// invoiced), pasted DMs, and fulfillment — in one top-to-bottom flow.
 export function InboxPage() {
   const {
     supabase,
@@ -32,6 +33,8 @@ export function InboxPage() {
     setShipments,
     invoices,
     setInvoices,
+    orders,
+    setOrders,
     orderRequests,
     setOrderRequests,
     events,
@@ -43,6 +46,10 @@ export function InboxPage() {
     upsertInvoiceLocal,
     byId,
     markRecordsSold,
+    placeOrder,
+    applyPlacedOrder,
+    renameBuyer,
+    releaseOrder,
     selectedIds,
     setSelectedIds,
     selectionMode,
@@ -111,6 +118,12 @@ export function InboxPage() {
     const ids = saleRecords.map((r) => r.id);
     if (!buyer || ids.length === 0 || saleBusy) return;
     setSaleBusy("hold");
+    // The order is the durable home for the hold; the records point at it.
+    const placed = await placeOrder(saleRecords, buyer, "held");
+    if (!placed) {
+      setSaleBusy(null);
+      return;
+    }
     const patch = {
       hold_buyer: buyer,
       hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
@@ -211,6 +224,9 @@ export function InboxPage() {
       }
       // The saved pending-order row keeps the payment link after Clear.
       if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
+      // The route put the records in an order (invoiced) — mirror it so
+      // the Open orders card appears without a reload.
+      if (body.placed) applyPlacedOrder(body.placed);
     } catch {
       setSaleStatus("Request failed");
     } finally {
@@ -236,25 +252,22 @@ export function InboxPage() {
   }>(null);
   const [saveParsedChecked, setSaveParsedChecked] = useState(true);
 
-  // Orders in progress that have no inbox card: unsold records with an
-  // Invoices sent but not paid, each with the unsold records it covers.
-  // This is the durable "order in progress": it survives clearing the
-  // sale desk, and disappears once its records are marked sold (the
-  // group then shows up in Fulfillment) or the invoice is cancelled.
-  const pendingInvoices = useMemo(
-    () => pendingInvoiceGroups(records, invoices),
-    [records, invoices]
+  // Orders in progress: held or invoiced, with the unsold records they
+  // cover. This is the durable "order in progress": it survives clearing
+  // the sale desk, and leaves the list once its records are marked sold
+  // (the order then shows up in Fulfillment) or it's cancelled.
+  const open = useMemo(
+    () => openOrders(orders, records, invoices),
+    [orders, records, invoices]
   );
-  const pendingInvoiceIds = useMemo(
-    () => new Set(pendingInvoices.map((p) => p.invoice.paypal_invoice_id)),
-    [pendingInvoices]
-  );
-
-  // Active holds, grouped per buyer. Records covered by a pending invoice
-  // are listed under that invoice instead, so an order shows once.
-  const activeHolds = useMemo(
-    () => activeHoldGroups(records, pendingInvoiceIds),
-    [records, pendingInvoiceIds]
+  const invoicedRecordIds = useMemo(
+    () =>
+      new Set(
+        open
+          .filter((o) => o.order.status === "invoiced")
+          .flatMap((o) => o.recs.map((r) => r.id))
+      ),
+    [open]
   );
 
   // Replace the sale-desk selection (with confirmation when it differs),
@@ -312,24 +325,52 @@ export function InboxPage() {
     }
   }
 
-  function loadHoldIntoSaleDesk(group: { buyer: string; recs: DbRecord[] }) {
-    if (!applySaleSelection(group.recs.map((r) => r.id))) return;
-    // Seed the buyer field like a row-toggle would, without clobbering a
-    // name the admin already typed.
-    setSaleBuyer((prev) =>
-      prev.trim() || group.buyer.startsWith("(") ? prev : group.buyer
-    );
-  }
-
-  // --- Pending invoices: sent-but-unpaid orders ---
-  const [pendingBusy, setPendingBusy] = useState<null | {
-    id: string;
-    action: "check" | "cancel";
+  // --- Open orders: held or invoiced, not yet paid ---
+  // One order busy at a time, keyed by order id, so a slow PayPal call on
+  // one card never disables the others.
+  const [orderBusy, setOrderBusy] = useState<null | {
+    id: number;
+    action: "check" | "cancel" | "paid" | "release";
   }>(null);
 
-  function loadPendingIntoSaleDesk(p: { buyer: string; recs: DbRecord[] }) {
-    if (!applySaleSelection(p.recs.map((r) => r.id))) return;
-    setSaleBuyer((prev) => (prev.trim() ? prev : p.buyer));
+  function loadOrderIntoSaleDesk(o: OpenOrder) {
+    if (!applySaleSelection(o.recs.map((r) => r.id))) return;
+    // Seed the buyer field without clobbering a name the admin typed.
+    setSaleBuyer((prev) => (prev.trim() ? prev : o.buyer));
+  }
+
+  // A held order whose buyer paid off-PayPal: mark its records sold.
+  async function markOrderPaid(o: OpenOrder) {
+    if (orderBusy || o.recs.length === 0) return;
+    if (
+      !window.confirm(
+        `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to u/${o.buyer || "?"}? Each record's sold price is set to its listed price.`
+      )
+    )
+      return;
+    setOrderBusy({ id: o.order.id, action: "paid" });
+    try {
+      await markRecordsSold(o.recs, o.buyer);
+    } finally {
+      setOrderBusy(null);
+    }
+  }
+
+  // Release a held order: the records go back on the shop.
+  async function releaseHeldOrder(o: OpenOrder) {
+    if (orderBusy) return;
+    if (
+      !window.confirm(
+        `Release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} held for u/${o.buyer || "?"}? They go back on the shop immediately.`
+      )
+    )
+      return;
+    setOrderBusy({ id: o.order.id, action: "release" });
+    try {
+      await releaseOrder(o.order);
+    } finally {
+      setOrderBusy(null);
+    }
   }
 
   async function copyPendingLink(inv: Invoice) {
@@ -357,28 +398,31 @@ export function InboxPage() {
 
   // Ask PayPal where the invoice stands. Paid → the records are marked
   // sold to the buyer right away and the order moves to Fulfillment.
-  async function checkPendingInvoice(p: {
-    invoice: Invoice;
-    buyer: string;
-    recs: DbRecord[];
-  }) {
-    const id = p.invoice.paypal_invoice_id;
-    if (pendingBusy) return;
-    setPendingBusy({ id, action: "check" });
+  async function checkOrderInvoice(o: OpenOrder) {
+    const id = o.order.paypal_invoice_id;
+    if (!id || orderBusy) return;
+    setOrderBusy({ id: o.order.id, action: "check" });
     try {
       const body = await pendingInvoiceFetch(id, "GET");
       if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
       if (body.paid) {
+        if (o.recs.length === 0) {
+          // Paid, but every record has since moved or sold elsewhere —
+          // close the order so the invoice stops showing as open.
+          await closeOrderLocal(o.order, "paid");
+          pushToast("success", `Invoice ${id} is ${body.status} ✓ — order closed.`);
+          return;
+        }
         pushToast(
           "success",
-          `Invoice ${id} is ${body.status} ✓ — marking ${p.recs.length} record${p.recs.length === 1 ? "" : "s"} sold to u/${p.buyer || "?"}`
+          `Invoice ${id} is ${body.status} ✓ — marking ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} sold to u/${o.buyer || "?"}`
         );
-        await markRecordsSold(p.recs, p.buyer);
+        await markRecordsSold(o.recs, o.buyer);
       } else {
         pushToast(
           "info",
           `Invoice ${id}: not paid yet (${body.status}).${
-            body.recipientViewUrl && !p.invoice.recipient_view_url
+            body.recipientViewUrl && !o.invoice?.recipient_view_url
               ? " Payment link saved."
               : ""
           }`
@@ -387,28 +431,42 @@ export function InboxPage() {
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "PayPal check failed");
     } finally {
-      setPendingBusy(null);
+      setOrderBusy(null);
     }
   }
 
-  // Cancel on PayPal and put the records back on the shelf.
-  async function cancelPendingInvoice(p: {
-    invoice: Invoice;
-    buyer: string;
-    recs: DbRecord[];
-  }) {
-    const id = p.invoice.paypal_invoice_id;
-    if (pendingBusy) return;
+  async function closeOrderLocal(order: Order, status: "paid" | "cancelled") {
+    const { error } = await supabase
+      .from("orders")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", order.id);
+    if (error) {
+      pushToast("error", `Couldn't close the order: ${error.message}`);
+      return;
+    }
+    setOrders((prev) =>
+      prev.map((x) => (x.id === order.id ? { ...x, status } : x))
+    );
+  }
+
+  // Cancel on PayPal, end the order, and put the records back on the shelf.
+  async function cancelOrderInvoice(o: OpenOrder) {
+    const id = o.order.paypal_invoice_id;
+    if (!id || orderBusy) return;
     if (
       !window.confirm(
-        `Cancel invoice ${id}${p.buyer ? ` for u/${p.buyer}` : ""} on PayPal and release ${p.recs.length} record${p.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
+        `Cancel invoice ${id}${o.buyer ? ` for u/${o.buyer}` : ""} on PayPal and release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
       )
     )
       return;
-    setPendingBusy({ id, action: "cancel" });
+    setOrderBusy({ id: o.order.id, action: "cancel" });
     try {
       const body = await pendingInvoiceFetch(id, "DELETE");
       const released = new Set<number>(body.releasedIds ?? []);
+      const cancelled = new Set<number>([
+        o.order.id,
+        ...((body.cancelledOrderIds ?? []) as number[]),
+      ]);
       const now = new Date().toISOString();
       setInvoices((prev) =>
         prev.map((i) =>
@@ -420,15 +478,28 @@ export function InboxPage() {
       setRecords((prev) =>
         prev.map((r) =>
           released.has(r.id)
-            ? { ...r, paypal_invoice_id: null, hold_buyer: null, hold_until: null }
+            ? {
+                ...r,
+                paypal_invoice_id: null,
+                hold_buyer: null,
+                hold_until: null,
+                order_id: null,
+              }
             : r
+        )
+      );
+      setOrders((prev) =>
+        prev.map((x) =>
+          cancelled.has(x.id) && x.status !== "paid"
+            ? { ...x, status: "cancelled" }
+            : x
         )
       );
       pushToast("success", `Invoice ${id} cancelled — ${released.size} record${released.size === 1 ? "" : "s"} released.`);
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Cancel failed");
     } finally {
-      setPendingBusy(null);
+      setOrderBusy(null);
     }
   }
 
@@ -904,10 +975,7 @@ export function InboxPage() {
                             no username given
                           </span>
                         )}
-                        {req.record_ids.some((id) => {
-                          const inv = byId.get(id)?.paypal_invoice_id;
-                          return !!inv && pendingInvoiceIds.has(inv);
-                        }) ? (
+                        {req.record_ids.some((id) => invoicedRecordIds.has(id)) ? (
                           <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-300">
                             invoice sent
                           </span>
@@ -980,188 +1048,189 @@ export function InboxPage() {
               </div>
             )}
 
-            {pendingInvoices.length > 0 ? (
+            {open.length > 0 ? (
               <>
-                <h3 className="mt-8 text-lg font-medium">Pending invoices</h3>
+                <h3 className="mt-8 text-lg font-medium">
+                  Open orders{" "}
+                  <span className="text-sm text-neutral-400">({open.length})</span>
+                </h3>
                 <p className="mt-1 text-sm text-neutral-400">
-                  Invoices sent but not paid. Clear the sale desk freely —
-                  these stay here with the payment link. Check PayPal marks
-                  the records sold the moment it reports paid.
+                  Held or invoiced, not yet paid. Clear the sale desk freely —
+                  these stay here. Check PayPal marks an invoiced order sold
+                  the moment it reports paid; a held order is marked paid by
+                  hand or released back to the shop.
                 </p>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  {pendingInvoices.map((p) => {
-                    const inv = p.invoice;
-                    const id = inv.paypal_invoice_id;
-                    const busy = pendingBusy?.id === id ? pendingBusy.action : null;
-                    const hoursLeft = Math.round((p.holdUntil - Date.now()) / 3600000);
-                    const status = (inv.status ?? "SENT").toLowerCase();
+                  {open.map((o) => {
+                    const order = o.order;
+                    const inv = o.invoice;
+                    const invoiceId = order.paypal_invoice_id;
+                    const invoiced = order.status === "invoiced";
+                    const busy = orderBusy?.id === order.id ? orderBusy.action : null;
+                    const anyBusy = !!orderBusy;
+                    const hoursLeft = Math.round((o.holdUntil - Date.now()) / 3600000);
+                    const invStatus = (inv?.status ?? "SENT").toLowerCase();
                     return (
                       <div
-                        key={id}
-                        className="rounded-2xl border border-emerald-500/30 bg-white/5 p-4"
+                        key={order.id}
+                        className={`rounded-2xl border bg-white/5 p-4 ${
+                          invoiced ? "border-emerald-500/30" : "border-amber-400/30"
+                        }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-white">
-                            {p.buyer ? `u/${p.buyer}` : "(no buyer name)"}
-                          </span>
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-xs ${
-                              status === "draft"
-                                ? "border-white/15 text-neutral-400"
-                                : "border-emerald-500/40 text-emerald-300"
-                            }`}
-                          >
-                            invoice {status}
-                          </span>
-                          <span className="font-mono text-xs text-neutral-500">
-                            {id}
-                          </span>
+                          <BuyerField
+                            value={o.buyer}
+                            disabled={anyBusy}
+                            onSave={(next) => renameBuyer(order, next)}
+                          />
+                          {invoiced ? (
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-xs ${
+                                invStatus === "draft"
+                                  ? "border-white/15 text-neutral-400"
+                                  : "border-emerald-500/40 text-emerald-300"
+                              }`}
+                            >
+                              invoice {invStatus}
+                            </span>
+                          ) : (
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-xs ${
+                                o.expired
+                                  ? "border-white/15 text-neutral-400"
+                                  : "border-amber-400/40 text-amber-300"
+                              }`}
+                            >
+                              {o.expired ? "hold expired" : "on hold"}
+                            </span>
+                          )}
+                          {invoiceId ? (
+                            <span className="font-mono text-xs text-neutral-500">
+                              {invoiceId}
+                            </span>
+                          ) : null}
                           <span className="ml-auto text-xs text-neutral-500">
-                            {timeAgo(inv.created_at)}
+                            {timeAgo(order.created_at)}
                             {" · "}
-                            {p.holdUntil > Date.now() ? (
+                            {o.holdUntil > Date.now() ? (
                               `~${hoursLeft}h hold left`
                             ) : (
                               <span className="text-amber-400">
-                                {p.holdUntil ? "hold expired" : "not on hold"}
+                                {o.holdUntil ? "hold expired" : "not on hold"}
                               </span>
                             )}
                           </span>
                         </div>
-                        <ul className="mt-3 space-y-1 text-sm">
-                          {p.recs.map((r) => (
-                            <li key={r.id}>
-                              {r.artist} — {r.title}{" "}
-                              <span className="text-neutral-500">
-                                {r.media}/{r.sleeve}
-                              </span>{" "}
-                              — ${r.price}
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="mt-2 text-sm text-neutral-400">
-                          Subtotal ${p.totals.subtotal} · Shipping $
-                          {p.totals.shipping} ·{" "}
-                          <span className="font-medium text-white">
-                            Total ${inv.total ?? p.totals.total}
-                          </span>
-                        </p>
+                        {o.recs.length === 0 ? (
+                          <p className="mt-3 text-sm text-amber-400">
+                            No records left on this order — they were sold or
+                            moved elsewhere. Cancel the invoice, or Check PayPal
+                            to close it as paid.
+                          </p>
+                        ) : (
+                          <>
+                            <ul className="mt-3 space-y-1 text-sm">
+                              {o.recs.map((r) => (
+                                <li key={r.id}>
+                                  {r.artist} — {r.title}{" "}
+                                  <span className="text-neutral-500">
+                                    {r.media}/{r.sleeve}
+                                  </span>{" "}
+                                  — ${r.price}
+                                </li>
+                              ))}
+                            </ul>
+                            <p className="mt-2 text-sm text-neutral-400">
+                              Subtotal ${o.totals.subtotal} · Shipping $
+                              {o.totals.shipping} ·{" "}
+                              <span className="font-medium text-white">
+                                Total ${inv?.total ?? o.totals.total}
+                              </span>
+                            </p>
+                          </>
+                        )}
                         <div className="mt-3 flex flex-wrap items-center gap-2">
-                          {inv.recipient_view_url ? (
+                          {invoiced ? (
+                            <>
+                              {inv?.recipient_view_url ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className={buttonClass}
+                                    onClick={() => copyPendingLink(inv)}
+                                  >
+                                    {isCopied(`pending-${invoiceId}`)
+                                      ? "Copied!"
+                                      : "Copy payment link"}
+                                  </button>
+                                  <a
+                                    href={inv.recipient_view_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-neutral-400 underline hover:text-white"
+                                  >
+                                    Open ↗
+                                  </a>
+                                </>
+                              ) : (
+                                <span className="text-xs text-neutral-500">
+                                  No payment link saved — Check PayPal fetches it.
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                className={buttonClass}
+                                disabled={anyBusy}
+                                onClick={() => checkOrderInvoice(o)}
+                              >
+                                {busy === "check" ? "Checking…" : "Check PayPal"}
+                              </button>
+                              {o.recs.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className={buttonClass}
+                                  onClick={() => loadOrderIntoSaleDesk(o)}
+                                >
+                                  Load into sale desk
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="text-xs text-neutral-500 underline transition hover:text-red-300 disabled:opacity-50"
+                                disabled={anyBusy}
+                                onClick={() => cancelOrderInvoice(o)}
+                              >
+                                {busy === "cancel" ? "Cancelling…" : "Cancel invoice"}
+                              </button>
+                            </>
+                          ) : (
                             <>
                               <button
                                 type="button"
                                 className={buttonClass}
-                                onClick={() => copyPendingLink(inv)}
+                                onClick={() => loadOrderIntoSaleDesk(o)}
                               >
-                                {isCopied(`pending-${id}`)
-                                  ? "Copied!"
-                                  : "Copy payment link"}
+                                Load into sale desk
                               </button>
-                              <a
-                                href={inv.recipient_view_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-neutral-400 underline hover:text-white"
+                              <button
+                                type="button"
+                                className={buttonClass}
+                                disabled={anyBusy}
+                                title="The buyer paid outside PayPal — mark the records sold to them"
+                                onClick={() => markOrderPaid(o)}
                               >
-                                Open ↗
-                              </a>
+                                {busy === "paid" ? "Saving…" : "Mark paid"}
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs text-neutral-500 underline transition hover:text-red-300 disabled:opacity-50"
+                                disabled={anyBusy}
+                                onClick={() => releaseHeldOrder(o)}
+                              >
+                                {busy === "release" ? "Releasing…" : "Release"}
+                              </button>
                             </>
-                          ) : (
-                            <span className="text-xs text-neutral-500">
-                              No payment link saved — Check PayPal fetches it.
-                            </span>
                           )}
-                          <button
-                            type="button"
-                            className={buttonClass}
-                            disabled={!!pendingBusy}
-                            onClick={() => checkPendingInvoice(p)}
-                          >
-                            {busy === "check" ? "Checking…" : "Check PayPal"}
-                          </button>
-                          <button
-                            type="button"
-                            className={buttonClass}
-                            onClick={() => loadPendingIntoSaleDesk(p)}
-                          >
-                            Load into sale desk
-                          </button>
-                          <button
-                            type="button"
-                            className="text-xs text-neutral-500 underline transition hover:text-red-300 disabled:opacity-50"
-                            disabled={!!pendingBusy}
-                            onClick={() => cancelPendingInvoice(p)}
-                          >
-                            {busy === "cancel" ? "Cancelling…" : "Cancel invoice"}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : null}
-
-            {activeHolds.length > 0 ? (
-              <>
-                <h3 className="mt-8 text-lg font-medium">Active holds</h3>
-                <p className="mt-1 text-sm text-neutral-400">
-                  Records currently held for a buyer — orders in progress even
-                  when there&rsquo;s no request card above. Holds expire on
-                  their own; when payment lands, load one and mark it sold.
-                </p>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  {activeHolds.map((group) => {
-                    const totals = bundleBreakdown(group.recs);
-                    const hoursLeft = Math.max(
-                      0,
-                      Math.round((group.until - Date.now()) / 3600000)
-                    );
-                    return (
-                      <div
-                        key={group.buyer}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-4"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-white">
-                            {group.buyer.startsWith("(")
-                              ? group.buyer
-                              : `u/${group.buyer}`}
-                          </span>
-                          <span className="rounded-full border border-amber-400/40 px-2 py-0.5 text-xs text-amber-300">
-                            on hold
-                          </span>
-                          <span className="ml-auto text-xs text-neutral-500">
-                            ~{hoursLeft}h left
-                          </span>
-                        </div>
-                        <ul className="mt-3 space-y-1 text-sm">
-                          {group.recs.map((r) => (
-                            <li key={r.id}>
-                              {r.artist} — {r.title}{" "}
-                              <span className="text-neutral-500">
-                                {r.media}/{r.sleeve}
-                              </span>{" "}
-                              — ${r.price}
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="mt-2 text-sm text-neutral-400">
-                          Subtotal ${totals.subtotal} · Shipping $
-                          {totals.shipping} ·{" "}
-                          <span className="font-medium text-white">
-                            Total ${totals.total}
-                          </span>
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className={buttonClass}
-                            onClick={() => loadHoldIntoSaleDesk(group)}
-                          >
-                            Load into sale desk
-                          </button>
                         </div>
                       </div>
                     );
@@ -1393,14 +1462,17 @@ export function InboxPage() {
             records={records.filter((r) => r.sold)}
             shipments={shipments}
             invoices={invoices}
+            orders={orders}
             supabase={supabase}
             onShipmentsChange={setShipments}
             onInvoicesChange={setInvoices}
+            onOrdersChange={setOrders}
             onRecordPatched={(id, patch) =>
               setRecords((prev) =>
                 prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
               )
             }
+            onRenameBuyer={renameBuyer}
             getAccessToken={getAccessToken}
             copyText={copyText}
             pushToast={pushToast}

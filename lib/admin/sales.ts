@@ -1,9 +1,7 @@
-import type { DbRecord, Invoice, OrderRequest } from "../supabase.ts";
-import { bundleBreakdown } from "../records.ts";
-import { holdActive } from "./records.ts";
+import type { DbRecord, OrderRequest } from "../supabase.ts";
 
-// The sale side of the admin: what a mark-sold writes, what it finishes,
-// and how open orders group in the inbox. Pure — no React, no Supabase.
+// The sale side of the admin: what a mark-sold writes and what it
+// finishes. Pure — no React, no Supabase. Order grouping is in orders.ts.
 
 // The record patch for a sale. The buyer typed at the desk wins; otherwise
 // the hold's buyer, then whatever was already on the row. Holds always
@@ -47,89 +45,4 @@ export function discogsCandidates(
   return targets.filter(
     (r) => justSold.has(r.id) && !!r.discogs_release_id && !r.discogs_removed
   );
-}
-
-// An order between invoice and payment: unpaid, uncancelled, with at
-// least one unsold record. This is the durable "order in progress" — it
-// survives clearing the sale desk, and disappears once its records are
-// marked sold or the invoice is cancelled. Newest first.
-export type PendingInvoiceGroup = {
-  invoice: Invoice;
-  buyer: string;
-  recs: DbRecord[];
-  totals: ReturnType<typeof bundleBreakdown>;
-  holdUntil: number; // latest hold expiry among members (ms), 0 if none
-};
-
-export function pendingInvoiceGroups(
-  records: DbRecord[],
-  invoices: Invoice[]
-): PendingInvoiceGroup[] {
-  const byId = new Map(records.map((r) => [r.id, r]));
-  const byInvoice = new Map<string, DbRecord[]>();
-  for (const r of records) {
-    if (r.sold || !r.paypal_invoice_id) continue;
-    const list = byInvoice.get(r.paypal_invoice_id);
-    if (list) list.push(r);
-    else byInvoice.set(r.paypal_invoice_id, [r]);
-  }
-  return invoices
-    .filter((inv) => !inv.paid_at && inv.status !== "CANCELLED")
-    .map((inv) => {
-      // Prefer the live stamp; fall back to the ids saved at creation for
-      // invoices whose stamp never landed.
-      let recs = byInvoice.get(inv.paypal_invoice_id) ?? [];
-      if (recs.length === 0 && inv.record_ids?.length) {
-        recs = inv.record_ids
-          .map((id) => byId.get(id))
-          .filter((r): r is DbRecord => !!r && !r.sold);
-      }
-      const holdUntil = recs.reduce(
-        (max, r) =>
-          r.hold_until ? Math.max(max, new Date(r.hold_until).getTime()) : max,
-        0
-      );
-      return {
-        invoice: inv,
-        buyer: (inv.buyer_username ?? recs[0]?.hold_buyer ?? "").trim(),
-        recs,
-        totals: bundleBreakdown(recs),
-        holdUntil,
-      };
-    })
-    .filter((p) => p.recs.length > 0)
-    .sort((a, b) => b.invoice.created_at.localeCompare(a.invoice.created_at));
-}
-
-// Active holds grouped per buyer. Records covered by a pending invoice are
-// listed under that invoice instead, so an order shows once. Soonest
-// expiry first.
-export type HoldGroup = { buyer: string; recs: DbRecord[]; until: number };
-
-export function activeHoldGroups(
-  records: DbRecord[],
-  pendingInvoiceIds: Set<string>,
-  now: number = Date.now()
-): HoldGroup[] {
-  const groups = new Map<string, DbRecord[]>();
-  for (const r of records) {
-    if (r.sold || !holdActive(r, now)) continue;
-    if (r.paypal_invoice_id && pendingInvoiceIds.has(r.paypal_invoice_id))
-      continue;
-    const buyer = (r.hold_buyer ?? "").trim() || "(no buyer name)";
-    const list = groups.get(buyer);
-    if (list) list.push(r);
-    else groups.set(buyer, [r]);
-  }
-  return [...groups.entries()]
-    .map(([buyer, recs]) => ({
-      buyer,
-      recs,
-      // Holds in a group can expire at different times; show the soonest.
-      until: recs.reduce(
-        (min, r) => Math.min(min, new Date(r.hold_until!).getTime()),
-        Infinity
-      ),
-    }))
-    .sort((a, b) => a.until - b.until);
 }
