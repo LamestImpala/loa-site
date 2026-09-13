@@ -56,6 +56,9 @@ export function CatalogPage() {
     flagDiscogsRemoved,
     removeFromDiscogs,
     markRecordsSold,
+    ordersById,
+    renameBuyer,
+    releaseHold: releaseRecordHold,
     selectedIds,
     setSelectedIds,
     selectionMode,
@@ -227,10 +230,14 @@ export function CatalogPage() {
     [pushToast, updateRecord]
   );
 
+  // The buyer's name lives on the order when there is one, so the rename
+  // reaches every record and parcel in it; orderless sales edit the row.
   async function saveBuyer(r: DbRecord) {
     const value = (buyerEdits[r.id] ?? "").trim().replace(/^u\//, "");
     if (value === (r.buyer_username ?? "")) return;
-    await updateRecord(r.id, { buyer_username: value });
+    const order = r.order_id != null ? ordersById.get(r.order_id) : null;
+    if (order) await renameBuyer(order, value);
+    else await updateRecord(r.id, { buyer_username: value });
   }
 
   async function saveSoldPrice(r: DbRecord) {
@@ -371,7 +378,7 @@ export function CatalogPage() {
       )
     )
       return;
-    await updateRecord(r.id, { hold_buyer: null, hold_until: null });
+    await releaseRecordHold(r);
   }
 
   async function markSold(r: DbRecord, sold: boolean) {
@@ -383,8 +390,9 @@ export function CatalogPage() {
       )
     )
       return;
+    // Un-selling takes the record out of its order too.
     if (!sold) {
-      await updateRecord(r.id, { sold: false, sold_at: null });
+      await updateRecord(r.id, { sold: false, sold_at: null, order_id: null });
       return;
     }
     // Selling goes through the same path as the sale desk, so the row

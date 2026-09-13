@@ -5,8 +5,11 @@ import {
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
   type Invoice,
+  type Order,
+  type OrderRequest,
 } from "@/lib/supabase";
 import { bundleBreakdown } from "@/lib/records";
+import { placeOrder, type PlacedOrder } from "@/lib/admin/orders-db";
 import {
   cancelInvoice,
   createAndSendInvoice,
@@ -21,12 +24,13 @@ import {
 // still enforces the admin policy.
 //
 //   POST   { ids, buyer, email? }  — create + send an invoice for a set of
-//     records, hold them for the buyer, and save a pending `invoices` row
-//     (with the payment link) so the order survives clearing the sale desk.
+//     records, put them in an order (invoiced), hold them for the buyer,
+//     and save a pending `invoices` row (with the payment link) so the
+//     order survives clearing the sale desk.
 //   GET    ?id=INV2-…              — read the invoice's status from PayPal
 //     and mirror it (status, payment link, paid_at) onto the row.
-//   DELETE ?id=INV2-…              — cancel the invoice on PayPal and
-//     release the records (stamp + hold cleared).
+//   DELETE ?id=INV2-…              — cancel the invoice on PayPal, cancel
+//     its order, and release the records (stamp + hold + order cleared).
 
 const HOLD_HOURS = 48;
 
@@ -87,7 +91,9 @@ export async function POST(req: NextRequest) {
 
   const { data: recs, error: fetchError } = await supabase
     .from("records")
-    .select("id, artist, title, media, sleeve, price, sold")
+    .select(
+      "id, artist, title, media, sleeve, price, sold, order_id, hold_buyer, buyer_username"
+    )
     .in("id", ids);
   if (fetchError) {
     return NextResponse.json({ error: fetchError.message }, { status: 502 });
@@ -128,6 +134,25 @@ export async function POST(req: NextRequest) {
     });
     const now = new Date().toISOString();
     const holdUntil = new Date(Date.now() + HOLD_HOURS * 3600 * 1000).toISOString();
+    // The order: continue the open one these records share, else a new
+    // one, now invoiced. Non-fatal: the invoice already exists.
+    let placed: PlacedOrder | null = null;
+    let orderError: string | null = null;
+    try {
+      const { data: openRequests } = await supabase
+        .from("order_requests")
+        .select("*")
+        .in("status", ["new", "loaded"])
+        .order("created_at", { ascending: false })
+        .limit(50);
+      placed = await placeOrder(supabase, recs, buyer, "invoiced", {
+        requests: (openRequests ?? []) as OrderRequest[],
+        extra: { paypal_invoice_id: result.invoiceId },
+      });
+    } catch (e) {
+      orderError = e instanceof Error ? e.message : "Couldn't save the order";
+      console.error("paypal-invoice: order failed:", orderError);
+    }
     // Link the records to the invoice so fulfillment can find the PayPal
     // transaction later, and hold them for the buyer while they pay.
     // Non-fatal: the invoice already exists.
@@ -168,6 +193,9 @@ export async function POST(req: NextRequest) {
         stampError
           ? "Couldn't save the invoice id on the records — link it by hand in Fulfillment."
           : null,
+        orderError
+          ? `Couldn't save the order (${orderError}) — the invoice is out, but it won't be listed under Open orders.`
+          : null,
         rowError
           ? "Couldn't save the pending order — copy the payment link now; it won't be listed under Pending invoices."
           : null,
@@ -180,6 +208,7 @@ export async function POST(req: NextRequest) {
       invoiceStamped: !stampError,
       holdUntil: stampError ? null : holdUntil,
       invoice: rowError ? null : (saved as Invoice),
+      placed,
       subtotal: breakdown.subtotal,
       shipping: breakdown.shipping,
       total: breakdown.total,
@@ -303,6 +332,7 @@ export async function DELETE(req: NextRequest) {
         paypal_invoice_id: null,
         hold_buyer: null,
         hold_until: null,
+        order_id: null,
         updated_at: now,
       })
       .eq("paypal_invoice_id", id)
@@ -311,9 +341,22 @@ export async function DELETE(req: NextRequest) {
     if (releaseError) {
       return NextResponse.json({ error: releaseError.message }, { status: 502 });
     }
+    // The order ends with its invoice, unless it was already paid.
+    const { data: cancelledOrders, error: orderError } = await supabase
+      .from("orders")
+      .update({ status: "cancelled", updated_at: now })
+      .eq("paypal_invoice_id", id)
+      .neq("status", "paid")
+      .select("id");
+    if (orderError) {
+      console.error("paypal-invoice cancel: order update failed:", orderError.message);
+    }
     return NextResponse.json({
       ok: true,
       releasedIds: (released ?? []).map((r) => r.id),
+      cancelledOrderIds: ((cancelledOrders ?? []) as Pick<Order, "id">[]).map(
+        (o) => o.id
+      ),
     });
   } catch (e) {
     console.error("paypal-invoice cancel failed:", e instanceof Error ? e.message : e);

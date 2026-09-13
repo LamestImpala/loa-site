@@ -35,6 +35,23 @@ export type DbRecord = {
   sold_price?: number | null; // admin-only; final price the record sold for
   sold_at?: string | null; // admin-only; when the record was marked sold
   paypal_invoice_id?: string | null; // admin-only; invoice this record was billed on
+  order_id?: number | null; // admin-only; the order it's held for, invoiced on, or sold in
+  updated_at: string;
+};
+
+// One sale, from the first hold or invoice through fulfillment. Records
+// and parcels point at it; the buyer's name lives here and is mirrored
+// onto them. Status moves held → invoiced → paid; cancelled ends either
+// open stage. "Fulfilled" is derived (every record in a tracked parcel).
+export type OrderStatus = "held" | "invoiced" | "paid" | "cancelled";
+
+export type Order = {
+  id: number;
+  buyer_username: string; // no u/ prefix
+  status: OrderStatus;
+  paypal_invoice_id: string | null; // the live invoice, if one was sent
+  request_id: number | null; // the shop request it came from, if any
+  created_at: string;
   updated_at: string;
 };
 
@@ -51,6 +68,7 @@ export type Shipment = {
   address_verified: boolean | null;
   parcel: Record<string, unknown>;
   paypal_invoice_id: string | null;
+  order_id: number | null; // fulfillment groups parcels by order
   rate_amount: number | null;
   service: string | null;
   label_url: string | null;
