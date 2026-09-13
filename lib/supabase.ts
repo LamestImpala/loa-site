@@ -101,6 +101,7 @@ export type OrderRequestItem = {
 export type OrderRequest = {
   id: number;
   ref_code: string; // CR-XXXX, also printed in the buyer's DM
+  buyer_username: string | null; // typed by the buyer on the shop, no u/ prefix
   record_ids: number[];
   items: OrderRequestItem[];
   subtotal: number;
