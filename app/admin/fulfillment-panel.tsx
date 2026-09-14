@@ -918,6 +918,14 @@ export function FulfillmentPanel({
                           <span>
                             {r.artist} — {r.title}
                           </span>
+                          {r.picked_at ? (
+                            <span
+                              title="Pulled from the shelf (pick list)"
+                              className="text-xs text-emerald-400"
+                            >
+                              pulled ✓
+                            </span>
+                          ) : null}
                         </label>
                       ))}
                     </div>

@@ -115,7 +115,17 @@ type AdminContextValue = {
   // don't re-enable each other early.
   savingIds: Set<number>;
   setSaving: (id: number, on: boolean) => void;
-  updateRecord: (id: number, patch: Partial<DbRecord>) => Promise<boolean>;
+  // `quiet` skips the "Saved ✓" toast — for rapid taps like the pick list.
+  updateRecord: (
+    id: number,
+    patch: Partial<DbRecord>,
+    opts?: { quiet?: boolean }
+  ) => Promise<boolean>;
+  updateRecords: (
+    ids: number[],
+    patch: Partial<DbRecord>,
+    opts?: { quiet?: boolean }
+  ) => Promise<boolean>;
   upsertInvoiceLocal: (inv: Invoice) => void;
   byId: Map<number, DbRecord>;
 
@@ -455,7 +465,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateRecord = useCallback(
-    async (id: number, patch: Partial<DbRecord>) => {
+    async (id: number, patch: Partial<DbRecord>, opts?: { quiet?: boolean }) => {
       setSaving(id, true);
       const { error } = await supabase
         .from("records")
@@ -469,10 +479,32 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       setRecords((prev) =>
         prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
       );
-      pushToast("success", "Saved ✓");
+      if (!opts?.quiet) pushToast("success", "Saved ✓");
       return true;
     },
     [supabase, pushToast, setSaving]
+  );
+
+  // One patch across many rows, in a single write.
+  const updateRecords = useCallback(
+    async (ids: number[], patch: Partial<DbRecord>, opts?: { quiet?: boolean }) => {
+      if (ids.length === 0) return true;
+      const { error } = await supabase
+        .from("records")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .in("id", ids);
+      if (error) {
+        pushToast("error", `Save failed: ${error.message}`);
+        return false;
+      }
+      const idSet = new Set(ids);
+      setRecords((prev) =>
+        prev.map((r) => (idSet.has(r.id) ? { ...r, ...patch } : r))
+      );
+      if (!opts?.quiet) pushToast("success", "Saved ✓");
+      return true;
+    },
+    [supabase, pushToast]
   );
 
   const upsertInvoiceLocal = useCallback((inv: Invoice) => {
@@ -850,6 +882,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     savingIds,
     setSaving,
     updateRecord,
+    updateRecords,
     upsertInvoiceLocal,
     byId,
     discogsStatus,

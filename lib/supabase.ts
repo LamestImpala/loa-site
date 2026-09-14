@@ -36,6 +36,7 @@ export type DbRecord = {
   sold_at?: string | null; // admin-only; when the record was marked sold
   paypal_invoice_id?: string | null; // admin-only; invoice this record was billed on
   order_id?: number | null; // admin-only; the order it's held for, invoiced on, or sold in
+  picked_at?: string | null; // admin-only; when it was pulled from the shelf for its order
   updated_at: string;
 };
 

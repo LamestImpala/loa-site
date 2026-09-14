@@ -19,6 +19,7 @@ export function soldPatch(
       buyer || r.hold_buyer || (r.buyer_username ?? "").trim() || "",
     hold_buyer: null,
     hold_until: null,
+    picked_at: null, // a fresh sale starts unpulled on the pick list
   };
 }
 

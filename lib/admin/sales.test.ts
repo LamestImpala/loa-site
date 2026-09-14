@@ -17,6 +17,7 @@ test("sold patch: desk buyer beats the hold's buyer beats the row's, holds alway
     buyer_username: "desk",
     hold_buyer: null,
     hold_until: null,
+    picked_at: null,
   });
   assert.equal(soldPatch(held, "", at).buyer_username, "holder");
   assert.equal(soldPatch(rec({ buyer_username: " old " }), "", at).buyer_username, "old");
