@@ -691,17 +691,18 @@ export function FulfillmentPanel({
       costEdits[`${g.key}:${field}`] ??
       (invoice?.[field] == null ? "" : String(invoice[field]));
     const groupBusy = busy === g.key;
-    // What the order was invoiced at: record sold prices plus the buyer-paid
-    // shipping once it's recorded on the invoice.
+    // What the order was invoiced at: record sold prices, less the order's
+    // credit, plus the buyer-paid shipping once it's recorded on the invoice.
     const recordsTotal = g.records.reduce(
       (t, r) => t + Number(r.sold_price ?? r.price),
       0
     );
+    const credit = Number(g.order?.credit ?? 0);
     const shippingCharged =
       invoice?.shipping_charged == null
         ? null
         : Number(invoice.shipping_charged);
-    const invoicedTotal = recordsTotal + (shippingCharged ?? 0);
+    const invoicedTotal = recordsTotal - credit + (shippingCharged ?? 0);
     const money = (n: number) =>
       `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     const pushables = g.shipments.filter(
@@ -736,12 +737,24 @@ export function FulfillmentPanel({
                     <span
                       className="text-sm text-green-400"
                       title={
-                        shippingCharged == null
-                          ? `Records ${money(recordsTotal)} — shipping not recorded yet`
-                          : `Records ${money(recordsTotal)} + shipping ${money(shippingCharged)}`
+                        `Records ${money(recordsTotal)}` +
+                        (credit > 0
+                          ? ` − credit ${money(credit)}${g.order?.credit_note ? ` (${g.order.credit_note})` : ""}`
+                          : "") +
+                        (shippingCharged == null
+                          ? " — shipping not recorded yet"
+                          : ` + shipping ${money(shippingCharged)}`)
                       }
                     >
                       {money(invoicedTotal)}
+                    </span>
+                  ) : null}
+                  {credit > 0 ? (
+                    <span
+                      className="rounded-full border border-sky-400/40 px-2 py-0.5 text-xs text-sky-300"
+                      title={g.order?.credit_note || "Credit applied to this order"}
+                    >
+                      −{money(credit)} credit
                     </span>
                   ) : null}
                   <span className="text-xs text-neutral-500">

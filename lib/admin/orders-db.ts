@@ -168,8 +168,9 @@ export async function renameOrderBuyer(
   return data as Order;
 }
 
-// End a held order: release its unsold records back to the shop and mark
-// it cancelled. Returns the released record ids.
+// End a held order: release its unsold records back to the shop (the
+// negotiated prices go with the sale) and mark it cancelled. Returns the
+// released record ids.
 export async function releaseOrder(
   supabase: SupabaseClient,
   order: Order
@@ -177,7 +178,13 @@ export async function releaseOrder(
   const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("records")
-    .update({ hold_buyer: null, hold_until: null, order_id: null, updated_at: now })
+    .update({
+      hold_buyer: null,
+      hold_until: null,
+      order_id: null,
+      negotiated_price: null,
+      updated_at: now,
+    })
     .eq("order_id", order.id)
     .eq("sold", false)
     .select("id");

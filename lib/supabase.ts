@@ -33,6 +33,7 @@ export type DbRecord = {
   buyer_username?: string; // admin-only; not selected on the public page
   tracking_number?: string; // admin-only; mirrored from shipments.tracking_code
   sold_price?: number | null; // admin-only; final price the record sold for
+  negotiated_price?: number | null; // admin-only; price agreed for the current sale when it differs from `price`
   sold_at?: string | null; // admin-only; when the record was marked sold
   paypal_invoice_id?: string | null; // admin-only; invoice this record was billed on
   order_id?: number | null; // admin-only; the order it's held for, invoiced on, or sold in
@@ -52,6 +53,8 @@ export type Order = {
   status: OrderStatus;
   paypal_invoice_id: string | null; // the live invoice, if one was sent
   request_id: number | null; // the shop request it came from, if any
+  credit: number; // taken off the whole order — a make-good or a deal; 0 = none
+  credit_note: string; // why; goes in the invoice note to the buyer
   created_at: string;
   updated_at: string;
 };

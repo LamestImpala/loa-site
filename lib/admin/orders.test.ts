@@ -107,3 +107,21 @@ test("open orders: held ones need a live hold, invoiced ones outlive their recor
   assert.equal(amy.totals.total, 66, "two records: $60 plus $6 shipping");
   assert.equal(open[1].holdUntil, NOW - 1);
 });
+
+test("open order totals use negotiated prices and take the order's credit off", () => {
+  const records = [
+    rec({ id: 1, order_id: 20, price: 40, negotiated_price: 30, hold_until: iso(NOW + DAY) }),
+    rec({ id: 2, order_id: 20, price: 20, hold_until: iso(NOW + DAY) }),
+  ];
+  const [o] = openOrders(
+    [order({ id: 20, buyer_username: "amy", status: "held", credit: 10, credit_note: "make-good" })],
+    records,
+    [],
+    NOW
+  );
+  assert.equal(o.totals.subtotal, 50, "$30 agreed plus $20 listed");
+  assert.equal(o.totals.credit, 10);
+  assert.equal(o.totals.total, 46, "$50 − $10 credit + $6 shipping");
+  assert.match(o.totals.lines[0], /\$30 \(listed \$40\)$/);
+  assert.doesNotMatch(o.totals.lines[1], /listed/);
+});
