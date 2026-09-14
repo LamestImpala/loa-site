@@ -396,6 +396,7 @@ export function CatalogPage() {
         sold: false,
         sold_at: null,
         order_id: null,
+        negotiated_price: null,
         picked_at: null,
       });
       return;

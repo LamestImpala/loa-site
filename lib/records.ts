@@ -35,22 +35,35 @@ export type BundleItem = {
   title: string;
   media: string;
   sleeve: string;
-  price: number;
+  price: number; // what the buyer pays for it
+  listedPrice?: number; // the listed price, when the sale price was negotiated
 };
 
 // Itemized quote for a set of records — the one formatter for the shop's
 // combined "Request to buy" DM, the admin sale-desk reply, and the PayPal
 // invoice route. The order_requests DB trigger (validate_order_request)
 // recomputes shipping with the same rule — a rate change must touch both.
-export function bundleBreakdown(items: BundleItem[]) {
+// A negotiated line shows the listed price beside it; a credit comes off
+// the subtotal (never more than the subtotal — that's the PayPal cap too).
+export function bundleBreakdown(items: BundleItem[], credit = 0) {
   const lines = items.map(
     (r, i) =>
-      `${i + 1}. ${r.artist} — ${r.title} — Media: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}`
+      `${i + 1}. ${r.artist} — ${r.title} — Media: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}${
+        r.listedPrice != null && r.listedPrice !== r.price ? ` (listed $${r.listedPrice})` : ""
+      }`
   );
   const subtotal = items.reduce((s, r) => s + r.price, 0);
+  const applied = Math.min(Math.max(0, credit), subtotal);
   const parcels = Math.ceil(items.length / RECORDS_PER_PARCEL);
   const shipping = combinedShipping(items.length);
-  return { lines, subtotal, parcels, shipping, total: subtotal + shipping };
+  return {
+    lines,
+    subtotal,
+    credit: applied,
+    parcels,
+    shipping,
+    total: subtotal - applied + shipping,
+  };
 }
 
 // Order-request ref codes: CR- plus 4 chars from an alphabet without 0/O/1/I.

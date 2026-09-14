@@ -7,6 +7,7 @@ import type {
 } from "../supabase.ts";
 import { bundleBreakdown } from "../records.ts";
 import { holdActive } from "./records.ts";
+import { saleItem } from "./sales.ts";
 
 // Order rules: which order a sale lands in, what the inbox shows while an
 // order is open, and which request an order came from. Pure — no React,
@@ -125,7 +126,10 @@ export function openOrders(
           ? (invoiceById.get(order.paypal_invoice_id) ?? null)
           : null,
         recs,
-        totals: bundleBreakdown(recs),
+        totals: bundleBreakdown(
+          recs.map((r) => saleItem(r)),
+          Number(order.credit ?? 0)
+        ),
         holdUntil,
         expired: order.status === "held" && !recs.some((r) => holdActive(r, now)),
       };

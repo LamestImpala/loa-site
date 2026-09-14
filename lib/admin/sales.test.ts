@@ -2,7 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderRequest } from "../supabase.ts";
-import { discogsCandidates, finishedRequests, soldPatch } from "./sales.ts";
+import {
+  discogsCandidates,
+  finishedRequests,
+  parseMoney,
+  saleItem,
+  salePrice,
+  soldPatch,
+} from "./sales.ts";
 import { DAY, iso, rec } from "./fixtures.ts";
 
 const NOW = Date.parse("2026-09-13T12:00:00Z");
@@ -14,6 +21,7 @@ test("sold patch: desk buyer beats the hold's buyer beats the row's, holds alway
     sold: true,
     sold_at: at.toISOString(),
     sold_price: 45,
+    negotiated_price: null,
     buyer_username: "desk",
     hold_buyer: null,
     hold_until: null,
@@ -23,6 +31,34 @@ test("sold patch: desk buyer beats the hold's buyer beats the row's, holds alway
   assert.equal(soldPatch(rec({ buyer_username: " old " }), "", at).buyer_username, "old");
   assert.equal(soldPatch(rec(), "", at).buyer_username, "");
   assert.equal(soldPatch(rec({ price: "12.5" as unknown as number }), "", at).sold_price, 12.5);
+});
+
+test("sold price: the desk's price beats the negotiated price beats the listed price", () => {
+  const dealt = rec({ price: 40, negotiated_price: 32 });
+  assert.equal(soldPatch(dealt, "", at).sold_price, 32, "a held order's deal lands");
+  assert.equal(soldPatch(dealt, "", at, 30).sold_price, 30, "the desk overrides it");
+  assert.equal(soldPatch(dealt, "", at, null).sold_price, 32, "null is no override");
+  assert.equal(soldPatch(dealt, "", at).negotiated_price, null, "the deal is spent on sale");
+  assert.equal(salePrice(rec({ price: 40 })), 40);
+  assert.equal(salePrice(rec({ price: 40, negotiated_price: "35" as unknown as number })), 35);
+  assert.deepEqual(saleItem(rec({ artist: "A", title: "T", media: "M", sleeve: "S", price: 40 }), 33), {
+    artist: "A",
+    title: "T",
+    media: "M",
+    sleeve: "S",
+    price: 33,
+    listedPrice: 40,
+  });
+});
+
+test("parseMoney: blank is none, junk is invalid, amounts round to cents", () => {
+  assert.equal(parseMoney(""), null);
+  assert.equal(parseMoney("   "), null);
+  assert.equal(parseMoney("abc"), undefined);
+  assert.equal(parseMoney("-5"), undefined);
+  assert.equal(parseMoney("0"), 0);
+  assert.equal(parseMoney(" $12.345 "), 12.35);
+  assert.equal(parseMoney("40"), 40);
 });
 
 const request = (id: number, status: OrderRequest["status"], record_ids: number[]): OrderRequest => ({

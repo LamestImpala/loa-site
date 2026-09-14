@@ -16,9 +16,11 @@ import {
 } from "@/lib/order-parse";
 import { recentDays } from "@/lib/admin/interest";
 import { openOrders, type OpenOrder } from "@/lib/admin/orders";
+import { parseMoney, saleItem } from "@/lib/admin/sales";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
 import { BuyerField } from "../_shell/buyer-field";
+import { MoneyField, NoteField } from "../_shell/inline-fields";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
 
 // The inbox: everything between "a buyer wants records" and "the parcel
@@ -50,6 +52,8 @@ export function InboxPage() {
     applyPlacedOrder,
     renameBuyer,
     releaseOrder,
+    saveOrderCredit,
+    updateRecord,
     selectedIds,
     setSelectedIds,
     selectionMode,
@@ -58,6 +62,12 @@ export function InboxPage() {
     setSaleBuyer,
     saleEmail,
     setSaleEmail,
+    salePrices,
+    setSalePrices,
+    saleCredit,
+    setSaleCredit,
+    saleCreditNote,
+    setSaleCreditNote,
     getAccessToken,
     clearSelection,
   } = useAdmin();
@@ -93,8 +103,54 @@ export function InboxPage() {
     () => selectedRecords.filter((r) => !r.sold),
     [selectedRecords]
   );
-  const saleTotals = useMemo(() => bundleBreakdown(saleRecords), [saleRecords]);
+  // What each record sells for at the desk: the typed price, else the
+  // listed price. The desk is the source of truth while it's open — a
+  // cleared box means "back to the listed price", even for a record that
+  // carries a negotiated price from its held order.
+  const deskPrices = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of saleRecords) {
+      const typed = parseMoney(salePrices[r.id] ?? "");
+      m.set(r.id, typed == null ? Number(r.price) : typed);
+    }
+    return m;
+  }, [saleRecords, salePrices]);
+  const badPriceCount = saleRecords.filter(
+    (r) => parseMoney(salePrices[r.id] ?? "") === undefined
+  ).length;
+  const creditParsed = parseMoney(saleCredit);
+  const deskCredit = creditParsed ?? 0;
+  const saleTotals = useMemo(
+    () =>
+      bundleBreakdown(
+        saleRecords.map((r) => saleItem(r, deskPrices.get(r.id))),
+        deskCredit
+      ),
+    [saleRecords, deskPrices, deskCredit]
+  );
+  const creditTooBig = deskCredit > saleTotals.subtotal;
+  const termsError =
+    badPriceCount > 0
+      ? `${badPriceCount} negotiated price${badPriceCount === 1 ? " isn't" : "s aren't"} a valid amount.`
+      : creditParsed === undefined
+        ? "The credit isn't a valid amount."
+        : creditTooBig
+          ? `A $${deskCredit} credit is more than the $${saleTotals.subtotal} subtotal.`
+          : "";
+  // What the desk hands to the writes: every record's agreed price and the
+  // credit with its reason.
+  const saleTerms = useMemo(
+    () => ({
+      prices: deskPrices,
+      credit: deskCredit,
+      creditNote: saleCreditNote.trim(),
+    }),
+    [deskPrices, deskCredit, saleCreditNote]
+  );
   const saleSoldCount = selectedRecords.length - saleRecords.length;
+  function setSalePrice(id: number, raw: string) {
+    setSalePrices((prev) => ({ ...prev, [id]: raw }));
+  }
   function clearSaleDesk() {
     clearSelection();
     setSaleStatus("");
@@ -104,10 +160,13 @@ export function InboxPage() {
   async function copySaleReply() {
     if (saleRecords.length === 0) return;
     const buyer = saleBuyer.trim().replace(/^u\//, "");
-    const { lines, subtotal, shipping, total } = saleTotals;
+    const { lines, subtotal, credit, shipping, total } = saleTotals;
+    const note = saleCreditNote.trim();
+    const creditLine =
+      credit > 0 ? `\nCredit: −$${credit}${note ? ` (${note})` : ""}` : "";
     const text = `${buyer ? `Hi u/${buyer}!` : "Hi!"} Here's the breakdown for the records you asked about:\n\n${lines.join(
       "\n"
-    )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
+    )}\n\nSubtotal: $${subtotal}${creditLine}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
     if (await copyText(text, "Copy this reply")) {
       flash("reply");
     }
@@ -116,30 +175,51 @@ export function InboxPage() {
   async function holdSelected() {
     const buyer = saleBuyer.trim().replace(/^u\//, "");
     const ids = saleRecords.map((r) => r.id);
-    if (!buyer || ids.length === 0 || saleBusy) return;
+    if (!buyer || ids.length === 0 || saleBusy || termsError) return;
     setSaleBusy("hold");
-    // The order is the durable home for the hold; the records point at it.
-    const placed = await placeOrder(saleRecords, buyer, "held");
+    // The order is the durable home for the hold (and the credit); the
+    // records point at it and carry their negotiated prices.
+    const placed = await placeOrder(saleRecords, buyer, "held", {
+      credit: saleTerms.credit,
+      credit_note: saleTerms.creditNote,
+    });
     if (!placed) {
       setSaleBusy(null);
       return;
     }
-    const patch = {
+    const hold = {
       hold_buyer: buyer,
       hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     };
-    const { error } = await supabase
-      .from("records")
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .in("id", ids);
+    const negotiated = (r: DbRecord) => {
+      const agreed = deskPrices.get(r.id) ?? Number(r.price);
+      return agreed !== Number(r.price) ? agreed : null;
+    };
+    const results = await Promise.all(
+      saleRecords.map((r) =>
+        supabase
+          .from("records")
+          .update({
+            ...hold,
+            negotiated_price: negotiated(r),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", r.id)
+      )
+    );
     setSaleBusy(null);
+    const error = results.find((x) => x.error)?.error;
     if (error) {
       pushToast("error", `Hold failed: ${error.message}`);
       return;
     }
-    const idSet = new Set(ids);
+    const byRecord = new Map(saleRecords.map((r) => [r.id, negotiated(r)]));
     setRecords((prev) =>
-      prev.map((r) => (idSet.has(r.id) ? { ...r, ...patch } : r))
+      prev.map((r) =>
+        byRecord.has(r.id)
+          ? { ...r, ...hold, negotiated_price: byRecord.get(r.id) ?? null }
+          : r
+      )
     );
     pushToast("success", `Held ${ids.length} record${ids.length === 1 ? "" : "s"} for 48h ✓`);
   }
@@ -147,16 +227,18 @@ export function InboxPage() {
   async function markSelectedSold() {
     const buyer = saleBuyer.trim().replace(/^u\//, "");
     const targets = saleRecords;
-    if (targets.length === 0 || saleBusy) return;
+    if (targets.length === 0 || saleBusy || termsError) return;
     if (
       !window.confirm(
-        `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to u/${buyer}` : ""}? Each record's sold price is set to its listed price.`
+        `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to u/${buyer}` : ""} for $${saleTotals.subtotal}${
+          saleTotals.credit > 0 ? ` less a $${saleTotals.credit} credit` : ""
+        }? Each record's sold price is set to its agreed price.`
       )
     )
       return;
     setSaleBusy("sold");
     try {
-      await markRecordsSold(targets, buyer);
+      await markRecordsSold(targets, buyer, saleTerms);
     } finally {
       setSaleBusy(null);
     }
@@ -165,7 +247,7 @@ export function InboxPage() {
   async function createInvoice() {
     const buyer = saleBuyer.trim().replace(/^u\//, "");
     const targets = saleRecords;
-    if (!buyer || targets.length === 0 || saleBusy) return;
+    if (!buyer || targets.length === 0 || saleBusy || termsError) return;
     setSaleBusy("invoice");
     setSaleStatus("");
     setSaleInvoice(null);
@@ -183,6 +265,9 @@ export function InboxPage() {
           ids: targets.map((r) => r.id),
           buyer,
           email: saleEmail.trim() || undefined,
+          prices: Object.fromEntries(deskPrices),
+          credit: saleTerms.credit,
+          creditNote: saleTerms.creditNote,
         }),
       });
       const body = await res.json();
@@ -210,16 +295,17 @@ export function InboxPage() {
       if (body.invoiceStamped !== false) {
         const invoicedIds = new Set(targets.map((r) => r.id));
         setRecords((prev) =>
-          prev.map((r) =>
-            invoicedIds.has(r.id)
-              ? {
-                  ...r,
-                  paypal_invoice_id: body.invoiceId,
-                  hold_buyer: buyer,
-                  hold_until: body.holdUntil ?? r.hold_until,
-                }
-              : r
-          )
+          prev.map((r) => {
+            if (!invoicedIds.has(r.id)) return r;
+            const agreed = deskPrices.get(r.id) ?? Number(r.price);
+            return {
+              ...r,
+              paypal_invoice_id: body.invoiceId,
+              hold_buyer: buyer,
+              hold_until: body.holdUntil ?? r.hold_until,
+              negotiated_price: agreed !== Number(r.price) ? agreed : null,
+            };
+          })
         );
       }
       // The saved pending-order row keeps the payment link after Clear.
@@ -337,6 +423,17 @@ export function InboxPage() {
     if (!applySaleSelection(o.recs.map((r) => r.id))) return;
     // Seed the buyer field without clobbering a name the admin typed.
     setSaleBuyer((prev) => (prev.trim() ? prev : o.buyer));
+    // The order's terms come along: its negotiated prices and credit.
+    setSalePrices(
+      Object.fromEntries(
+        o.recs
+          .filter((r) => r.negotiated_price != null)
+          .map((r) => [r.id, String(r.negotiated_price)])
+      )
+    );
+    const credit = Number(o.order.credit ?? 0);
+    setSaleCredit(credit > 0 ? String(credit) : "");
+    setSaleCreditNote(o.order.credit_note ?? "");
   }
 
   // A held order whose buyer paid off-PayPal: mark its records sold.
@@ -344,7 +441,9 @@ export function InboxPage() {
     if (orderBusy || o.recs.length === 0) return;
     if (
       !window.confirm(
-        `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to u/${o.buyer || "?"}? Each record's sold price is set to its listed price.`
+        `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to u/${o.buyer || "?"} for $${o.totals.subtotal}${
+          o.totals.credit > 0 ? ` less a $${o.totals.credit} credit` : ""
+        }? Each record's sold price is set to its agreed price.`
       )
     )
       return;
@@ -631,7 +730,14 @@ export function InboxPage() {
     const hidden = records.filter((r) => !r.listed && !r.sold);
     const sum = (list: DbRecord[], pick: (r: DbRecord) => number) =>
       list.reduce((total, r) => total + pick(r), 0);
-    const soldTotal = sum(sold, (r) => Number(r.sold_price ?? r.price));
+    // Credits live on the order, not the records' sold prices — take
+    // paid orders' credits off the sold total so it's what was billed.
+    const creditTotal = orders.reduce(
+      (t, o) => t + (o.status === "paid" ? Number(o.credit ?? 0) : 0),
+      0
+    );
+    const soldTotal =
+      sum(sold, (r) => Number(r.sold_price ?? r.price)) - creditTotal;
     // Costs typed in from PayPal's transaction pages: fees and buyer-paid
     // shipping per invoice, postage per parcel. Net is what actually landed
     // in the account — record sales + shipping income − fees − postage.
@@ -652,6 +758,7 @@ export function InboxPage() {
       askingTotal: sum(forSale, (r) => Number(r.price)),
       soldCount: sold.length,
       soldTotal,
+      creditTotal,
       asp: sold.length ? soldTotal / sold.length : 0,
       hiddenCount: hidden.length,
       hiddenTotal: sum(hidden, (r) => Number(r.price)),
@@ -660,7 +767,7 @@ export function InboxPage() {
       shippingCharged,
       netTotal: soldTotal + shippingCharged - feesTotal - postageTotal,
     };
-  }, [records, shipments, invoices]);
+  }, [records, shipments, invoices, orders]);
 
   const draftParcelCount = useMemo(
     () => shipments.filter((s) => s.status === "draft").length,
@@ -681,8 +788,9 @@ export function InboxPage() {
                   {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
                 </span>{" "}
                 <span className="text-neutral-400">
-                  · Subtotal ${saleTotals.subtotal} · Shipping $
-                  {saleTotals.shipping}
+                  · Subtotal ${saleTotals.subtotal}
+                  {saleTotals.credit > 0 ? ` · Credit −$${saleTotals.credit}` : ""}
+                  {" "}· Shipping ${saleTotals.shipping}
                   {saleTotals.shipping === 0 ? " (free)" : ""} (
                   {saleTotals.parcels} parcel
                   {saleTotals.parcels === 1 ? "" : "s"}) ·{" "}
@@ -702,6 +810,73 @@ export function InboxPage() {
                 {saleSoldCount} selected record{saleSoldCount === 1 ? " is" : "s are"}{" "}
                 already sold and will be skipped.
               </p>
+            ) : null}
+            {/* Per-record agreed prices: blank = listed. The listed price
+                stays put; a lower agreed price shows on the invoice as a
+                discount off it. */}
+            <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto pr-1 text-sm">
+              {saleRecords.map((r) => {
+                const agreed = deskPrices.get(r.id) ?? Number(r.price);
+                const bad = parseMoney(salePrices[r.id] ?? "") === undefined;
+                return (
+                  <li key={r.id} className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate">
+                      {r.artist} — {r.title}{" "}
+                      <span className="text-neutral-500">
+                        {r.media}/{r.sleeve}
+                      </span>
+                    </span>
+                    <span
+                      className={`text-xs ${
+                        agreed !== Number(r.price)
+                          ? "text-neutral-500 line-through"
+                          : "text-neutral-400"
+                      }`}
+                    >
+                      ${r.price}
+                    </span>
+                    <span className="inline-flex items-center gap-0.5">
+                      <span className="text-xs text-neutral-500">$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={salePrices[r.id] ?? ""}
+                        onChange={(e) => setSalePrice(r.id, e.target.value)}
+                        placeholder={String(r.price)}
+                        title="Negotiated price for this sale — blank keeps the listed price. The invoice shows the listed price with the difference as a discount."
+                        className={`w-20 ${inputClass} ${bad ? "border-red-400/60" : ""}`}
+                      />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-neutral-400">Credit</span>
+              <span className="inline-flex items-center gap-0.5">
+                <span className="text-xs text-neutral-500">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={saleCredit}
+                  onChange={(e) => setSaleCredit(e.target.value)}
+                  placeholder="0"
+                  title="Taken off the whole order — a make-good for an unavailable record, or a bundle deal. Shows on the PayPal invoice as a discount line; the reason goes in the note to the buyer."
+                  className={`w-20 ${inputClass} ${
+                    creditParsed === undefined || creditTooBig ? "border-red-400/60" : ""
+                  }`}
+                />
+              </span>
+              <input
+                type="text"
+                value={saleCreditNote}
+                onChange={(e) => setSaleCreditNote(e.target.value)}
+                placeholder="reason (goes in the invoice note)"
+                className={`w-64 ${inputClass}`}
+              />
+            </div>
+            {termsError ? (
+              <p className="mt-2 text-xs text-red-400">{termsError}</p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="text-sm text-neutral-500">u/</span>
@@ -732,7 +907,7 @@ export function InboxPage() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null}
+                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError}
                 onClick={holdSelected}
               >
                 {saleBusy === "hold" ? "Holding…" : "Hold all 48h"}
@@ -740,7 +915,7 @@ export function InboxPage() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={saleRecords.length === 0 || saleBusy !== null}
+                disabled={saleRecords.length === 0 || saleBusy !== null || !!termsError}
                 onClick={markSelectedSold}
               >
                 {saleBusy === "sold" ? "Saving…" : "Mark all sold"}
@@ -748,7 +923,7 @@ export function InboxPage() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null}
+                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError}
                 onClick={createInvoice}
               >
                 {saleBusy === "invoice" ? "Creating…" : "PayPal invoice"}
@@ -836,9 +1011,12 @@ export function InboxPage() {
             </p>
             <p
               className="mt-1 text-xs text-neutral-500"
-              title="Uses the final sold price when entered, listed price otherwise"
+              title="Uses the final sold price when entered, listed price otherwise, less any credits on paid orders"
             >
               {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
+              {stats.creditTotal > 0
+                ? ` · $${stats.creditTotal.toFixed(2)} in credits`
+                : ""}
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -1130,19 +1308,93 @@ export function InboxPage() {
                         ) : (
                           <>
                             <ul className="mt-3 space-y-1 text-sm">
-                              {o.recs.map((r) => (
-                                <li key={r.id}>
-                                  {r.artist} — {r.title}{" "}
-                                  <span className="text-neutral-500">
-                                    {r.media}/{r.sleeve}
-                                  </span>{" "}
-                                  — ${r.price}
-                                </li>
-                              ))}
+                              {o.recs.map((r) => {
+                                const agreed =
+                                  r.negotiated_price != null
+                                    ? Number(r.negotiated_price)
+                                    : Number(r.price);
+                                const dealt = agreed !== Number(r.price);
+                                return (
+                                  <li
+                                    key={r.id}
+                                    className="flex flex-wrap items-center gap-2"
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      {r.artist} — {r.title}{" "}
+                                      <span className="text-neutral-500">
+                                        {r.media}/{r.sleeve}
+                                      </span>
+                                    </span>
+                                    {invoiced ? (
+                                      <span>
+                                        {dealt ? (
+                                          <span className="mr-1 text-xs text-neutral-500 line-through">
+                                            ${r.price}
+                                          </span>
+                                        ) : null}
+                                        ${agreed}
+                                      </span>
+                                    ) : (
+                                      <>
+                                        {dealt ? (
+                                          <span className="text-xs text-neutral-500 line-through">
+                                            ${r.price}
+                                          </span>
+                                        ) : null}
+                                        <MoneyField
+                                          value={r.negotiated_price ?? null}
+                                          placeholder={String(r.price)}
+                                          disabled={anyBusy}
+                                          title="Negotiated price for this sale — blank keeps the listed price"
+                                          onSave={(next) =>
+                                            updateRecord(r.id, {
+                                              negotiated_price:
+                                                next != null && next !== Number(r.price)
+                                                  ? next
+                                                  : null,
+                                            })
+                                          }
+                                        />
+                                      </>
+                                    )}
+                                  </li>
+                                );
+                              })}
                             </ul>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                              <span className="text-neutral-400">Credit</span>
+                              {invoiced ? (
+                                <span className="text-neutral-300">
+                                  {o.totals.credit > 0
+                                    ? `−$${o.totals.credit}${order.credit_note ? ` (${order.credit_note})` : ""}`
+                                    : "none"}
+                                </span>
+                              ) : (
+                                <>
+                                  <MoneyField
+                                    value={Number(order.credit ?? 0) > 0 ? Number(order.credit) : null}
+                                    placeholder="0"
+                                    disabled={anyBusy}
+                                    title="Taken off the whole order — shows on the PayPal invoice as a discount line"
+                                    onSave={(next) =>
+                                      saveOrderCredit(order, next ?? 0, order.credit_note ?? "")
+                                    }
+                                  />
+                                  <NoteField
+                                    value={order.credit_note ?? ""}
+                                    placeholder="reason"
+                                    disabled={anyBusy}
+                                    onSave={(next) =>
+                                      saveOrderCredit(order, Number(order.credit ?? 0), next)
+                                    }
+                                  />
+                                </>
+                              )}
+                            </div>
                             <p className="mt-2 text-sm text-neutral-400">
-                              Subtotal ${o.totals.subtotal} · Shipping $
-                              {o.totals.shipping} ·{" "}
+                              Subtotal ${o.totals.subtotal}
+                              {o.totals.credit > 0 ? ` · Credit −$${o.totals.credit}` : ""}
+                              {" "}· Shipping ${o.totals.shipping} ·{" "}
                               <span className="font-medium text-white">
                                 Total ${inv?.total ?? o.totals.total}
                               </span>

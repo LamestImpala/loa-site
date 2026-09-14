@@ -23,10 +23,14 @@ import {
 // directly. Supabase writes go through the caller's own token, so RLS
 // still enforces the admin policy.
 //
-//   POST   { ids, buyer, email? }  — create + send an invoice for a set of
-//     records, put them in an order (invoiced), hold them for the buyer,
-//     and save a pending `invoices` row (with the payment link) so the
-//     order survives clearing the sale desk.
+//   POST   { ids, buyer, email?, prices?, credit?, creditNote? } — create +
+//     send an invoice for a set of records, put them in an order
+//     (invoiced), hold them for the buyer, and save a pending `invoices`
+//     row (with the payment link) so the order survives clearing the sale
+//     desk. `prices` maps record id → negotiated price: the line shows the
+//     listed price with the difference as a discount. `credit` comes off
+//     the whole invoice as an invoice-level discount, `creditNote` in the
+//     note to the buyer.
 //   GET    ?id=INV2-…              — read the invoice's status from PayPal
 //     and mirror it (status, payment link, paid_at) onto the row.
 //   DELETE ?id=INV2-…              — cancel the invoice on PayPal, cancel
@@ -88,6 +92,31 @@ export async function POST(req: NextRequest) {
   if (email && !/.+@.+\..+/.test(email)) {
     return NextResponse.json({ error: "Invalid buyer email" }, { status: 400 });
   }
+  // Negotiated prices: only for records on the invoice, cents, never negative.
+  const prices = new Map<number, number>();
+  if (body.prices != null) {
+    if (typeof body.prices !== "object" || Array.isArray(body.prices)) {
+      return NextResponse.json({ error: "Invalid prices" }, { status: 400 });
+    }
+    for (const [key, raw] of Object.entries(body.prices as Record<string, unknown>)) {
+      const id = Number(key);
+      const value = Number(raw);
+      if (!ids.includes(id) || !Number.isFinite(value) || value < 0) {
+        return NextResponse.json(
+          { error: `Invalid negotiated price for record ${key}` },
+          { status: 400 }
+        );
+      }
+      prices.set(id, Math.round(value * 100) / 100);
+    }
+  }
+  const credit =
+    body.credit == null ? 0 : Math.round(Number(body.credit) * 100) / 100;
+  if (!Number.isFinite(credit) || credit < 0) {
+    return NextResponse.json({ error: "Invalid credit" }, { status: 400 });
+  }
+  const creditNote =
+    typeof body.creditNote === "string" ? body.creditNote.trim().slice(0, 200) : "";
 
   const { data: recs, error: fetchError } = await supabase
     .from("records")
@@ -118,17 +147,40 @@ export async function POST(req: NextRequest) {
   // Keep invoice line order matching the order the admin selected.
   recs.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 
-  const breakdown = bundleBreakdown(recs.map((r) => ({ ...r, price: Number(r.price) })));
+  // Each line: listed price, and what the buyer actually pays for it. A
+  // lower negotiated price is a line-item discount off the listed price;
+  // a higher one (rare) simply replaces it.
+  const lines = recs.map((r) => {
+    const listed = Number(r.price);
+    const sale = prices.get(r.id) ?? listed;
+    return { r, listed, sale, negotiated: sale !== listed };
+  });
+  const breakdown = bundleBreakdown(
+    lines.map(({ r, listed, sale }) => ({ ...r, price: sale, listedPrice: listed })),
+    credit
+  );
+  if (credit > breakdown.subtotal) {
+    return NextResponse.json(
+      { error: `A $${credit} credit is more than the $${breakdown.subtotal} subtotal` },
+      { status: 400 }
+    );
+  }
 
   try {
     const result = await createAndSendInvoice({
-      items: recs.map((r) => ({
+      items: lines.map(({ r, listed, sale }) => ({
         name: `${r.artist} — ${r.title}`.slice(0, 200),
         description: `Media: ${r.media} / Sleeve: ${r.sleeve}`,
-        value: Number(r.price).toFixed(2),
+        value: (sale < listed ? listed : sale).toFixed(2),
+        discount: sale < listed ? (listed - sale).toFixed(2) : undefined,
       })),
       shippingValue: breakdown.shipping.toFixed(2),
-      note: `Vinyl records for Reddit user u/${buyer} — thanks! Shipped USPS Media Mail from Phoenix, AZ.`,
+      discountValue: breakdown.credit > 0 ? breakdown.credit.toFixed(2) : undefined,
+      note:
+        `Vinyl records for Reddit user u/${buyer} — thanks! Shipped USPS Media Mail from Phoenix, AZ.` +
+        (breakdown.credit > 0
+          ? ` A $${breakdown.credit.toFixed(2)} credit is applied as the discount${creditNote ? ` (${creditNote})` : ""}.`
+          : ""),
       memo: `Reddit sale to u/${buyer}`,
       recipientEmail: email,
     });
@@ -147,24 +199,35 @@ export async function POST(req: NextRequest) {
         .limit(50);
       placed = await placeOrder(supabase, recs, buyer, "invoiced", {
         requests: (openRequests ?? []) as OrderRequest[],
-        extra: { paypal_invoice_id: result.invoiceId },
+        extra: {
+          paypal_invoice_id: result.invoiceId,
+          credit: breakdown.credit,
+          credit_note: creditNote,
+        },
       });
     } catch (e) {
       orderError = e instanceof Error ? e.message : "Couldn't save the order";
       console.error("paypal-invoice: order failed:", orderError);
     }
     // Link the records to the invoice so fulfillment can find the PayPal
-    // transaction later, and hold them for the buyer while they pay.
-    // Non-fatal: the invoice already exists.
-    const { error: stampError } = await supabase
-      .from("records")
-      .update({
-        paypal_invoice_id: result.invoiceId,
-        hold_buyer: buyer,
-        hold_until: holdUntil,
-        updated_at: now,
-      })
-      .in("id", ids);
+    // transaction later, hold them for the buyer while they pay, and keep
+    // the negotiated price on each (so the sale lands at what was
+    // invoiced). Non-fatal: the invoice already exists.
+    const stamps = await Promise.all(
+      lines.map(({ r, sale, negotiated }) =>
+        supabase
+          .from("records")
+          .update({
+            paypal_invoice_id: result.invoiceId,
+            hold_buyer: buyer,
+            hold_until: holdUntil,
+            negotiated_price: negotiated ? sale : null,
+            updated_at: now,
+          })
+          .eq("id", r.id)
+      )
+    );
+    const stampError = stamps.find((s) => s.error)?.error ?? null;
     if (stampError) {
       console.error("paypal-invoice: failed to stamp invoice id:", stampError.message);
     }
@@ -210,6 +273,7 @@ export async function POST(req: NextRequest) {
       invoice: rowError ? null : (saved as Invoice),
       placed,
       subtotal: breakdown.subtotal,
+      credit: breakdown.credit,
       shipping: breakdown.shipping,
       total: breakdown.total,
     });
@@ -333,6 +397,7 @@ export async function DELETE(req: NextRequest) {
         hold_buyer: null,
         hold_until: null,
         order_id: null,
+        negotiated_price: null,
         updated_at: now,
       })
       .eq("paypal_invoice_id", id)

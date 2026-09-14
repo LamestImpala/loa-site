@@ -53,7 +53,8 @@ export async function getPayPalAccessToken(): Promise<string> {
 export type InvoiceItemInput = {
   name: string;
   description: string;
-  value: string; // "30.00"
+  value: string; // "30.00" — the listed price
+  discount?: string; // "5.00" — taken off this line (a negotiated price)
 };
 
 // Branding shown on every invoice (PayPal caps logos at 250×90px)
@@ -334,6 +335,7 @@ export async function cancelTracker(
 export async function createAndSendInvoice(args: {
   items: InvoiceItemInput[];
   shippingValue: string; // "6.00"
+  discountValue?: string; // "10.00" — an order credit, shown as an invoice-level discount
   note: string;
   memo: string;
   recipientEmail?: string;
@@ -370,12 +372,28 @@ export async function createAndSendInvoice(args: {
         quantity: "1",
         unit_amount: { currency_code: "USD", value: item.value },
         unit_of_measure: "QUANTITY",
+        // PayPal renders the listed price on the line with the discount
+        // under it, so the buyer sees the reduction rather than a quietly
+        // lower number.
+        ...(item.discount && Number(item.discount) > 0
+          ? { discount: { amount: { currency_code: "USD", value: item.discount } } }
+          : {}),
       })),
       amount: {
         breakdown: {
           shipping: {
             amount: { currency_code: "USD", value: args.shippingValue },
           },
+          // The order credit: a separate "Discount" line above the total.
+          ...(args.discountValue && Number(args.discountValue) > 0
+            ? {
+                discount: {
+                  invoice_discount: {
+                    amount: { currency_code: "USD", value: args.discountValue },
+                  },
+                },
+              }
+            : {}),
         },
       },
     }),

@@ -138,7 +138,14 @@ type AdminContextValue = {
   flagDiscogsRemoved: (id: number) => Promise<void>;
   removeFromDiscogs: (r: DbRecord) => Promise<void>;
   // The one mark-sold path: sale desk, paid invoice, row and bulk checkboxes.
-  markRecordsSold: (targets: DbRecord[], buyer: string) => Promise<void>;
+  // `terms` carries what the desk negotiated: per-record prices and the
+  // order credit; without it the records' own negotiated prices apply and
+  // the order keeps whatever credit it has.
+  markRecordsSold: (
+    targets: DbRecord[],
+    buyer: string,
+    terms?: SaleTerms
+  ) => Promise<void>;
 
   // Orders. placeOrder puts records in an order (continuing the open one
   // they share, else a new one) and mirrors the result locally; null
@@ -146,8 +153,11 @@ type AdminContextValue = {
   placeOrder: (
     targets: DbRecord[],
     buyer: string,
-    status: "held" | "invoiced" | "paid"
+    status: "held" | "invoiced" | "paid",
+    extra?: Partial<Order>
   ) => Promise<PlacedOrder | null>;
+  // Change the credit (and its note) on an order in place.
+  saveOrderCredit: (order: Order, credit: number, note: string) => Promise<boolean>;
   applyPlacedOrder: (placed: PlacedOrder) => void;
   upsertOrderLocal: (order: Order) => void;
   renameBuyer: (order: Order, buyer: string) => Promise<boolean>;
@@ -165,8 +175,24 @@ type AdminContextValue = {
   setSaleBuyer: Setter<string>;
   saleEmail: string;
   setSaleEmail: Setter<string>;
+  // Negotiated prices as typed at the desk, keyed by record id (blank =
+  // listed price), and the order credit with its reason. Persisted to the
+  // records/order on Hold, PayPal invoice, or Mark sold.
+  salePrices: Record<number, string>;
+  setSalePrices: Setter<Record<number, string>>;
+  saleCredit: string;
+  setSaleCredit: Setter<string>;
+  saleCreditNote: string;
+  setSaleCreditNote: Setter<string>;
   toggleSelected: (id: number) => void;
   clearSelection: () => void;
+};
+
+// What the sale desk negotiated, handed to the mark-sold path.
+export type SaleTerms = {
+  prices?: Map<number, number>; // record id -> agreed price (only where it differs)
+  credit?: number;
+  creditNote?: string;
 };
 
 const AdminContext = createContext<AdminContextValue | null>(null);
@@ -235,6 +261,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [selectionMode, setSelectionMode] = useState<"sale" | "weekly">("sale");
   const [saleBuyer, setSaleBuyer] = useState("");
   const [saleEmail, setSaleEmail] = useState("");
+  const [salePrices, setSalePrices] = useState<Record<number, string>>({});
+  const [saleCredit, setSaleCredit] = useState("");
+  const [saleCreditNote, setSaleCreditNote] = useState("");
 
   const pushToast = useCallback(
     (kind: Toast["kind"], text: string, action?: Toast["action"]) => {
@@ -561,11 +590,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   async function placeOrder(
     targets: DbRecord[],
     buyer: string,
-    status: "held" | "invoiced" | "paid"
+    status: "held" | "invoiced" | "paid",
+    extra?: Partial<Order>
   ): Promise<PlacedOrder | null> {
     try {
       const placed = await placeOrderDb(supabase, targets, buyer, status, {
         requests: orderRequests,
+        extra,
       });
       applyPlacedOrder(placed);
       return placed;
@@ -573,6 +604,26 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       pushToast("error", e instanceof Error ? e.message : "Couldn't save the order");
       return null;
     }
+  }
+
+  async function saveOrderCredit(order: Order, credit: number, note: string) {
+    const patch = {
+      credit,
+      credit_note: note.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase
+      .from("orders")
+      .update(patch)
+      .eq("id", order.id);
+    if (error) {
+      pushToast("error", `Couldn't save the credit: ${error.message}`);
+      return false;
+    }
+    setOrders((prev) =>
+      prev.map((o) => (o.id === order.id ? { ...o, ...patch } : o))
+    );
+    return true;
   }
 
   async function renameBuyer(order: Order, buyer: string) {
@@ -716,7 +767,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     const ok = await updateRecord(r.id, {
       hold_buyer: null,
       hold_until: null,
-      ...(leaving ? { order_id: null } : {}),
+      ...(leaving ? { order_id: null, negotiated_price: null } : {}),
     });
     if (!ok || !leaving || !order) return ok;
     const others = recordsRef.current.some(
@@ -740,19 +791,28 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // writes sold/price/buyer, clears holds, closes finished order
   // requests, and offers the Discogs removal. No confirm — callers
   // decide whether one is needed.
-  async function markRecordsSold(targets: DbRecord[], buyer: string) {
+  async function markRecordsSold(
+    targets: DbRecord[],
+    buyer: string,
+    terms?: SaleTerms
+  ) {
     if (targets.length === 0) return;
     try {
       // The order first: it names the buyer when the desk left it blank
-      // (a hold's buyer, or the order the records were invoiced on).
-      const placed = await placeOrder(targets, buyer, "paid");
+      // (a hold's buyer, or the order the records were invoiced on). The
+      // desk's credit lands on it here.
+      const extra: Partial<Order> | undefined =
+        terms?.credit != null
+          ? { credit: terms.credit, credit_note: (terms.creditNote ?? "").trim() }
+          : undefined;
+      const placed = await placeOrder(targets, buyer, "paid", extra);
       const buyerName = buyer.trim() || placed?.order.buyer_username || "";
       const now = new Date();
       const patches = new Map(
         targets.map((r) => [
           r.id,
           {
-            ...soldPatch(r, buyerName, now),
+            ...soldPatch(r, buyerName, now, terms?.prices?.get(r.id)),
             order_id: placed?.order.id ?? r.order_id ?? null,
           },
         ])
@@ -838,6 +898,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSelectionMode("sale");
     setSaleBuyer("");
     setSaleEmail("");
+    setSalePrices({});
+    setSaleCredit("");
+    setSaleCreditNote("");
   }
 
   const value: AdminContextValue = {
@@ -897,6 +960,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     renameBuyer,
     releaseOrder,
     releaseHold,
+    saveOrderCredit,
     selectedIds,
     setSelectedIds,
     selectionMode,
@@ -905,6 +969,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSaleBuyer,
     saleEmail,
     setSaleEmail,
+    salePrices,
+    setSalePrices,
+    saleCredit,
+    setSaleCredit,
+    saleCreditNote,
+    setSaleCreditNote,
     toggleSelected,
     clearSelection,
   };
