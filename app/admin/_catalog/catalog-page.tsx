@@ -392,7 +392,12 @@ export function CatalogPage() {
       return;
     // Un-selling takes the record out of its order too.
     if (!sold) {
-      await updateRecord(r.id, { sold: false, sold_at: null, order_id: null });
+      await updateRecord(r.id, {
+        sold: false,
+        sold_at: null,
+        order_id: null,
+        picked_at: null,
+      });
       return;
     }
     // Selling goes through the same path as the sale desk, so the row

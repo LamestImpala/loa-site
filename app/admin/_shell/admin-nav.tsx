@@ -7,6 +7,7 @@ import { useSelectedLayoutSegment } from "next/navigation";
 // on /admin itself.
 const PAGES: { segment: string | null; href: string; label: string }[] = [
   { segment: null, href: "/admin", label: "Inbox" },
+  { segment: "pick", href: "/admin/pick", label: "Pick list" },
   { segment: "catalog", href: "/admin/catalog", label: "Catalog" },
   { segment: "pricing", href: "/admin/pricing", label: "Pricing" },
   { segment: "reddit", href: "/admin/reddit", label: "Reddit" },
