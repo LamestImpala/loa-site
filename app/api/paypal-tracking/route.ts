@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function pull(supabase: SupabaseClient, invoiceId: string) {
-  const { status, transactionId, shippingCharged, paymentDate } =
+  const { status, transactionId, shippingCharged, paymentDate, shipTo } =
     await getInvoicePayment(invoiceId);
   if (!PAID_STATUSES.has(status)) {
     return NextResponse.json({
@@ -161,7 +161,22 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     order_id: number | null;
   }[];
   const shipments = (existing ?? []) as Shipment[];
-  const order = (orderRow ?? null) as Order | null;
+  let order = (orderRow ?? null) as Order | null;
+  // The buyer's ship-to lands on the order now that PayPal has reported
+  // payment; overwritten each sync, PayPal being the truth for it.
+  if (order && shipTo) {
+    const { data: updated, error: shipToError } = await supabase
+      .from("orders")
+      .update({ ship_to: shipTo, updated_at: new Date().toISOString() })
+      .eq("id", order.id)
+      .select()
+      .single();
+    if (shipToError) {
+      console.error("paypal-tracking pull: ship_to update failed:", shipToError.message);
+    } else {
+      order = updated as Order;
+    }
+  }
   const orderId = order?.id ?? records.find((r) => r.order_id != null)?.order_id ?? null;
   const buyer =
     order?.buyer_username.trim() ||
@@ -254,6 +269,7 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     created,
     shipments: [...shipments, ...created],
     invoice: invoiceRow,
+    order,
     feeNote,
   });
 }

@@ -8,6 +8,7 @@ import { useSelectedLayoutSegment } from "next/navigation";
 const PAGES: { segment: string | null; href: string; label: string }[] = [
   { segment: null, href: "/admin", label: "Inbox" },
   { segment: "pick", href: "/admin/pick", label: "Pick list" },
+  { segment: "pack", href: "/admin/pack", label: "Pack" },
   { segment: "labels", href: "/admin/labels", label: "Labels" },
   { segment: "catalog", href: "/admin/catalog", label: "Catalog" },
   { segment: "pricing", href: "/admin/pricing", label: "Pricing" },

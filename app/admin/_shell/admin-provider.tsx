@@ -127,6 +127,9 @@ type AdminContextValue = {
     opts?: { quiet?: boolean }
   ) => Promise<boolean>;
   upsertInvoiceLocal: (inv: Invoice) => void;
+  // Parcels: mirror a row written elsewhere (pack page, label intake).
+  upsertShipmentLocal: (s: Shipment) => void;
+  patchShipmentLocal: (id: number, patch: Partial<Shipment>) => void;
   byId: Map<number, DbRecord>;
 
   // Discogs collection removal, per record, with the last outcome per id.
@@ -546,6 +549,18 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const upsertShipmentLocal = useCallback((s: Shipment) => {
+    setShipments((prev) =>
+      prev.some((x) => x.id === s.id)
+        ? prev.map((x) => (x.id === s.id ? { ...x, ...s } : x))
+        : [s, ...prev]
+    );
+  }, []);
+
+  const patchShipmentLocal = useCallback((id: number, patch: Partial<Shipment>) => {
+    setShipments((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }, []);
+
   const byId = useMemo(
     () => new Map(records.map((r) => [r.id, r])),
     [records]
@@ -947,6 +962,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     updateRecord,
     updateRecords,
     upsertInvoiceLocal,
+    upsertShipmentLocal,
+    patchShipmentLocal,
     byId,
     discogsStatus,
     setDiscogsStatus,

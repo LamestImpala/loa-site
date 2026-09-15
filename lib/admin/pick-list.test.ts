@@ -47,6 +47,24 @@ test("tracked parcels hide their records; draft parcels and unassigned records s
   assert.deepEqual(ids(pickList(records, shipments, orders)), [2, 3]);
 });
 
+test("packed but untracked parcels hide their records too", () => {
+  const orders = [order({ id: 1, status: "paid" })];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1 }),
+    rec({ id: 2, sold: true, order_id: 1 }),
+  ];
+  const shipments = [
+    shipment({
+      order_id: 1,
+      record_ids: [1],
+      tracking_code: null,
+      status: "draft",
+      packed_at: "2026-09-15T00:00:00Z",
+    }),
+  ];
+  assert.deepEqual(ids(pickList(records, shipments, orders)), [2]);
+});
+
 test("a fully shipped order yields nothing", () => {
   const orders = [order({ id: 1, status: "paid" })];
   const records = [rec({ id: 1, sold: true, order_id: 1 }), rec({ id: 2, sold: true, order_id: 1 })];

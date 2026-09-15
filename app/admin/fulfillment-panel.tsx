@@ -12,6 +12,11 @@ import {
   pushNotNeeded,
   type OrderGroup,
 } from "@/lib/admin/fulfillment";
+import {
+  createParcel as createParcelDb,
+  mirrorTracking as mirrorTrackingDb,
+  setParcelTracking,
+} from "@/lib/admin/shipments-db";
 import { blurOnEnter, buttonClass, inputClass, smallButtonClass, useCopied } from "./_shell/ui";
 import { BuyerField } from "./_shell/buyer-field";
 
@@ -150,12 +155,10 @@ export function FulfillmentPanel({
   // record leaves a parcel, fall back to whatever other parcel covers it.
   async function mirrorTracking(recordIds: number[], value: string) {
     if (recordIds.length === 0) return;
-    const { error } = await supabase
-      .from("records")
-      .update({ tracking_number: value, updated_at: new Date().toISOString() })
-      .in("id", recordIds);
-    if (error) {
-      note("panel", `Saving tracking on records failed: ${error.message}`, "error");
+    try {
+      await mirrorTrackingDb(supabase, recordIds, value);
+    } catch (e) {
+      note("panel", e instanceof Error ? e.message : "Saving tracking on records failed", "error");
       return;
     }
     for (const id of recordIds) onRecordPatched(id, { tracking_number: value });
@@ -168,25 +171,22 @@ export function FulfillmentPanel({
     if (ids.length === 0 || busy) return;
     setBusy(g.key);
     const invoiceId = (invoiceEdits[g.key] ?? g.invoiceId).trim() || null;
-    const { data, error } = await supabase
-      .from("shipments")
-      .insert({
-        buyer_username: g.buyer,
-        order_id: g.order?.id ?? null,
-        record_ids: ids,
+    let created: Shipment;
+    try {
+      created = await createParcelDb(supabase, {
+        buyer: g.buyer,
+        orderId: g.order?.id ?? null,
+        recordIds: ids,
+        invoiceId,
         mode: "manual",
-        status: "draft",
-        carrier: "USPS",
-        paypal_invoice_id: invoiceId,
-      })
-      .select()
-      .single();
-    setBusy(null);
-    if (error) {
-      note(g.key, `Couldn't create the parcel: ${error.message}`, "error");
+      });
+    } catch (e) {
+      note(g.key, e instanceof Error ? e.message : "Couldn't create the parcel", "error");
       return;
+    } finally {
+      setBusy(null);
     }
-    onShipmentsChange((prev) => [data as Shipment, ...prev]);
+    onShipmentsChange((prev) => [created, ...prev]);
     setSelected((prev) => ({ ...prev, [g.key]: [] }));
     note(g.key, "");
   }
@@ -233,18 +233,18 @@ export function FulfillmentPanel({
     // not read as "cleared".
     const value = (trackingEdits[s.id] ?? s.tracking_code ?? "").trim();
     if (value === (s.tracking_code ?? "")) return;
-    const ok = await saveShipment(s, {
-      tracking_code: value || null,
-      status: value ? "shipped" : "draft",
-    });
-    if (ok) {
-      setTrackingEdits((prev) => {
-        const next = { ...prev };
-        delete next[s.id];
-        return next;
-      });
-      await mirrorTracking(s.record_ids ?? [], value);
+    try {
+      patchShipment(s.id, await setParcelTracking(supabase, s, value));
+    } catch (e) {
+      note(`ship-${s.id}`, e instanceof Error ? e.message : "Save failed", "error");
+      return;
     }
+    setTrackingEdits((prev) => {
+      const next = { ...prev };
+      delete next[s.id];
+      return next;
+    });
+    await mirrorTracking(s.record_ids ?? [], value);
   }
 
   // "" clears the stored amount; "$" prefixes are tolerated.
@@ -511,6 +511,13 @@ export function FulfillmentPanel({
           return next;
         });
       }
+      // The route also stamps the buyer's ship-to on the order.
+      const syncedOrder = (body.order ?? null) as Order | null;
+      if (syncedOrder) {
+        onOrdersChange((prev) =>
+          prev.map((o) => (o.id === syncedOrder.id ? { ...o, ...syncedOrder } : o))
+        );
+      }
       if (body.error) {
         note(g.key, String(body.error), "error");
         return;
@@ -733,6 +740,22 @@ export function FulfillmentPanel({
                       {g.buyer ? `u/${g.buyer}` : "No buyer set"}
                     </span>
                   )}
+                  {g.order?.ship_to?.name ? (
+                    <span
+                      className="text-sm text-neutral-400"
+                      title={[
+                        g.order.ship_to.line1,
+                        g.order.ship_to.line2,
+                        [g.order.ship_to.city, g.order.ship_to.state, g.order.ship_to.postal_code]
+                          .filter(Boolean)
+                          .join(" "),
+                      ]
+                        .filter(Boolean)
+                        .join("\n")}
+                    >
+                      ships to {g.order.ship_to.name}
+                    </span>
+                  ) : null}
                   {g.records.length > 0 ? (
                     <span
                       className="text-sm text-green-400"
@@ -965,8 +988,19 @@ export function FulfillmentPanel({
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm text-neutral-300">
-                          Parcel {i + 1}
+                          Parcel {i + 1}{" "}
+                          <span className="text-neutral-500" title="The Box # on the mailer and its packing slip">
+                            · Box #{s.id}
+                          </span>
                         </span>
+                        {s.packed_at ? (
+                          <span
+                            className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300"
+                            title="Sealed on the pack page with every record checked in"
+                          >
+                            Packed {new Date(s.packed_at).toLocaleDateString()}
+                          </span>
+                        ) : null}
                         {s.paypal_tracker_id ? (
                           <span className="text-xs text-neutral-500">
                             {s.mode === "paypal" ? "PayPal label" : "manual"}
