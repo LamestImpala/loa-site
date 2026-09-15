@@ -47,6 +47,19 @@ export type DbRecord = {
 // open stage. "Fulfilled" is derived (every record in a tracked parcel).
 export type OrderStatus = "held" | "invoiced" | "paid" | "cancelled";
 
+// Where the buyer wants the parcel, as PayPal reported it when the
+// invoice was paid. Name is what the shipping label prints, which is how
+// a label PDF is matched back to its box.
+export type ShipTo = {
+  name: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country_code: string | null;
+};
+
 export type Order = {
   id: number;
   buyer_username: string; // no u/ prefix
@@ -55,6 +68,7 @@ export type Order = {
   request_id: number | null; // the shop request it came from, if any
   credit: number; // taken off the whole order — a make-good or a deal; 0 = none
   credit_note: string; // why; goes in the invoice note to the buyer
+  ship_to: ShipTo | null; // from PayPal once paid; null for off-PayPal sales
   created_at: string;
   updated_at: string;
 };
@@ -84,6 +98,7 @@ export type Shipment = {
   paypal_tracker_id: string | null; // "{txnId}-{trackingNumber}" once known in PayPal
   paypal_tracked_number: string | null; // the tracking number PayPal currently has
   paypal_synced_at: string | null;
+  packed_at: string | null; // sealed on /admin/pack with its records checked in; null for parcels made on the fulfillment card
 };
 
 // Money facts about one PayPal invoice, typed in from the transaction

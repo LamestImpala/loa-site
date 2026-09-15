@@ -1,0 +1,143 @@
+import type { DbRecord, Order, Shipment, ShipTo } from "../supabase.ts";
+import { groupOrders } from "./fulfillment.ts";
+
+// Pack rules: which paid orders are on the packing table, what's still
+// loose in each, which boxes are sealed, and the one order boxes go in
+// for slips and labels. Pure — no React, no Supabase.
+
+export type PackOrder = {
+  key: string; // OrderGroup.key
+  order: Order | null; // null for sold records that predate the orders table
+  buyer: string;
+  shipTo: ShipTo | null;
+  invoiceId: string;
+  loose: DbRecord[]; // sold, not in any parcel yet — shelf order
+  parcels: Shipment[]; // this order's parcels, pack order
+  pulled: number; // loose records already marked pulled on the pick list
+};
+
+const shelfCompare = (a: DbRecord, b: DbRecord) =>
+  a.artist.localeCompare(b.artist, undefined, { sensitivity: "base" }) ||
+  a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+
+// Boxes in the order they were sealed, then by id for the fulfillment
+// card's parcels (never sealed). Slips print and labels stack in this
+// order, so it must be the same everywhere.
+export function sortByPackOrder<T extends Pick<Shipment, "id" | "packed_at">>(
+  shipments: T[]
+): T[] {
+  return [...shipments].sort((a, b) => {
+    const pa = a.packed_at ? new Date(a.packed_at).getTime() : Infinity;
+    const pb = b.packed_at ? new Date(b.packed_at).getTime() : Infinity;
+    return pa - pb || a.id - b.id;
+  });
+}
+
+// Paid orders not yet fully shipped, alphabetical by buyer, with a
+// pre-orders buyer group counting as paid (same admission as the pick
+// list). Every order that still has loose records or an untracked box.
+export function packList(
+  records: DbRecord[],
+  shipments: Shipment[],
+  orders: Order[]
+): PackOrder[] {
+  const out: PackOrder[] = [];
+  for (const g of groupOrders(records.filter((r) => r.sold), shipments, orders)) {
+    if (g.done) continue;
+    if (g.order && g.order.status !== "paid") continue;
+    const loose = [...g.unassigned].sort(shelfCompare);
+    out.push({
+      key: g.key,
+      order: g.order,
+      buyer: g.buyer,
+      shipTo: g.order?.ship_to ?? null,
+      invoiceId: g.invoiceId,
+      loose,
+      parcels: sortByPackOrder(g.shipments),
+      pulled: loose.filter((r) => !!r.picked_at).length,
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      a.buyer.localeCompare(b.buyer, undefined, { sensitivity: "base" }) ||
+      a.key.localeCompare(b.key)
+  );
+}
+
+// Boxes sealed on the pack page that have no label yet — what a dropped
+// label PDF can be matched to, and what a packing slip prints for.
+export function openPackedParcels(shipments: Shipment[]): Shipment[] {
+  return sortByPackOrder(
+    shipments.filter(
+      (s) => !!s.packed_at && !s.tracking_code && s.status !== "refunded"
+    )
+  );
+}
+
+// What a packing slip says about one box. Ship-to comes from the parcel's
+// own snapshot when it has one (taken at seal time), else the order's.
+export type PackingSlip = {
+  boxId: number;
+  buyer: string;
+  shipTo: ShipTo | null;
+  boxIndex: number; // 1-based position among the order's boxes
+  boxCount: number;
+  packedAt: string | null;
+  records: Pick<DbRecord, "artist" | "title" | "pressing" | "media" | "sleeve">[];
+};
+
+export function slipsForParcels(
+  parcels: Shipment[],
+  allShipments: Shipment[],
+  byId: Map<number, DbRecord>,
+  ordersById: Map<number, Order>
+): PackingSlip[] {
+  return sortByPackOrder(parcels).map((s) => {
+    const siblings = sortByPackOrder(
+      allShipments.filter(
+        (x) =>
+          x.status !== "refunded" &&
+          (s.order_id != null
+            ? x.order_id === s.order_id
+            : x.order_id == null &&
+              x.buyer_username.trim().toLowerCase() ===
+                s.buyer_username.trim().toLowerCase())
+      )
+    );
+    const snapshot = s.to_address as Partial<ShipTo> | null | undefined;
+    const order = s.order_id != null ? ordersById.get(s.order_id) : undefined;
+    const shipTo: ShipTo | null =
+      snapshot && (snapshot.name || snapshot.line1)
+        ? {
+            name: snapshot.name ?? null,
+            line1: snapshot.line1 ?? null,
+            line2: snapshot.line2 ?? null,
+            city: snapshot.city ?? null,
+            state: snapshot.state ?? null,
+            postal_code: snapshot.postal_code ?? null,
+            country_code: snapshot.country_code ?? null,
+          }
+        : (order?.ship_to ?? null);
+    return {
+      boxId: s.id,
+      buyer: (order?.buyer_username ?? s.buyer_username).trim(),
+      shipTo,
+      boxIndex: Math.max(1, siblings.findIndex((x) => x.id === s.id) + 1),
+      boxCount: Math.max(1, siblings.length),
+      packedAt: s.packed_at,
+      records: (s.record_ids ?? [])
+        .map((id) => byId.get(id))
+        .filter((r): r is DbRecord => !!r)
+        .sort(shelfCompare),
+    };
+  });
+}
+
+export function packProgress(list: PackOrder[]) {
+  const loose = list.reduce((n, o) => n + o.loose.length, 0);
+  const boxes = list.reduce(
+    (n, o) => n + o.parcels.filter((s) => !s.tracking_code).length,
+    0
+  );
+  return { orders: list.length, loose, boxes };
+}

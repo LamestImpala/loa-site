@@ -5,6 +5,8 @@
  * /api/paypal-tracking.
  */
 
+import type { ShipTo } from "./supabase.ts";
+
 const PAYPAL_ENVS: Record<string, string> = {
   sandbox: "https://api-m.sandbox.paypal.com",
   live: "https://api-m.paypal.com",
@@ -81,18 +83,72 @@ export type InvoiceResult = {
 // pending order.
 export const PAID_STATUSES = new Set(["PAID", "MARKED_AS_PAID", "PARTIALLY_PAID"]);
 
+// Where the buyer wants the parcel, read off an invoice's JSON. The
+// payer's address arrives with the payment (payments.transactions[]
+// .shipping_info); the recipient block (primary_recipients[0]
+// .shipping_info) is what the invoicer set, if anything. First one with
+// a name or street wins. Pure, so it's tested on fixture JSON.
+export function shipToFromInvoice(invoice: unknown): ShipTo | null {
+  const inv = (invoice ?? {}) as {
+    payments?: { transactions?: { shipping_info?: unknown }[] };
+    primary_recipients?: { shipping_info?: unknown }[];
+  };
+  const candidates = [
+    ...(inv.payments?.transactions ?? []).map((t) => t?.shipping_info),
+    inv.primary_recipients?.[0]?.shipping_info,
+  ];
+  for (const raw of candidates) {
+    const parsed = parseShippingInfo(raw);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function parseShippingInfo(raw: unknown): ShipTo | null {
+  if (!raw || typeof raw !== "object") return null;
+  const info = raw as {
+    business_name?: string;
+    name?: { full_name?: string; given_name?: string; surname?: string };
+    address?: {
+      address_line_1?: string;
+      address_line_2?: string;
+      admin_area_2?: string;
+      admin_area_1?: string;
+      postal_code?: string;
+      country_code?: string;
+    };
+  };
+  const clean = (s: unknown) => (typeof s === "string" && s.trim() ? s.trim() : null);
+  const name =
+    clean(info.name?.full_name) ??
+    clean([info.name?.given_name, info.name?.surname].filter(Boolean).join(" ")) ??
+    clean(info.business_name);
+  const a = info.address ?? {};
+  const shipTo: ShipTo = {
+    name,
+    line1: clean(a.address_line_1),
+    line2: clean(a.address_line_2),
+    city: clean(a.admin_area_2),
+    state: clean(a.admin_area_1),
+    postal_code: clean(a.postal_code),
+    country_code: clean(a.country_code),
+  };
+  return shipTo.name || shipTo.line1 ? shipTo : null;
+}
+
 // Reads a paid invoice's PayPal transaction id, plus the shipping the
-// buyer was charged (off the invoice's amount breakdown) and the payment
-// date (which scopes the Transaction Search window for the fee lookup).
-// Invoices marked paid offline (cash/Venmo recorded by hand) have no
-// transaction, so tracking can't be attached to them — callers must
-// handle transactionId: null.
+// buyer was charged (off the invoice's amount breakdown), the payment
+// date (which scopes the Transaction Search window for the fee lookup),
+// and the buyer's ship-to. Invoices marked paid offline (cash/Venmo
+// recorded by hand) have no transaction, so tracking can't be attached
+// to them — callers must handle transactionId: null.
 export async function getInvoicePayment(invoiceId: string): Promise<{
   status: string;
   transactionId: string | null;
   shippingCharged: number | null;
   paymentDate: string | null; // "2026-08-20"
   recipientViewUrl: string | null; // the buyer's payment link
+  shipTo: ShipTo | null;
 }> {
   const token = await getPayPalAccessToken();
   const res = await fetch(
@@ -121,6 +177,7 @@ export async function getInvoicePayment(invoiceId: string): Promise<{
     shippingCharged: Number.isFinite(shipping) ? shipping : null,
     paymentDate: withId?.payment_date ?? null,
     recipientViewUrl: meta.recipient_view_url ?? meta.payer_view_url ?? null,
+    shipTo: shipToFromInvoice(invoice),
   };
 }
 

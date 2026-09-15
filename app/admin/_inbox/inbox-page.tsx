@@ -46,6 +46,7 @@ export function InboxPage() {
     pushToast,
     copyText,
     upsertInvoiceLocal,
+    upsertOrderLocal,
     byId,
     markRecordsSold,
     placeOrder,
@@ -504,6 +505,8 @@ export function InboxPage() {
     try {
       const body = await pendingInvoiceFetch(id, "GET");
       if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
+      // The route stamps the buyer's ship-to on the order once paid.
+      if (body.order) upsertOrderLocal(body.order as Order);
       if (body.paid) {
         if (o.recs.length === 0) {
           // Paid, but every record has since moved or sold elsewhere —

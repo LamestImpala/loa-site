@@ -35,6 +35,43 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Ship day
+
+The shop (`app/(shop)/records`, admin at `/admin`) sells used LPs claimed on
+Reddit and paid by PayPal invoice; every shipping label is bought in PayPal's
+Shipping Center. Batch the shipping into one run rather than shipping as
+orders trickle in:
+
+| Step | Where | What |
+|---|---|---|
+| 1. Sweep payments | Inbox (laptop) | "Check PayPal" on each invoiced order. A paid order also records the buyer's ship-to name and address from the invoice (`orders.ship_to`). |
+| 2. Pick | `/admin/pick` (phone) | Walk the shelf A→Z, tap each record as it's pulled (`records.picked_at`). |
+| 3. Pack | `/admin/pack` (laptop) | One card per paid order, with the ship-to name. Check each record into the mailer, then **Seal box**: that writes the parcel (`shipments.packed_at`) and gives it a **Box #** (the shipment id). Sealed records leave the pick list. **Print packing slips** makes one 4×6 slip per sealed box, in Box # order — put it in (or tape it to) the mailer so every box is tagged before it has a label. |
+| 4. Buy labels | PayPal Shipping Center | Buy labels in the pack page's box order and download the PDFs. |
+| 5. Label intake | `/admin/labels` (laptop) | Drop all the PDFs. Each is read in the browser (pdf.js) for its tracking number and recipient and matched to a sealed box by the ship-to name; check the amber "check match" rows. **Save tracking & print** writes each tracking number onto its box (the box becomes shipped, its records mirror the number) and opens one PDF with the labels in Box # order. A label with no text layer just needs its number typed and its box picked. |
+| 6. Confirm | Inbox fulfillment cards | Trade confirmations and buyer nudges as before. |
+
+Keep the boxes on the table in Box # order; the labels print in that order.
+
+Printer: a 4×6 direct-thermal label printer (Westinghouse WHTP203e), installed
+as a normal printer. Set PayPal's Shipping Center label format to **4×6** so
+each label downloads as a single 4×6 page; slips and labels then print at
+**100% / Actual size** with 4×6 selected as the paper size (if the browser
+insists on Letter, open the PDF in Preview or Acrobat and print from there).
+Letter-size label PDFs still work: the labels page detects them and stacks two
+per sheet for half-sheet label stock, printed on Letter at 100%. One format
+per batch.
+
+PayPal Shipping Center labels never show up in "Sync from PayPal" (they aren't
+trackers on the transaction), which is why intake reads the PDFs; a parcel
+labelled that way is `mode: paypal`, so no "Push to PayPal" button appears —
+PayPal already emails the buyer.
+
+Schema: `supabase/migrations/20260914_orders.sql` and `20260915_ship_day.sql`.
+Rules with tests: `lib/admin/pack-list.ts`, `lib/admin/label-intake.ts`,
+`lib/admin/packing-slips.ts`, `lib/admin/labels-2up.ts`; writes in
+`lib/admin/shipments-db.ts`.
+
 ## Pick'em
 
 `/pickem` is a free football pick'em, NFL and college, one league at a time

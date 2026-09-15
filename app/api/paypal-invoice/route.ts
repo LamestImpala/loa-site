@@ -338,12 +338,32 @@ export async function GET(req: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 502 });
     }
+    // The buyer's ship-to lands on the order once PayPal reports it.
+    // Overwritten every check — PayPal is the truth for where it goes.
+    let order: Order | null = null;
+    if (payment.shipTo) {
+      const { data: orderRow, error: orderError } = await supabase
+        .from("orders")
+        .update({ ship_to: payment.shipTo, updated_at: new Date().toISOString() })
+        .eq("paypal_invoice_id", id)
+        .neq("status", "cancelled")
+        .select()
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (orderError) {
+        console.error("paypal-invoice status: ship_to update failed:", orderError.message);
+      } else {
+        order = (orderRow ?? null) as Order | null;
+      }
+    }
     return NextResponse.json({
       status: payment.status,
       paid,
       paidAt: (saved as Invoice).paid_at,
       recipientViewUrl: (saved as Invoice).recipient_view_url ?? null,
       invoice: saved as Invoice,
+      order,
     });
   } catch (e) {
     console.error("paypal-invoice status failed:", e instanceof Error ? e.message : e);

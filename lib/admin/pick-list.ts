@@ -18,10 +18,13 @@ const shelfCompare = (a: DbRecord, b: DbRecord) =>
   a.artist.localeCompare(b.artist, undefined, { sensitivity: "base" }) ||
   a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
 
-// Records in paid, not-yet-shipped orders that aren't in a tracked parcel
-// yet: unassigned ones and members of parcels without a tracking number.
-// Sold records with no order (pre-orders rows) count as paid. Refunded
-// parcels are already dropped by groupOrders, so they never hide a record.
+// Records in paid, not-yet-shipped orders that still have to come off the
+// shelf: unassigned ones and members of parcels that are neither packed
+// nor tracked. A parcel sealed on /admin/pack (packed_at) already holds
+// its records, so they leave the list before any label exists; a draft
+// parcel made on the fulfillment card doesn't. Sold records with no order
+// (pre-orders rows) count as paid. Refunded parcels are already dropped
+// by groupOrders, so they never hide a record.
 export function pickList(
   records: DbRecord[],
   shipments: Shipment[],
@@ -31,13 +34,13 @@ export function pickList(
   for (const g of groupOrders(records.filter((r) => r.sold), shipments, orders)) {
     if (g.done) continue;
     if (g.order && g.order.status !== "paid") continue;
-    const tracked = new Set(
+    const boxed = new Set(
       g.shipments
-        .filter((s) => !!s.tracking_code)
+        .filter((s) => !!s.tracking_code || !!s.packed_at)
         .flatMap((s) => s.record_ids ?? [])
     );
     for (const record of g.records) {
-      if (tracked.has(record.id)) continue;
+      if (boxed.has(record.id)) continue;
       rows.push({
         record,
         buyer: g.buyer,
