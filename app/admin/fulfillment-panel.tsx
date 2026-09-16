@@ -555,6 +555,7 @@ export function FulfillmentPanel({
             body.trackersFound === 1 ? "" : "s"
           } in PayPal${created ? `, ${created} new` : ""}.`,
           costBits.length ? `Recorded ${costBits.join(" · ")}.` : null,
+          (body.shipToNote as string | null) ?? null,
           (body.feeNote as string | null) ?? null,
         ]
           .filter(Boolean)
