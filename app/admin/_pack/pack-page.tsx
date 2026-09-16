@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { DbRecord, Shipment } from "@/lib/supabase";
 import {
-  openPackedParcels,
+  openParcels,
   packList,
   packProgress,
   slipsForParcels,
@@ -40,7 +40,7 @@ export function PackPage() {
 
   const list = useMemo(() => packList(records, shipments, orders), [records, shipments, orders]);
   const progress = packProgress(list);
-  const openBoxes = useMemo(() => openPackedParcels(shipments), [shipments]);
+  const openBoxes = useMemo(() => openParcels(shipments), [shipments]);
   const invoiceById = useMemo(
     () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
     [invoices]
@@ -157,7 +157,7 @@ export function PackPage() {
           type="button"
           onClick={printSlips}
           disabled={openBoxes.length === 0 || printing}
-          title="One 4×6 slip per sealed box without a label yet, in Box # order — for the thermal printer"
+          title="One 4×6 slip per box without a label yet (sealed here or made on the fulfillment card), in Box # order — for the thermal printer"
           className={buttonClass}
         >
           {printing
