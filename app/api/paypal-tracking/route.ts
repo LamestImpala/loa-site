@@ -185,6 +185,22 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
   }[];
   const shipments = (existing ?? []) as Shipment[];
   let order = (orderRow ?? null) as Order | null;
+  // The order that owns the sale is the one the records point at. An
+  // order that carries the invoice id but none of its records (a sale
+  // re-placed under a fresh row) would take the address and never show
+  // it, so follow the records when they all agree on another order.
+  const recordOrderIds = [
+    ...new Set(records.map((r) => r.order_id).filter((id): id is number => id != null)),
+  ];
+  if (recordOrderIds.length === 1 && recordOrderIds[0] !== order?.id) {
+    const { data: recordOrder } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("id", recordOrderIds[0])
+      .neq("status", "cancelled")
+      .maybeSingle();
+    if (recordOrder) order = recordOrder as Order;
+  }
   // The buyer's ship-to lands on the order now that PayPal has reported
   // payment; overwritten each sync, PayPal being the truth for it. The
   // note says where it came from, so a missing address is explained.
