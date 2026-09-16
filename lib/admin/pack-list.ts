@@ -64,13 +64,12 @@ export function packList(
   );
 }
 
-// Boxes sealed on the pack page that have no label yet — what a dropped
-// label PDF can be matched to, and what a packing slip prints for.
-export function openPackedParcels(shipments: Shipment[]): Shipment[] {
+// Boxes with no label yet — what a dropped label PDF can be matched to,
+// and what a packing slip prints for. Sealed on the pack page or made on
+// the fulfillment card alike; sealed ones come first, in pack order.
+export function openParcels(shipments: Shipment[]): Shipment[] {
   return sortByPackOrder(
-    shipments.filter(
-      (s) => !!s.packed_at && !s.tracking_code && s.status !== "refunded"
-    )
+    shipments.filter((s) => !s.tracking_code && s.status !== "refunded")
   );
 }
 

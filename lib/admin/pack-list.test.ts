@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  openPackedParcels,
+  openParcels,
   packList,
   packProgress,
   slipsForParcels,
@@ -95,12 +95,12 @@ test("slips: box position among the order's boxes, parcel snapshot beats the ord
   assert.equal(slips[0].buyer, "zed");
 });
 
-test("open packed parcels: sealed, untracked, not refunded", () => {
-  const open = openPackedParcels([
+test("open parcels: untracked and not refunded, sealed ones first, card-made ones after", () => {
+  const open = openParcels([
+    shipment({ id: 3, packed_at: null, tracking_code: null, status: "draft" }),
     shipment({ id: 1, packed_at: "2026-09-15T10:00:00Z", tracking_code: null, status: "draft" }),
     shipment({ id: 2, packed_at: "2026-09-15T09:00:00Z", tracking_code: "9400", status: "shipped" }),
-    shipment({ id: 3, packed_at: null, tracking_code: null, status: "draft" }),
     shipment({ id: 4, packed_at: "2026-09-15T08:00:00Z", tracking_code: null, status: "refunded" }),
   ]);
-  assert.deepEqual(open.map((s) => s.id), [1]);
+  assert.deepEqual(open.map((s) => s.id), [1, 3]);
 });

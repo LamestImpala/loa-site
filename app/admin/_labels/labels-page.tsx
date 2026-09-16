@@ -15,7 +15,7 @@ import {
   type ExtractedLabel,
   type LabelCandidate,
 } from "@/lib/admin/label-intake";
-import { openPackedParcels, sortByPackOrder } from "@/lib/admin/pack-list";
+import { openParcels, sortByPackOrder } from "@/lib/admin/pack-list";
 import { setParcelTracking } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass, inputClass, smallButtonClass } from "../_shell/ui";
@@ -23,7 +23,7 @@ import { extractLines } from "./pdf-text";
 
 // Label intake. Drop the label PDFs from PayPal's Shipping Center: each
 // one is read in the browser for its tracking number and recipient,
-// matched to a sealed box by the ship-to name, and shown for a
+// matched to a box awaiting a label by the ship-to name, and shown for a
 // glance-check. "Save tracking & print" writes each tracking number onto
 // its box and opens one PDF with the labels in Box # order — 4×6 pages
 // for the thermal printer, or two per letter sheet for half-sheet stock.
@@ -61,10 +61,11 @@ export function LabelsPage() {
   const [result, setResult] = useState<Result | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Boxes a label can go on: sealed on the pack page, no tracking yet.
+  // Boxes a label can go on: any parcel with no tracking yet, whether
+  // sealed on the pack page or made on the fulfillment card.
   const candidates = useMemo<LabelCandidate[]>(
     () =>
-      openPackedParcels(shipments).map((s) => {
+      openParcels(shipments).map((s) => {
         const order = s.order_id != null ? (ordersById.get(s.order_id) ?? null) : null;
         return { shipment: s, order, buyer: (order?.buyer_username ?? s.buyer_username).trim() };
       }),
@@ -291,9 +292,9 @@ export function LabelsPage() {
         <div>
           <h1 className="text-lg font-semibold">Labels</h1>
           <p className="text-sm text-neutral-400">
-            Drop PayPal label PDFs. Each is matched to a sealed box by its
-            ship-to name; saving records the tracking and prints them in Box #
-            order.
+            Drop PayPal label PDFs. Each is matched to a box awaiting a label
+            by its ship-to name; saving records the tracking and prints them
+            in Box # order.
           </p>
         </div>
         <span className="text-xs text-neutral-500">
