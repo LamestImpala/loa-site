@@ -211,14 +211,62 @@ export async function cancelInvoice(invoiceId: string): Promise<void> {
   );
 }
 
-// The seller fee PayPal took on a transaction, via the Transaction Search
-// API (requires the "Transaction Search" feature on the PayPal app).
-// Transactions surface there a few hours after payment, so null means
-// "not published yet — retry later", while a disabled feature throws.
-export async function getTransactionFee(
+// The Transaction Search API reports the buyer's shipping address in its
+// own shape (name as a string, address.line1/city/state) — the invoice
+// JSON never carries it, so this is where the ship-to comes from for a
+// paid invoice. payer_info is the fallback when the payment had no
+// shipping block. Pure, tested on fixture JSON.
+export function shipToFromTransaction(detail: unknown): ShipTo | null {
+  const d = (detail ?? {}) as {
+    shipping_info?: { name?: unknown; address?: unknown };
+    payer_info?: {
+      payer_name?: { given_name?: string; surname?: string; alternate_full_name?: string };
+      address?: unknown;
+    };
+  };
+  const clean = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const address = (raw: unknown) => {
+    const a = (raw ?? {}) as Record<string, unknown>;
+    return {
+      line1: clean(a.line1) ?? clean(a.address_line_1),
+      line2: clean(a.line2) ?? clean(a.address_line_2),
+      city: clean(a.city) ?? clean(a.admin_area_2),
+      state: clean(a.state) ?? clean(a.admin_area_1),
+      postal_code: clean(a.postal_code),
+      country_code: clean(a.country_code),
+    };
+  };
+  const shipName = d.shipping_info?.name;
+  const candidates: ShipTo[] = [
+    {
+      name:
+        clean(shipName) ??
+        clean((shipName as { full_name?: string } | undefined)?.full_name),
+      ...address(d.shipping_info?.address),
+    },
+    {
+      name:
+        clean(d.payer_info?.payer_name?.alternate_full_name) ??
+        clean(
+          [d.payer_info?.payer_name?.given_name, d.payer_info?.payer_name?.surname]
+            .filter(Boolean)
+            .join(" ")
+        ),
+      ...address(d.payer_info?.address),
+    },
+  ];
+  return candidates.find((c) => c.name || c.line1) ?? null;
+}
+
+// What Transaction Search knows about a payment (requires the
+// "Transaction Search" feature on the PayPal app): the seller fee and
+// the buyer's shipping address. Transactions surface there a few hours
+// after payment, so found: false means "not published yet — retry
+// later", while a disabled feature throws.
+export async function getTransactionDetails(
   transactionId: string,
   paymentDate: string | null
-): Promise<number | null> {
+): Promise<{ found: boolean; fee: number | null; shipTo: ShipTo | null }> {
   const token = await getPayPalAccessToken();
   // Search windows are mandatory: bracket the payment date, or fall back
   // to the last 30 days (the API caps windows at 31 days).
@@ -236,7 +284,7 @@ export async function getTransactionFee(
   const res = await fetch(
     `${paypalBase()}/v1/reporting/transactions?transaction_id=${encodeURIComponent(
       transactionId
-    )}&fields=transaction_info&start_date=${encodeURIComponent(
+    )}&fields=transaction_info,shipping_info,payer_info&start_date=${encodeURIComponent(
       fmt(start)
     )}&end_date=${encodeURIComponent(fmt(end))}`,
     { headers: { Authorization: `Bearer ${token}` } }
@@ -253,11 +301,15 @@ export async function getTransactionFee(
     );
   }
   const body = await res.json().catch(() => ({}));
-  const feeRaw =
-    body?.transaction_details?.[0]?.transaction_info?.fee_amount?.value;
-  if (feeRaw == null) return null;
-  const fee = Math.abs(Number(feeRaw)); // reported as a negative amount
-  return Number.isFinite(fee) ? fee : null;
+  const detail = body?.transaction_details?.[0];
+  if (!detail) return { found: false, fee: null, shipTo: null };
+  const feeRaw = detail?.transaction_info?.fee_amount?.value;
+  const fee = feeRaw == null ? NaN : Math.abs(Number(feeRaw)); // reported as a negative amount
+  return {
+    found: true,
+    fee: Number.isFinite(fee) ? fee : null,
+    shipTo: shipToFromTransaction(detail),
+  };
 }
 
 // Trackers already attached to a transaction — e.g. from shipping labels

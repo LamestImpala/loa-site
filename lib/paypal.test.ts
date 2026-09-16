@@ -1,7 +1,7 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shipToFromInvoice } from "./paypal.ts";
+import { shipToFromInvoice, shipToFromTransaction } from "./paypal.ts";
 
 const address = {
   address_line_1: "123 Main St",
@@ -81,4 +81,44 @@ test("nothing usable yields null", () => {
     null
   );
   assert.equal(shipToFromInvoice({ payments: { transactions: [{ shipping_info: "bad" }] } }), null);
+});
+
+test("transaction search: shipping_info in the reporting shape", () => {
+  const shipTo = shipToFromTransaction({
+    transaction_info: { fee_amount: { value: "-1.23" } },
+    shipping_info: {
+      name: "Jane Q Buyer",
+      address: {
+        line1: "123 Main St",
+        line2: "Apt 4",
+        city: "Tempe",
+        state: "AZ",
+        postal_code: "85281",
+        country_code: "US",
+      },
+    },
+    payer_info: { payer_name: { given_name: "Ignored", surname: "Payer" } },
+  });
+  assert.deepEqual(shipTo, {
+    name: "Jane Q Buyer",
+    line1: "123 Main St",
+    line2: "Apt 4",
+    city: "Tempe",
+    state: "AZ",
+    postal_code: "85281",
+    country_code: "US",
+  });
+});
+
+test("transaction search: payer_info stands in when there is no shipping block", () => {
+  const shipTo = shipToFromTransaction({
+    payer_info: {
+      payer_name: { given_name: "Bob", surname: "Payer" },
+      address: { line1: "9 Elm", city: "Mesa", state: "AZ", postal_code: "85201", country_code: "US" },
+    },
+  });
+  assert.equal(shipTo?.name, "Bob Payer");
+  assert.equal(shipTo?.city, "Mesa");
+  assert.equal(shipToFromTransaction({ transaction_info: {} }), null);
+  assert.equal(shipToFromTransaction(undefined), null);
 });

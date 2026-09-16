@@ -11,7 +11,7 @@ import {
   addTrackers,
   cancelTracker,
   getInvoicePayment,
-  getTransactionFee,
+  getTransactionDetails,
   listTrackers,
   paypalConfigured,
   PAID_STATUSES,
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function pull(supabase: SupabaseClient, invoiceId: string) {
-  const { status, transactionId, shippingCharged, paymentDate, shipTo } =
+  const { status, transactionId, shippingCharged, paymentDate, ...invoicePayment } =
     await getInvoicePayment(invoiceId);
   if (!PAID_STATUSES.has(status)) {
     return NextResponse.json({
@@ -119,6 +119,29 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
       invoice: offlineRow ?? null,
     });
   }
+
+  // Transaction Search carries the fee and the buyer's shipping address
+  // (the invoice JSON never has the address). It publishes a few hours
+  // after payment — "not found" means try again later; a disabled
+  // feature throws, which is reported but doesn't stop the sync.
+  let txn: Awaited<ReturnType<typeof getTransactionDetails>> = {
+    found: false,
+    fee: null,
+    shipTo: null,
+  };
+  let feeNote: string | null = null;
+  try {
+    txn = await getTransactionDetails(transactionId, paymentDate);
+    if (!txn.found) {
+      feeNote = "PayPal hasn't published the transaction yet (fee and address come with it) — sync again later.";
+    } else if (txn.fee == null) {
+      feeNote = "PayPal hasn't published the fee yet — sync again later.";
+    }
+  } catch (e) {
+    feeNote = e instanceof Error ? e.message : "Transaction lookup failed.";
+  }
+  const paypalFee = txn.fee;
+  const shipTo = invoicePayment.shipTo ?? txn.shipTo;
 
   const trackers = (await listTrackers(transactionId)).filter(
     (t) => t.status !== "CANCELLED"
@@ -163,7 +186,9 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
   const shipments = (existing ?? []) as Shipment[];
   let order = (orderRow ?? null) as Order | null;
   // The buyer's ship-to lands on the order now that PayPal has reported
-  // payment; overwritten each sync, PayPal being the truth for it.
+  // payment; overwritten each sync, PayPal being the truth for it. The
+  // note says where it came from, so a missing address is explained.
+  let shipToNote: string | null = null;
   if (order && shipTo) {
     const { data: updated, error: shipToError } = await supabase
       .from("orders")
@@ -173,9 +198,15 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
       .single();
     if (shipToError) {
       console.error("paypal-tracking pull: ship_to update failed:", shipToError.message);
+      shipToNote = `Saving the address failed: ${shipToError.message}`;
     } else {
       order = updated as Order;
+      shipToNote = `Ships to ${shipTo.name ?? shipTo.line1}${shipTo.postal_code ? ` ${shipTo.postal_code}` : ""}.`;
     }
+  } else if (!order) {
+    shipToNote = "No order row for this invoice — address not saved.";
+  } else if (txn.found) {
+    shipToNote = "PayPal has no shipping address on this payment.";
   }
   const orderId = order?.id ?? records.find((r) => r.order_id != null)?.order_id ?? null;
   const buyer =
@@ -232,19 +263,8 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
   }
 
   // Auto-fill the invoice's money facts: shipping charged comes straight
-  // off the invoice, the fee from Transaction Search (which publishes a
-  // few hours after payment — null means try again later). Only known
-  // values are written, so a pending fee never clobbers a typed one.
-  let paypalFee: number | null = null;
-  let feeNote: string | null = null;
-  try {
-    paypalFee = await getTransactionFee(transactionId, paymentDate);
-    if (paypalFee == null) {
-      feeNote = "PayPal hasn't published the fee yet — sync again later.";
-    }
-  } catch (e) {
-    feeNote = e instanceof Error ? e.message : "Fee lookup failed.";
-  }
+  // off the invoice, the fee from Transaction Search. Only known values
+  // are written, so a pending fee never clobbers a typed one.
   let invoiceRow: unknown = null;
   {
     const patch: Record<string, unknown> = {
@@ -271,6 +291,7 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     invoice: invoiceRow,
     order,
     feeNote,
+    shipToNote,
   });
 }
 
