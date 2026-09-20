@@ -19,6 +19,7 @@ import { openOrders, type OpenOrder } from "@/lib/admin/orders";
 import { parseMoney, saleItem } from "@/lib/admin/sales";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
+import { NextUp } from "./next-up";
 import { BuyerField } from "../_shell/buyer-field";
 import { MoneyField, NoteField } from "../_shell/inline-fields";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
@@ -780,6 +781,7 @@ export function InboxPage() {
   return (
     <>
       <h1 className="mt-6 text-3xl font-semibold">Inbox</h1>
+      <NextUp />
         {selectedIds.size > 0 && selectionMode === "sale" ? (
           <div
             id="sale-desk"
@@ -944,7 +946,7 @@ export function InboxPage() {
                     : ""}
                   {saleInvoice.warning
                     ? ""
-                    : " Saved under Pending invoices — safe to Clear."}
+                    : " Saved under Open orders — safe to Clear."}
                 </span>
                 {saleInvoice.url ? (
                   <>
@@ -982,122 +984,8 @@ export function InboxPage() {
             ) : null}
           </div>
         ) : null}
-        {/* Collection value summary */}
-        {loading && records.length === 0 ? (
-          <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {["For sale", "Sold", "Net", "Hidden"].map((label) => (
-              <div
-                key={label}
-                className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5"
-              >
-                <p className="text-sm text-neutral-400">{label}</p>
-                <p className="mt-2 h-7 w-24 rounded bg-white/10" />
-                <p className="mt-2 h-3 w-32 rounded bg-white/5" />
-              </div>
-            ))}
-          </div>
-        ) : (
-        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">For sale</p>
-            <p className="mt-1 text-2xl font-semibold">
-              ${stats.askingTotal.toLocaleString()}
-            </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {stats.forSaleCount} records at asking price
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">Sold</p>
-            <p className="mt-1 text-2xl font-semibold text-green-400">
-              ${stats.soldTotal.toLocaleString()}
-            </p>
-            <p
-              className="mt-1 text-xs text-neutral-500"
-              title="Uses the final sold price when entered, listed price otherwise, less any credits on paid orders"
-            >
-              {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
-              {stats.creditTotal > 0
-                ? ` · $${stats.creditTotal.toFixed(2)} in credits`
-                : ""}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">Net</p>
-            <p
-              className="mt-1 text-2xl font-semibold text-green-400"
-              title="Sold total + shipping collected − PayPal fees − postage. Fees and postage are entered per order in the fulfillment section."
-            >
-              ${stats.netTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              ${stats.feesTotal.toFixed(2)} fees · ${stats.postageTotal.toFixed(2)}{" "}
-              postage · ${stats.shippingCharged.toFixed(2)} shipping collected
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">Hidden</p>
-            <p className="mt-1 text-2xl font-semibold text-neutral-300">
-              ${stats.hiddenTotal.toLocaleString()}
-            </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {stats.hiddenCount} records not shown on the site
-            </p>
-          </div>
-        </div>
-        )}
-
-        {/* Interest by day — daily distinct shoppers across all listings */}
-        {events.length > 0 ? (
-          <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-sm text-neutral-400">Interest by day</p>
-              <p className="text-xs text-neutral-500">
-                {dailyStrip.reduce((n, d) => n + d.looked, 0)} looked ·{" "}
-                {dailyStrip.reduce((n, d) => n + d.asked, 0)} asked in the last
-                14 days · <span className="text-green-400">●</span> = buy
-                request
-              </p>
-            </div>
-            <div className="mt-3 flex items-end gap-1.5">
-              {dailyStrip.map((d) => (
-                <div
-                  key={d.key}
-                  className="flex min-w-0 flex-1 flex-col items-center gap-1"
-                  title={`${d.label} · ${d.looked} looked · ${d.clicks} clicks · ${d.asked} asked`}
-                >
-                  <div className="flex h-16 w-full max-w-8 items-end">
-                    <div
-                      className={`w-full rounded-t ${
-                        d.looked > 0 ? "bg-neutral-300" : "bg-white/10"
-                      }`}
-                      style={{
-                        height:
-                          d.looked > 0
-                            ? `${Math.max(10, (d.looked / stripMax) * 100)}%`
-                            : "2px",
-                      }}
-                    />
-                  </div>
-                  <div className="h-1.5">
-                    {d.asked > 0 ? (
-                      <div className="mx-auto h-1.5 w-1.5 rounded-full bg-green-400" />
-                    ) : null}
-                  </div>
-                  <p className="text-[10px] leading-none text-neutral-500">
-                    {d.key.slice(8).replace(/^0/, "")}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         {/* Incoming order requests */}
-        <h2 className="mt-10 text-xl font-medium">
+        <h2 id="requests" className="mt-10 scroll-mt-24 text-xl font-medium">
             Incoming requests{" "}
             {newRequestCount > 0 ? (
               <span className="text-sm text-amber-400">
@@ -1231,7 +1119,7 @@ export function InboxPage() {
 
             {open.length > 0 ? (
               <>
-                <h3 className="mt-8 text-lg font-medium">
+                <h3 id="open-orders" className="mt-8 scroll-mt-24 text-lg font-medium">
                   Open orders{" "}
                   <span className="text-sm text-neutral-400">({open.length})</span>
                 </h3>
@@ -1494,7 +1382,36 @@ export function InboxPage() {
               </>
             ) : null}
 
-            <h3 className="mt-8 text-lg font-medium">Paste a DM</h3>
+        {/* Fulfillment: parcels + tracking for sold records */}
+        <h2 id="fulfillment" className="mt-10 scroll-mt-24 text-xl font-medium">
+            Fulfillment{" "}
+            <span className="text-sm text-neutral-400">
+              ({draftParcelCount} parcel{draftParcelCount === 1 ? "" : "s"}{" "}
+              awaiting tracking)
+            </span>
+        </h2>
+          <FulfillmentPanel
+            records={records.filter((r) => r.sold)}
+            shipments={shipments}
+            invoices={invoices}
+            orders={orders}
+            supabase={supabase}
+            onShipmentsChange={setShipments}
+            onInvoicesChange={setInvoices}
+            onOrdersChange={setOrders}
+            onRecordPatched={(id, patch) =>
+              setRecords((prev) =>
+                prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
+              )
+            }
+            onRenameBuyer={renameBuyer}
+            getAccessToken={getAccessToken}
+            copyText={copyText}
+            pushToast={pushToast}
+            defaultThreadUrl={postUrl}
+          />
+
+            <h2 id="paste-dm" className="mt-10 scroll-mt-24 text-xl font-medium">Paste a DM</h2>
             <p className="mt-1 text-sm text-neutral-400">
               Paste the buyer&rsquo;s message — even edited — and it&rsquo;s
               matched against your listings for review. Nothing is selected
@@ -1705,34 +1622,121 @@ export function InboxPage() {
               </div>
             ) : null}
 
-        {/* Fulfillment: parcels + tracking for sold records */}
-        <h2 className="mt-10 text-xl font-medium">
-            Fulfillment{" "}
-            <span className="text-sm text-neutral-400">
-              ({draftParcelCount} parcel{draftParcelCount === 1 ? "" : "s"}{" "}
-              awaiting tracking)
-            </span>
-        </h2>
-          <FulfillmentPanel
-            records={records.filter((r) => r.sold)}
-            shipments={shipments}
-            invoices={invoices}
-            orders={orders}
-            supabase={supabase}
-            onShipmentsChange={setShipments}
-            onInvoicesChange={setInvoices}
-            onOrdersChange={setOrders}
-            onRecordPatched={(id, patch) =>
-              setRecords((prev) =>
-                prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
-              )
-            }
-            onRenameBuyer={renameBuyer}
-            getAccessToken={getAccessToken}
-            copyText={copyText}
-            pushToast={pushToast}
-            defaultThreadUrl={postUrl}
-          />
+        {/* The numbers: read-only, so they sit below the work */}
+        <h2 id="numbers" className="mt-12 scroll-mt-24 text-xl font-medium">Numbers</h2>
+        {/* Collection value summary */}
+        {loading && records.length === 0 ? (
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {["For sale", "Sold", "Net", "Hidden"].map((label) => (
+              <div
+                key={label}
+                className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5"
+              >
+                <p className="text-sm text-neutral-400">{label}</p>
+                <p className="mt-2 h-7 w-24 rounded bg-white/10" />
+                <p className="mt-2 h-3 w-32 rounded bg-white/5" />
+              </div>
+            ))}
+          </div>
+        ) : (
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">For sale</p>
+            <p className="mt-1 text-2xl font-semibold">
+              ${stats.askingTotal.toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {stats.forSaleCount} records at asking price
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">Sold</p>
+            <p className="mt-1 text-2xl font-semibold text-green-400">
+              ${stats.soldTotal.toLocaleString()}
+            </p>
+            <p
+              className="mt-1 text-xs text-neutral-500"
+              title="Uses the final sold price when entered, listed price otherwise, less any credits on paid orders"
+            >
+              {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
+              {stats.creditTotal > 0
+                ? ` · $${stats.creditTotal.toFixed(2)} in credits`
+                : ""}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">Net</p>
+            <p
+              className="mt-1 text-2xl font-semibold text-green-400"
+              title="Sold total + shipping collected − PayPal fees − postage. Fees and postage are entered per order in the fulfillment section."
+            >
+              ${stats.netTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              ${stats.feesTotal.toFixed(2)} fees · ${stats.postageTotal.toFixed(2)}{" "}
+              postage · ${stats.shippingCharged.toFixed(2)} shipping collected
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-neutral-400">Hidden</p>
+            <p className="mt-1 text-2xl font-semibold text-neutral-300">
+              ${stats.hiddenTotal.toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {stats.hiddenCount} records not shown on the site
+            </p>
+          </div>
+        </div>
+        )}
+
+        {/* Interest by day — daily distinct shoppers across all listings */}
+        {events.length > 0 ? (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm text-neutral-400">Interest by day</p>
+              <p className="text-xs text-neutral-500">
+                {dailyStrip.reduce((n, d) => n + d.looked, 0)} looked ·{" "}
+                {dailyStrip.reduce((n, d) => n + d.asked, 0)} asked in the last
+                14 days · <span className="text-green-400">●</span> = buy
+                request
+              </p>
+            </div>
+            <div className="mt-3 flex items-end gap-1.5">
+              {dailyStrip.map((d) => (
+                <div
+                  key={d.key}
+                  className="flex min-w-0 flex-1 flex-col items-center gap-1"
+                  title={`${d.label} · ${d.looked} looked · ${d.clicks} clicks · ${d.asked} asked`}
+                >
+                  <div className="flex h-16 w-full max-w-8 items-end">
+                    <div
+                      className={`w-full rounded-t ${
+                        d.looked > 0 ? "bg-neutral-300" : "bg-white/10"
+                      }`}
+                      style={{
+                        height:
+                          d.looked > 0
+                            ? `${Math.max(10, (d.looked / stripMax) * 100)}%`
+                            : "2px",
+                      }}
+                    />
+                  </div>
+                  <div className="h-1.5">
+                    {d.asked > 0 ? (
+                      <div className="mx-auto h-1.5 w-1.5 rounded-full bg-green-400" />
+                    ) : null}
+                  </div>
+                  <p className="text-[10px] leading-none text-neutral-500">
+                    {d.key.slice(8).replace(/^0/, "")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
     </>
   );
 }
