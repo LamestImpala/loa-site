@@ -4,13 +4,15 @@ import assert from "node:assert/strict";
 import {
   SWAP_BOT,
   buyerNudge,
+  byLongestWaiting,
   confirmationComment,
   groupOrders,
   inPayPal,
   needsRepush,
+  orderStage,
   pushNotNeeded,
 } from "./fulfillment.ts";
-import { order, rec, shipment } from "./fixtures.ts";
+import { invoice, order, rec, shipment } from "./fixtures.ts";
 
 test("PayPal tracker state per parcel", () => {
   const synced = shipment({ paypal_tracker_id: "T-1", tracking_code: "9400", paypal_tracked_number: "9400" });
@@ -95,4 +97,57 @@ test("a group is done only when every record is in a tracked parcel", () => {
   assert.equal(groupOrders(records, [{ ...all, tracking_code: null }], [o])[0].done, false);
   assert.equal(groupOrders(records, [{ ...all, record_ids: [1] }], [o])[0].done, false);
   assert.equal(groupOrders([], [all], [o])[0].done, false, "a parcel with no records is not an order");
+});
+
+test("an order's stage is the first job still open on it", () => {
+  const o = order({ id: 1, status: "paid", paypal_invoice_id: "INV-1" });
+  const records = [rec({ id: 1, sold: true, order_id: 1 }), rec({ id: 2, sold: true, order_id: 1 })];
+  const stage = (shipments: ReturnType<typeof shipment>[], inv = invoice()) =>
+    orderStage(groupOrders(records, shipments, [o])[0], inv);
+  const box = { order_id: 1, record_ids: [1, 2], paypal_invoice_id: "INV-1" };
+
+  assert.equal(stage([]), "pack");
+  assert.equal(stage([shipment({ ...box, record_ids: [1], tracking_code: "9400" })]), "pack");
+  assert.equal(stage([shipment({ ...box, tracking_code: null })]), "label");
+  assert.equal(stage([shipment({ ...box, tracking_code: "9400", mode: "manual" })]), "push");
+  assert.equal(
+    stage([shipment({ ...box, tracking_code: "9400", mode: "paypal" })]),
+    "sync",
+    "a PayPal label needs no push; the fee is still missing"
+  );
+  assert.equal(
+    stage([shipment({ ...box, tracking_code: "9400", mode: "paypal" })], invoice({ paypal_fee: 1.84 })),
+    "done"
+  );
+});
+
+test("an order paid outside PayPal is done once it has tracking", () => {
+  const o = order({ id: 1, status: "paid" });
+  const records = [rec({ id: 1, sold: true, order_id: 1 })];
+  const [g] = groupOrders(records, [shipment({ order_id: 1, record_ids: [1], tracking_code: "9400" })], [o]);
+  assert.equal(orderStage(g, undefined), "done");
+});
+
+test("the panel lists open orders longest-waiting first, then finished ones newest first", () => {
+  const orders = [
+    order({ id: 1, buyer_username: "zed", status: "paid", created_at: "2026-09-10T00:00:00Z" }),
+    order({ id: 2, buyer_username: "amy", status: "paid", created_at: "2026-09-12T00:00:00Z" }),
+    order({ id: 3, buyer_username: "bob", status: "paid", created_at: "2026-09-01T00:00:00Z" }),
+    order({ id: 4, buyer_username: "cat", status: "paid", created_at: "2026-09-02T00:00:00Z" }),
+  ];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1 }),
+    rec({ id: 2, sold: true, order_id: 2 }),
+    rec({ id: 3, sold: true, order_id: 3 }),
+    rec({ id: 4, sold: true, order_id: 4 }),
+    rec({ id: 5, sold: true, buyer_username: "old", sold_at: "2026-08-20T00:00:00Z" }),
+  ];
+  const shipments = [
+    shipment({ order_id: 3, record_ids: [3], tracking_code: "1", updated_at: "2026-09-03T00:00:00Z" }),
+    shipment({ order_id: 4, record_ids: [4], tracking_code: "2", updated_at: "2026-09-05T00:00:00Z" }),
+  ];
+  assert.deepEqual(
+    byLongestWaiting(groupOrders(records, shipments, orders)).map((g) => g.key),
+    ["buyer-old", "order-1", "order-2", "order-4", "order-3"]
+  );
 });
