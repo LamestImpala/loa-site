@@ -8,6 +8,8 @@ import {
   OFF_MARKET_HIGH,
   OFF_MARKET_LOW,
   filterRecords,
+  filtersFromQuery,
+  filtersToQuery,
   sortRecords,
   type CatalogFilters,
 } from "./catalog-filter.ts";
@@ -112,4 +114,30 @@ test("sorts: artist keeps the incoming order; the rest break ties alphabetically
   assert.deepEqual(ids(sortRecords(list, "interest", interest)), [3, 1, 2, 4]);
   assert.deepEqual(ids(sortRecords(list, "added", {})), [3, 2, 1, 4], "newest first, higher id wins a tie");
   assert.deepEqual(ids(list), [1, 2, 3, 4], "input untouched");
+});
+
+test("the catalog view round-trips through the URL, defaults left out", () => {
+  assert.equal(filtersToQuery(DEFAULT_FILTERS, "artist").toString(), "");
+  const view: CatalogFilters = {
+    search: "pink floyd",
+    genre: "Rock",
+    collection: "none",
+    letter: "P",
+    shown: "hidden",
+    sold: "unsold",
+    interest: "clicked-no-request",
+  };
+  const query = filtersToQuery(view, "price-desc");
+  assert.equal(
+    query.toString(),
+    "q=pink+floyd&genre=Rock&collection=none&letter=P&shown=hidden&sold=unsold&interest=clicked-no-request&sort=price-desc"
+  );
+  assert.deepEqual(filtersFromQuery(query), { filters: view, sort: "price-desc" });
+});
+
+test("unrecognised URL values fall back to the defaults", () => {
+  const parsed = filtersFromQuery(
+    new URLSearchParams("shown=maybe&sold=&interest=x&sort=random&record=12")
+  );
+  assert.deepEqual(parsed, { filters: DEFAULT_FILTERS, sort: "artist" });
 });

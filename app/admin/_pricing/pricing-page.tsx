@@ -9,8 +9,16 @@ import { buttonClass, pct } from "../_shell/ui";
 // Pricing: approve or reject the daily run's flagged moves, and read the
 // run history behind them.
 export function PricingPage() {
-  const { supabase, pending, setPending, runs, setRecords, updateRecord, pushToast } =
-    useAdmin();
+  const {
+    supabase,
+    pending,
+    setPending,
+    runs,
+    setRecords,
+    updateRecord,
+    pushToast,
+    confirm,
+  } = useAdmin();
 
   const pendingStatus = useSlice("pending");
   const runsStatus = useSlice("runs");
@@ -45,11 +53,11 @@ export function PricingPage() {
     approve: boolean
   ) {
     if (list.length === 0 || bulkPendingBusy) return;
-    const ok = window.confirm(
+    const ok = (await confirm(
       `${approve ? "Approve" : "Reject"} ${list.length} pending price change${
         list.length > 1 ? "s" : ""
       }?${approve ? " This updates the listed prices immediately." : ""}`
-    );
+    ));
     if (!ok) return;
     setBulkPendingBusy(true);
     // Track what actually landed so the UI always matches the DB, even when

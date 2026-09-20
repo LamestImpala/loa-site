@@ -83,6 +83,7 @@ export function InboxPage() {
     setSaleCreditNote,
     getAccessToken,
     clearSelection,
+    confirm,
   } = useAdmin();
 
   useSlice("events");
@@ -242,11 +243,11 @@ export function InboxPage() {
     const targets = saleRecords;
     if (targets.length === 0 || saleBusy || termsError) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to u/${buyer}` : ""} for $${saleTotals.subtotal}${
           saleTotals.credit > 0 ? ` less a $${saleTotals.credit} credit` : ""
         }? Each record's sold price is set to its agreed price.`
-      )
+      ))
     )
       return;
     setSaleBusy("sold");
@@ -371,16 +372,16 @@ export function InboxPage() {
 
   // Replace the sale-desk selection (with confirmation when it differs),
   // open the Listings section, and scroll to the sticky bar.
-  function applySaleSelection(ids: number[]): boolean {
+  async function applySaleSelection(ids: number[]): Promise<boolean> {
     const next = new Set(ids);
     const differs =
       selectedIds.size !== next.size ||
       [...selectedIds].some((id) => !next.has(id));
     if (selectedIds.size > 0 && differs) {
       if (
-        !window.confirm(
+        !(await confirm(
           `Replace the current sale desk selection (${selectedIds.size} record${selectedIds.size === 1 ? "" : "s"})?`
-        )
+        ))
       )
         return false;
     }
@@ -404,7 +405,7 @@ export function InboxPage() {
       pushToast("info", "None of this request's records are still available.");
       return;
     }
-    if (!applySaleSelection(available)) return;
+    if (!(await applySaleSelection(available))) return;
     // Seed the buyer field from what the buyer typed on the shop, without
     // clobbering a name the admin already entered.
     if (req.buyer_username) {
@@ -432,8 +433,8 @@ export function InboxPage() {
     action: "check" | "cancel" | "paid" | "release";
   }>(null);
 
-  function loadOrderIntoSaleDesk(o: OpenOrder) {
-    if (!applySaleSelection(o.recs.map((r) => r.id))) return;
+  async function loadOrderIntoSaleDesk(o: OpenOrder) {
+    if (!(await applySaleSelection(o.recs.map((r) => r.id)))) return;
     // Seed the buyer field without clobbering a name the admin typed.
     setSaleBuyer((prev) => (prev.trim() ? prev : o.buyer));
     // The order's terms come along: its negotiated prices and credit.
@@ -453,11 +454,11 @@ export function InboxPage() {
   async function markOrderPaid(o: OpenOrder) {
     if (orderBusy || o.recs.length === 0) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to u/${o.buyer || "?"} for $${o.totals.subtotal}${
           o.totals.credit > 0 ? ` less a $${o.totals.credit} credit` : ""
         }? Each record's sold price is set to its agreed price.`
-      )
+      ))
     )
       return;
     setOrderBusy({ id: o.order.id, action: "paid" });
@@ -472,9 +473,9 @@ export function InboxPage() {
   async function releaseHeldOrder(o: OpenOrder) {
     if (orderBusy) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} held for u/${o.buyer || "?"}? They go back on the shop immediately.`
-      )
+      ))
     )
       return;
     setOrderBusy({ id: o.order.id, action: "release" });
@@ -650,9 +651,9 @@ export function InboxPage() {
     const id = o.order.paypal_invoice_id;
     if (!id || orderBusy) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Cancel invoice ${id}${o.buyer ? ` for u/${o.buyer}` : ""} on PayPal and release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
-      )
+      ))
     )
       return;
     setOrderBusy({ id: o.order.id, action: "cancel" });
@@ -805,9 +806,9 @@ export function InboxPage() {
     return [...new Set(ids)];
   }, [parseResult, byId]);
 
-  function applyParsedSelection() {
+  async function applyParsedSelection() {
     if (parsedIds.length === 0) return;
-    if (!applySaleSelection(parsedIds)) return;
+    if (!(await applySaleSelection(parsedIds))) return;
     const typedBuyer = parseResult?.refRequest?.buyer_username;
     if (typedBuyer) setSaleBuyer((prev) => (prev.trim() ? prev : typedBuyer));
     // Don't double-track: a DM whose ref matched a saved request is already
@@ -889,9 +890,7 @@ export function InboxPage() {
                   · Subtotal ${saleTotals.subtotal}
                   {saleTotals.credit > 0 ? ` · Credit −$${saleTotals.credit}` : ""}
                   {" "}· Shipping ${saleTotals.shipping}
-                  {saleTotals.shipping === 0 ? " (free)" : ""} (
-                  {saleTotals.parcels} parcel
-                  {saleTotals.parcels === 1 ? "" : "s"}) ·{" "}
+                  {saleTotals.shipping === 0 ? " (free)" : ""} ·{" "}
                 </span>
                 <span className="font-semibold">Total ${saleTotals.total}</span>
               </p>
@@ -1523,6 +1522,7 @@ export function InboxPage() {
             getAccessToken={getAccessToken}
             copyText={copyText}
             pushToast={pushToast}
+            confirm={confirm}
             defaultThreadUrl={postUrl}
           />
 

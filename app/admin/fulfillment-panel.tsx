@@ -102,6 +102,7 @@ export function FulfillmentPanel({
   getAccessToken,
   copyText,
   pushToast,
+  confirm,
   defaultThreadUrl,
 }: {
   records: DbRecord[]; // sold records only
@@ -123,6 +124,7 @@ export function FulfillmentPanel({
   // Page-level toast stack, so failures and results are visible even when
   // the card that produced them has scrolled away.
   pushToast?: (kind: "error" | "success" | "info", text: string) => void;
+  confirm: (message: string, confirmLabel?: string) => Promise<boolean>;
   defaultThreadUrl: string; // the saved sale-post URL (settings reddit_post_url)
 }) {
   const [showDone, setShowDone] = useState(false);
@@ -232,7 +234,7 @@ export function FulfillmentPanel({
 
   async function deleteParcel(s: Shipment) {
     if (busy) return;
-    if (!window.confirm("Delete this parcel? Its tracking number is discarded."))
+    if (!(await confirm("Delete this parcel? Its tracking number is discarded.")))
       return;
     setBusy(`ship-${s.id}`);
     const { error } = await supabase.from("shipments").delete().eq("id", s.id);
@@ -628,9 +630,9 @@ export function FulfillmentPanel({
     const ids = list.map((s) => s.id);
     if (ids.length === 0 || busy) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Push ${ids.length} tracking number${ids.length === 1 ? "" : "s"} to PayPal? PayPal emails the buyer a shipping notification.`
-      )
+      ))
     )
       return;
     setBusy(noteKey);

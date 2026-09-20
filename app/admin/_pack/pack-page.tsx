@@ -35,6 +35,7 @@ export function PackPage() {
     pushToast,
     upsertShipmentLocal,
     setShipments,
+    confirm,
   } = useAdmin();
   const [checked, setChecked] = useState<Record<string, number[]>>({});
   const [busy, setBusy] = useState<string | null>(null); // order key or `box-${id}`
@@ -68,11 +69,11 @@ export function PackPage() {
     const unpulled = o.loose.filter((r) => ids.includes(r.id) && !r.picked_at);
     if (
       unpulled.length > 0 &&
-      !window.confirm(
+      !(await confirm(
         `${unpulled.length} of these ${ids.length === 1 ? "isn't" : "aren't"} marked pulled on the pick list:\n\n${unpulled
           .map((r) => `• ${r.artist} — ${r.title}`)
           .join("\n")}\n\nSeal the box anyway?`
-      )
+      ))
     )
       return;
     setBusy(o.key);
@@ -102,7 +103,7 @@ export function PackPage() {
   // Undo a seal before a label exists: the records go back to loose.
   async function unseal(s: Shipment) {
     if (busy) return;
-    if (!window.confirm(`Unseal Box #${s.id}? Its records go back to the loose list.`)) return;
+    if (!(await confirm(`Unseal Box #${s.id}? Its records go back to the loose list.`))) return;
     setBusy(`box-${s.id}`);
     const { error } = await supabase.from("shipments").delete().eq("id", s.id);
     setBusy(null);

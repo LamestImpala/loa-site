@@ -10,7 +10,10 @@ import { holdActive } from "@/lib/admin/records";
 import { bucketEventsByDay } from "@/lib/admin/interest";
 import { detectCollection } from "@/lib/admin/collection";
 import {
+  FILTER_PARAMS,
   filterRecords,
+  filtersFromQuery,
+  filtersToQuery,
   sortRecords,
   type InterestFilter,
   type SortKey,
@@ -37,6 +40,11 @@ type NewRecordDraft = {
 
 // The catalog: every record, with filters, the listings table, per-record
 // editing, holds, sold state, Discogs removal, and adding a record.
+// Where this session last left the catalog's view, as a query string —
+// the nav link is a bare /admin/catalog, so this is what brings the
+// filters back after a trip to another admin page.
+let lastCatalogQuery = "";
+
 export function CatalogPage() {
   const router = useRouter();
   const {
@@ -57,6 +65,7 @@ export function CatalogPage() {
     flagDiscogsRemoved,
     removeFromDiscogs,
     markRecordsSold,
+    confirm,
     placeOrder,
     ordersById,
     renameBuyer,
@@ -69,29 +78,72 @@ export function CatalogPage() {
     clearSelection,
   } = useAdmin();
 
-  const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<SortKey>("artist");
+  // The view (search, filters, sort) starts from the URL — or, arriving
+  // on a bare /admin/catalog, from where this session last left it — and
+  // is written back as it changes, so a reload, a bookmark, and a trip to
+  // the inbox and back all land on the same list.
+  const searchParams = useSearchParams();
+  const [initialView] = useState(() =>
+    filtersFromQuery(
+      FILTER_PARAMS.some((k) => searchParams.has(k))
+        ? searchParams
+        : new URLSearchParams(lastCatalogQuery)
+    )
+  );
+  const [search, setSearch] = useState(initialView.filters.search);
+  const [sortBy, setSortBy] = useState<SortKey>(initialView.sort);
   const [priceEdits, setPriceEdits] = useState<Record<number, string>>({});
   const [buyerEdits, setBuyerEdits] = useState<Record<number, string>>({});
   const [soldPriceEdits, setSoldPriceEdits] = useState<Record<number, string>>({});
   const [genreRowEdits, setGenreRowEdits] = useState<Record<number, string>>({});
   const [collectionRowEdits, setCollectionRowEdits] = useState<Record<number, string>>({});
   const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
-  const [genreFilter, setGenreFilter] = useState("all");
-  const [collectionFilter, setCollectionFilter] = useState("all");
-  const [interestFilter, setInterestFilter] =
-    useState<InterestFilter>("all");
-  const [letterFilter, setLetterFilter] = useState<string | null>(null);
+  const [genreFilter, setGenreFilter] = useState(initialView.filters.genre);
+  const [collectionFilter, setCollectionFilter] = useState(
+    initialView.filters.collection
+  );
+  const [interestFilter, setInterestFilter] = useState<InterestFilter>(
+    initialView.filters.interest
+  );
+  const [letterFilter, setLetterFilter] = useState<string | null>(
+    initialView.filters.letter
+  );
   const [shownFilter, setShownFilter] = useState<"all" | "shown" | "hidden">(
-    "all"
+    initialView.filters.shown
   );
   const [soldFilter, setSoldFilter] = useState<"all" | "sold" | "unsold">(
-    "all"
+    initialView.filters.sold
   );
+  const viewQuery = useMemo(
+    () =>
+      filtersToQuery(
+        {
+          search,
+          genre: genreFilter,
+          collection: collectionFilter,
+          letter: letterFilter,
+          shown: shownFilter,
+          sold: soldFilter,
+          interest: interestFilter,
+        },
+        sortBy
+      ).toString(),
+    [search, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, sortBy]
+  );
+  // history.replaceState keeps useSearchParams in sync without a
+  // navigation, so typing in the search box never re-routes.
+  useEffect(() => {
+    lastCatalogQuery = viewQuery;
+    const next = new URLSearchParams(viewQuery);
+    const record = new URLSearchParams(window.location.search).get("record");
+    if (record) next.set("record", record);
+    const qs = next.toString();
+    if (qs === window.location.search.replace(/^\?/, "")) return;
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [viewQuery]);
   // The record open in the details drawer, from ?record=ID so a drawer can
   // be linked to (and survives a reload). Replaced, not pushed, so the
   // back button leaves the catalog rather than walking through records.
-  const searchParams = useSearchParams();
   const openId = Number(searchParams.get("record")) || null;
   // Interest counts and Discogs context feed the table; raw events only
   // matter once a drawer opens (its day-by-day history).
@@ -104,11 +156,14 @@ export function CatalogPage() {
   );
   const openDrawer = useCallback(
     (id: number | null) => {
-      router.replace(id == null ? "/admin/catalog" : `/admin/catalog?record=${id}`, {
-        scroll: false,
-      });
+      // Keep the view's params; only ?record= changes.
+      const next = new URLSearchParams(window.location.search);
+      if (id == null) next.delete("record");
+      else next.set("record", String(id));
+      const qs = next.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
     },
-    [router]
+    []
   );
   useEffect(() => {
     if (openId == null) return;
@@ -148,9 +203,9 @@ export function CatalogPage() {
 
   async function removePhoto(r: DbRecord, url: string) {
     if (
-      !window.confirm(
+      !(await confirm(
         `Delete this photo of "${r.artist} — ${r.title}" permanently? It can't be undone.`
-      )
+      ))
     )
       return;
     const path = url.split("/record-photos/")[1];
@@ -185,9 +240,9 @@ export function CatalogPage() {
       return;
     }
     if (
-      !window.confirm(
+      !(await confirm(
         `Delete "${r.artist} — ${r.title}" permanently? Its photos and price history go with it. Meant for records that were never actually sold — this can't be undone.`
-      )
+      ))
     )
       return;
     setSaving(r.id, true);
@@ -290,9 +345,9 @@ export function CatalogPage() {
     );
     if (targets.length === 0) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Remove ${targets.length} sold record${targets.length === 1 ? "" : "s"} from your Discogs collection? This paces itself for Discogs' rate limit, so it takes about 2 seconds per record.`
-      )
+      ))
     )
       return;
     setDiscogsBulkBusy(true);
@@ -378,9 +433,9 @@ export function CatalogPage() {
 
   async function releaseHold(r: DbRecord) {
     if (
-      !window.confirm(
+      !(await confirm(
         `Release the hold on "${r.artist} — ${r.title}" for u/${r.hold_buyer}? It goes back on the shop immediately.`
-      )
+      ))
     )
       return;
     await releaseRecordHold(r);
@@ -390,9 +445,9 @@ export function CatalogPage() {
     // Un-selling erases the sale date — make sure it's deliberate.
     if (
       !sold &&
-      !window.confirm(
+      !(await confirm(
         `Un-mark "${r.artist} — ${r.title}" as sold? This clears its sold date.`
-      )
+      ))
     )
       return;
     // Un-selling takes the record out of its order too.
@@ -614,11 +669,11 @@ export function CatalogPage() {
     const label = field === "listed" ? "Shown" : "Sold";
     const plural = ids.length === 1 ? "" : "s";
     if (
-      !window.confirm(
+      !(await confirm(
         field === "sold" && value
           ? `Mark all ${ids.length} unsold record${plural} in the current filter as sold? Each keeps its hold buyer (if any), records its current price as the sold price, and you'll be offered the Discogs removal once.`
           : `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`
-      )
+      ))
     )
       return;
     if (field === "sold" && value) {
@@ -1335,11 +1390,11 @@ export function CatalogPage() {
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={async () => {
                                     if (
-                                      window.confirm(
+                                      (await confirm(
                                         `Remove "${r.artist} — ${r.title}" from your Discogs collection? This can't be undone from here.`
-                                      )
+                                      ))
                                     )
                                       removeFromDiscogs(r);
                                   }}

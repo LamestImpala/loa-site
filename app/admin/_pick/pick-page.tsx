@@ -30,6 +30,7 @@ export function PickPage() {
     updateRecord,
     updateRecords,
     savingIds,
+    confirm,
   } = useAdmin();
   const [view, setView] = useState<"shelf" | "order">("shelf");
   const [resetting, setResetting] = useState(false);
@@ -61,9 +62,9 @@ export function PickPage() {
     const ids = rows.filter((r) => r.picked).map((r) => r.record.id);
     if (ids.length === 0 || resetting) return;
     if (
-      !window.confirm(
+      !(await confirm(
         `Clear the pulled mark on ${ids.length} record${ids.length === 1 ? "" : "s"}?`
-      )
+      ))
     )
       return;
     setResetting(true);

@@ -110,6 +110,54 @@ export function ToastStack({
   );
 }
 
+// The admin's own "are you sure?" — asked through useAdmin().confirm(),
+// which resolves true on the confirm button and false on Cancel, Escape
+// or a click outside. The confirm button has focus, so Enter confirms as
+// it did with the browser's dialog.
+export type ConfirmRequest = {
+  message: string;
+  confirmLabel?: string;
+  resolve: (ok: boolean) => void;
+};
+
+export function ConfirmDialog({ request }: { request: ConfirmRequest | null }) {
+  if (!request) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+      onClick={() => request.resolve(false)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") request.resolve(false);
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-describedby="admin-confirm-message"
+        className="w-full max-w-md rounded-2xl border border-white/15 bg-neutral-950 p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p id="admin-confirm-message" className="text-sm leading-relaxed text-neutral-200">
+          {request.message}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={() => request.resolve(false)} className={buttonClass}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={() => request.resolve(true)}
+            className="rounded-lg border border-white bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-neutral-200"
+          >
+            {request.confirmLabel ?? "OK"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Shown when navigator.clipboard is unavailable (window.prompt truncates
 // multi-KB markdown): select-and-copy by hand.
 export function ClipboardFallbackModal({
