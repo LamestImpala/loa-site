@@ -276,7 +276,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         ...(kind === "success" ? prev.filter((t) => t.kind !== "success") : prev),
         { id, kind, text, action },
       ]);
-      const ttl = kind === "success" ? 2500 : kind === "info" ? 8000 : 10000;
+      // A toast that offers an action stays long enough to be acted on.
+      const ttl = action ? 20000 : kind === "success" ? 2500 : kind === "info" ? 8000 : 10000;
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, ttl);
@@ -804,7 +805,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // The shared mark-sold path: sale desk, paid invoice, row and bulk
   // checkboxes all land here. Puts the records in an order (paid), then
   // writes sold/price/buyer, clears holds, closes finished order
-  // requests, and offers the Discogs removal. No confirm — callers
+  // requests, and offers the Discogs removal in a toast. No confirm — callers
   // decide whether one is needed.
   async function markRecordsSold(
     targets: DbRecord[],
@@ -891,17 +892,24 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
           });
       }
+      // Offered, not asked: a dialog here would stack up when several
+      // invoices come back paid at once. The catalog's Discogs cleanup
+      // catches any that are skipped.
       const withDiscogs = discogsCandidates(targets, doneSet);
-      if (
-        withDiscogs.length > 0 &&
-        window.confirm(
-          `Also remove ${withDiscogs.length} record${withDiscogs.length > 1 ? "s" : ""} from your Discogs collection?`
-        )
-      ) {
-        // Sequential to be gentle on Discogs rate limits
-        for (const r of withDiscogs) {
-          await removeFromDiscogs(r);
-        }
+      if (withDiscogs.length > 0) {
+        pushToast(
+          "info",
+          `${withDiscogs.length} sold record${withDiscogs.length > 1 ? "s are" : " is"} still in your Discogs collection.`,
+          {
+            label: "Remove",
+            onClick: async () => {
+              // Sequential to be gentle on Discogs rate limits
+              for (const r of withDiscogs) {
+                await removeFromDiscogs(r);
+              }
+            },
+          }
+        );
       }
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");

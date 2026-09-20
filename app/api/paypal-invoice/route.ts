@@ -9,6 +9,7 @@ import {
   type OrderRequest,
 } from "@/lib/supabase";
 import { bundleBreakdown } from "@/lib/records";
+import { holdExpiry } from "@/lib/admin/orders";
 import { placeOrder, type PlacedOrder } from "@/lib/admin/orders-db";
 import {
   cancelInvoice,
@@ -35,8 +36,6 @@ import {
 //     and mirror it (status, payment link, paid_at) onto the row.
 //   DELETE ?id=INV2-…              — cancel the invoice on PayPal, cancel
 //     its order, and release the records (stamp + hold + order cleared).
-
-const HOLD_HOURS = 48;
 
 async function adminClient(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -185,7 +184,7 @@ export async function POST(req: NextRequest) {
       recipientEmail: email,
     });
     const now = new Date().toISOString();
-    const holdUntil = new Date(Date.now() + HOLD_HOURS * 3600 * 1000).toISOString();
+    const holdUntil = holdExpiry();
     // The order: continue the open one these records share, else a new
     // one, now invoiced. Non-fatal: the invoice already exists.
     let placed: PlacedOrder | null = null;

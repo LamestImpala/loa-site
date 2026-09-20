@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FREE_SHIPPING_MIN,
   bundleBreakdown,
@@ -15,7 +15,13 @@ import {
   type LineMatch,
 } from "@/lib/order-parse";
 import { recentDays } from "@/lib/admin/interest";
-import { openOrders, type OpenOrder } from "@/lib/admin/orders";
+import {
+  HOLD_HOURS,
+  STALE_INVOICE_HOURS,
+  holdExpiry,
+  openOrders,
+  type OpenOrder,
+} from "@/lib/admin/orders";
 import { parseMoney, saleItem } from "@/lib/admin/sales";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
@@ -23,6 +29,11 @@ import { NextUp } from "./next-up";
 import { BuyerField } from "../_shell/buyer-field";
 import { MoneyField, NoteField } from "../_shell/inline-fields";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
+
+// When the inbox last checked every invoice with PayPal (ms), so reloads
+// inside the window don't ask again.
+const CHECKED_AT_KEY = "admin-paypal-checked-at";
+const AUTO_CHECK_MINUTES = 15;
 
 // The inbox: everything between "a buyer wants records" and "the parcel
 // is on its way" — requests, the sale desk, open orders (held or
@@ -191,7 +202,7 @@ export function InboxPage() {
     }
     const hold = {
       hold_buyer: buyer,
-      hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+      hold_until: holdExpiry(),
     };
     const negotiated = (r: DbRecord) => {
       const agreed = deskPrices.get(r.id) ?? Number(r.price);
@@ -223,7 +234,7 @@ export function InboxPage() {
           : r
       )
     );
-    pushToast("success", `Held ${ids.length} record${ids.length === 1 ? "" : "s"} for 48h ✓`);
+    pushToast("success", `Held ${ids.length} record${ids.length === 1 ? "" : "s"} for ${HOLD_HOURS}h ✓`);
   }
 
   async function markSelectedSold() {
@@ -499,9 +510,15 @@ export function InboxPage() {
 
   // Ask PayPal where the invoice stands. Paid → the records are marked
   // sold to the buyer right away and the order moves to Fulfillment.
-  async function checkOrderInvoice(o: OpenOrder) {
+  // `quiet` (a check-all pass) leaves "not paid yet" and errors to the
+  // caller's one summary toast.
+  async function checkInvoice(
+    o: OpenOrder,
+    quiet = false,
+    onError?: (message: string) => void
+  ): Promise<"paid" | "unpaid" | "error"> {
     const id = o.order.paypal_invoice_id;
-    if (!id || orderBusy) return;
+    if (!id) return "unpaid";
     setOrderBusy({ id: o.order.id, action: "check" });
     try {
       const body = await pendingInvoiceFetch(id, "GET");
@@ -514,14 +531,16 @@ export function InboxPage() {
           // close the order so the invoice stops showing as open.
           await closeOrderLocal(o.order, "paid");
           pushToast("success", `Invoice ${id} is ${body.status} ✓ — order closed.`);
-          return;
+          return "paid";
         }
         pushToast(
           "success",
           `Invoice ${id} is ${body.status} ✓ — marking ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} sold to u/${o.buyer || "?"}`
         );
         await markRecordsSold(o.recs, o.buyer);
-      } else {
+        return "paid";
+      }
+      if (!quiet) {
         pushToast(
           "info",
           `Invoice ${id}: not paid yet (${body.status}).${
@@ -531,12 +550,86 @@ export function InboxPage() {
           }`
         );
       }
+      return "unpaid";
     } catch (e) {
-      pushToast("error", e instanceof Error ? e.message : "PayPal check failed");
+      const message = e instanceof Error ? e.message : "PayPal check failed";
+      if (quiet) onError?.(message);
+      else pushToast("error", message);
+      return "error";
     } finally {
       setOrderBusy(null);
     }
   }
+
+  function checkOrderInvoice(o: OpenOrder) {
+    if (orderBusy || checkingAll) return;
+    void checkInvoice(o);
+  }
+
+  // Every invoiced order in one pass, one at a time, with one summary.
+  // `auto` is the pass the inbox runs by itself on load: it only speaks
+  // up when something was paid or PayPal couldn't be reached.
+  const [checkingAll, setCheckingAll] = useState(false);
+  async function checkAllInvoices(auto = false) {
+    const targets = open.filter(
+      (o) => o.order.status === "invoiced" && !!o.order.paypal_invoice_id
+    );
+    if (targets.length === 0 || orderBusy || checkingAll) return;
+    setCheckingAll(true);
+    let paid = 0;
+    let failed = 0;
+    let firstError = "";
+    for (const o of targets) {
+      const result = await checkInvoice(o, true, (m) => {
+        firstError ||= m;
+      });
+      if (result === "paid") paid++;
+      else if (result === "error") failed++;
+    }
+    setCheckingAll(false);
+    // A pass PayPal never answered doesn't count — the next load retries.
+    if (failed < targets.length) {
+      try {
+        window.localStorage.setItem(CHECKED_AT_KEY, String(Date.now()));
+      } catch {
+        // Private mode — the next load just checks again.
+      }
+    }
+    const unpaid = targets.length - paid - failed;
+    const parts = [
+      paid > 0 ? `${paid} paid — moved to Fulfillment` : "",
+      unpaid > 0 ? `${unpaid} still unpaid` : "",
+      failed > 0 ? `${failed} couldn't be checked` : "",
+    ].filter(Boolean);
+    if (auto && paid === 0 && failed === 0) return;
+    pushToast(
+      failed > 0 ? "error" : paid > 0 ? "success" : "info",
+      `PayPal: ${parts.join(" · ")}.${firstError ? ` ${firstError.slice(0, 160)}` : ""}`
+    );
+  }
+
+  // Opening the inbox checks the invoices itself, at most once per
+  // AUTO_CHECK_MINUTES, so a payment shows up without a click per order.
+  const checkAllRef = useRef(checkAllInvoices);
+  useEffect(() => {
+    checkAllRef.current = checkAllInvoices;
+  });
+  const autoChecked = useRef(false);
+  const hasInvoiced = open.some(
+    (o) => o.order.status === "invoiced" && !!o.order.paypal_invoice_id
+  );
+  useEffect(() => {
+    if (loading || !hasInvoiced || autoChecked.current) return;
+    autoChecked.current = true;
+    let last = 0;
+    try {
+      last = Number(window.localStorage.getItem(CHECKED_AT_KEY) ?? 0);
+    } catch {
+      // Private mode — check.
+    }
+    if (Date.now() - last < AUTO_CHECK_MINUTES * 60 * 1000) return;
+    void checkAllRef.current(true);
+  }, [loading, hasInvoiced]);
 
   async function closeOrderLocal(order: Order, status: "paid" | "cancelled") {
     const { error } = await supabase
@@ -915,7 +1008,7 @@ export function InboxPage() {
                 disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError}
                 onClick={holdSelected}
               >
-                {saleBusy === "hold" ? "Holding…" : "Hold all 48h"}
+                {saleBusy === "hold" ? "Holding…" : `Hold all ${HOLD_HOURS}h`}
               </button>
               <button
                 type="button"
@@ -1119,15 +1212,29 @@ export function InboxPage() {
 
             {open.length > 0 ? (
               <>
-                <h3 id="open-orders" className="mt-8 scroll-mt-24 text-lg font-medium">
-                  Open orders{" "}
-                  <span className="text-sm text-neutral-400">({open.length})</span>
-                </h3>
+                <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
+                  <h3 id="open-orders" className="scroll-mt-24 text-lg font-medium">
+                    Open orders{" "}
+                    <span className="text-sm text-neutral-400">({open.length})</span>
+                  </h3>
+                  {hasInvoiced ? (
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      disabled={checkingAll || !!orderBusy}
+                      onClick={() => checkAllInvoices()}
+                      title="Ask PayPal about every invoiced order, one after another. Paid ones are marked sold and move to Fulfillment."
+                    >
+                      {checkingAll ? "Checking…" : "Check all PayPal"}
+                    </button>
+                  ) : null}
+                </div>
                 <p className="mt-1 text-sm text-neutral-400">
-                  Held or invoiced, not yet paid. Clear the sale desk freely —
-                  these stay here. Check PayPal marks an invoiced order sold
-                  the moment it reports paid; a held order is marked paid by
-                  hand or released back to the shop.
+                  Held or invoiced, not yet paid — the ones that need you
+                  first: lapsed holds, then the longest-unpaid invoices.
+                  Opening the inbox checks PayPal by itself; a paid invoice
+                  is marked sold and moves to Fulfillment. A held order is
+                  marked paid by hand or released back to the shop.
                 </p>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   {open.map((o) => {
@@ -1136,7 +1243,7 @@ export function InboxPage() {
                     const invoiceId = order.paypal_invoice_id;
                     const invoiced = order.status === "invoiced";
                     const busy = orderBusy?.id === order.id ? orderBusy.action : null;
-                    const anyBusy = !!orderBusy;
+                    const anyBusy = !!orderBusy || checkingAll;
                     const hoursLeft = Math.round((o.holdUntil - Date.now()) / 3600000);
                     const invStatus = (inv?.status ?? "SENT").toLowerCase();
                     return (
@@ -1176,6 +1283,14 @@ export function InboxPage() {
                           {invoiceId ? (
                             <span className="font-mono text-xs text-neutral-500">
                               {invoiceId}
+                            </span>
+                          ) : null}
+                          {o.stale ? (
+                            <span
+                              className="rounded-full border border-amber-400/40 px-2 py-0.5 text-xs text-amber-300"
+                              title={`Invoiced more than ${STALE_INVOICE_HOURS}h ago and still unpaid — nudge the buyer, or cancel the invoice to put the records back on the shop`}
+                            >
+                              unpaid · sent {timeAgo(order.created_at)}
                             </span>
                           ) : null}
                           <span className="ml-auto text-xs text-neutral-500">

@@ -14,8 +14,6 @@ import { pickList } from "./pick-list.ts";
 // tables every admin page already has. Drives the nav badges and the
 // inbox "Next up" strip. Pure — no React, no Supabase.
 
-// An invoice unpaid this long is worth a nudge or a cancel.
-export const STALE_INVOICE_HOURS = 24;
 // A fulfilled order stops asking for its PayPal fee after this long —
 // the fulfillment panel's archive window.
 export const SYNC_WINDOW_DAYS = 21;
@@ -43,7 +41,6 @@ export function worklist(
 ): Worklist {
   const { records, shipments, invoices, orders, orderRequests } = data;
   const open = openOrders(orders, records, invoices, now);
-  const staleBefore = now - STALE_INVOICE_HOURS * 3600 * 1000;
   const invoiceById = new Map(invoices.map((i) => [i.paypal_invoice_id, i]));
   const syncAfter = now - SYNC_WINDOW_DAYS * 24 * 3600 * 1000;
   const toSync = groupOrders(
@@ -60,11 +57,7 @@ export function worklist(
     newRequests: orderRequests.filter((r) => r.status === "new").length,
     openOrders: open.length,
     expiredHolds: open.filter((o) => o.expired).length,
-    staleInvoices: open.filter(
-      (o) =>
-        o.order.status === "invoiced" &&
-        new Date(o.order.created_at).getTime() < staleBefore
-    ).length,
+    staleInvoices: open.filter((o) => o.stale).length,
     toPull: pickList(records, shipments, orders).filter((r) => !r.picked).length,
     toPack: packList(records, shipments, orders).reduce(
       (n, o) => n + o.loose.length,

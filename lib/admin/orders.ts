@@ -26,6 +26,15 @@ export function advanceStatus(current: OrderStatus, next: OrderStatus) {
   return RANK[next] > RANK[current] ? next : current;
 }
 
+// How long a hold keeps records off the shop — the desk, the catalog row
+// and a sent invoice all use it.
+export const HOLD_HOURS = 48;
+export const holdExpiry = (now: number = Date.now()) =>
+  new Date(now + HOLD_HOURS * 3600 * 1000).toISOString();
+
+// An invoice unpaid this long is worth a nudge or a cancel.
+export const STALE_INVOICE_HOURS = 24;
+
 export const isOpen = (o: Pick<Order, "status">) =>
   o.status === "held" || o.status === "invoiced";
 
@@ -85,7 +94,9 @@ export function requestForOrder(
 // member — an expired hold puts the records back on the shop, and the
 // order lapses with it. An invoiced order stays until it's paid or
 // cancelled, even with no records left, so a live PayPal invoice is
-// never forgotten. Newest first.
+// never forgotten. Sorted by what needs the seller soonest: lapsed holds
+// (release or chase), then invoices oldest first (the longest unpaid on
+// top), then running holds by the one that lapses next.
 export type OpenOrder = {
   order: Order;
   buyer: string;
@@ -94,7 +105,11 @@ export type OpenOrder = {
   totals: ReturnType<typeof bundleBreakdown>;
   holdUntil: number; // latest hold expiry among members (ms), 0 if none
   expired: boolean; // held order whose holds have all lapsed
+  stale: boolean; // invoiced and unpaid for STALE_INVOICE_HOURS or more
 };
+
+const urgency = (o: OpenOrder) =>
+  o.expired ? 0 : o.order.status === "invoiced" ? 1 : 2;
 
 export function openOrders(
   orders: Order[],
@@ -132,8 +147,18 @@ export function openOrders(
         ),
         holdUntil,
         expired: order.status === "held" && !recs.some((r) => holdActive(r, now)),
+        stale:
+          order.status === "invoiced" &&
+          now - new Date(order.created_at).getTime() >=
+            STALE_INVOICE_HOURS * 3600 * 1000,
       };
     })
     .filter((o) => o.order.status === "invoiced" || o.recs.length > 0)
-    .sort((a, b) => b.order.created_at.localeCompare(a.order.created_at));
+    .sort(
+      (a, b) =>
+        urgency(a) - urgency(b) ||
+        (urgency(a) === 2
+          ? a.holdUntil - b.holdUntil
+          : a.order.created_at.localeCompare(b.order.created_at))
+    );
 }

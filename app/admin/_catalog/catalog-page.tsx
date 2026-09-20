@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
+import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
 import { holdActive } from "@/lib/admin/records";
 import { bucketEventsByDay } from "@/lib/admin/interest";
 import { detectCollection } from "@/lib/admin/collection";
@@ -56,6 +57,7 @@ export function CatalogPage() {
     flagDiscogsRemoved,
     removeFromDiscogs,
     markRecordsSold,
+    placeOrder,
     ordersById,
     renameBuyer,
     releaseHold: releaseRecordHold,
@@ -348,9 +350,12 @@ export function CatalogPage() {
   async function confirmHold(r: DbRecord) {
     const buyer = holdBuyerInput.trim().replace(/^u\//, "");
     if (!buyer) return;
+    // Same path as the desk's hold: the order is what lists it under the
+    // inbox's Open orders.
+    if (!(await placeOrder([r], buyer, "held"))) return;
     const ok = await updateRecord(r.id, {
       hold_buyer: buyer,
-      hold_until: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+      hold_until: holdExpiry(),
     });
     if (ok) {
       setHoldEditId(null);
@@ -1392,7 +1397,7 @@ export function CatalogPage() {
                             onClick={() => confirmHold(r)}
                             className="rounded-lg border border-white/15 px-2 py-1 text-white transition hover:bg-white hover:text-black disabled:opacity-40"
                           >
-                            Hold 48h
+                            Hold {HOLD_HOURS}h
                           </button>
                           <button
                             type="button"
@@ -1410,7 +1415,7 @@ export function CatalogPage() {
                             setHoldEditId(r.id);
                             setHoldBuyerInput(r.hold_buyer ?? "");
                           }}
-                          title="Reserve for a buyer for 48 hours — the public card shows On hold"
+                          title={`Reserve for a buyer for ${HOLD_HOURS} hours — the public card shows On hold, and the hold lists under Open orders`}
                           className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                         >
                           Hold…
