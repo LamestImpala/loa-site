@@ -1,7 +1,11 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shipToFromInvoice, shipToFromTransaction } from "./paypal.ts";
+import {
+  refundFromInvoice,
+  shipToFromInvoice,
+  shipToFromTransaction,
+} from "./paypal.ts";
 
 const address = {
   address_line_1: "123 Main St",
@@ -121,4 +125,34 @@ test("transaction search: payer_info stands in when there is no shipping block",
   assert.equal(shipTo?.city, "Mesa");
   assert.equal(shipToFromTransaction({ transaction_info: {} }), null);
   assert.equal(shipToFromTransaction(undefined), null);
+});
+
+test("a refunded invoice reports the total and the latest refund date", () => {
+  assert.deepEqual(
+    refundFromInvoice({
+      status: "PARTIALLY_REFUNDED",
+      refunds: {
+        refund_amount: { currency_code: "USD", value: "12.50" },
+        transactions: [
+          { refund_date: "2026-09-18", amount: { value: "5.00" } },
+          { refund_date: "2026-09-12", amount: { value: "7.50" } },
+        ],
+      },
+    }),
+    { amount: 12.5, date: "2026-09-18" }
+  );
+});
+
+test("refund transactions are summed when the total is missing", () => {
+  assert.deepEqual(
+    refundFromInvoice({
+      refunds: { transactions: [{ refund_date: "2026-09-12", amount: { value: "36" } }] },
+    }),
+    { amount: 36, date: "2026-09-12" }
+  );
+});
+
+test("an invoice with no refunds reports none", () => {
+  assert.deepEqual(refundFromInvoice({ status: "PAID" }), { amount: null, date: null });
+  assert.deepEqual(refundFromInvoice(null), { amount: null, date: null });
 });

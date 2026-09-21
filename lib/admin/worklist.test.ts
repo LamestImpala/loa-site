@@ -35,6 +35,7 @@ test("nothing to do is all zeros", () => {
     toPack: 0,
     needLabels: 0,
     toSync: 0,
+    toUnlist: 0,
   });
   assert.equal(inboxCount(w), 0);
 });
@@ -159,4 +160,22 @@ test("orders without an invoice, and long-fulfilled ones, never ask for a sync",
     NOW
   );
   assert.equal(old.toSync, 0);
+});
+
+test("a refunded order stops asking for anything", () => {
+  const orders = [order({ id: 1, status: "refunded", paypal_invoice_id: "INV-1" })];
+  const records = [rec({ id: 1, sold: true, order_id: 1 })]; // shipped before the refund
+  const w = worklist({ ...empty, orders, records }, NOW);
+  assert.deepEqual([w.toSync, w.toPull, w.toPack], [0, 0, 0]);
+});
+
+test("shipped records still on Discogs are counted once their order is fully tracked", () => {
+  const orders = [order({ id: 1, status: "paid" })];
+  const records = [rec({ id: 1, sold: true, order_id: 1, discogs_release_id: 10 })];
+  const box = shipment({ order_id: 1, record_ids: [1] });
+  assert.equal(worklist({ ...empty, orders, records, shipments: [box] }, NOW).toUnlist, 0);
+  assert.equal(
+    worklist({ ...empty, orders, records, shipments: [{ ...box, tracking_code: "9400" }] }, NOW).toUnlist,
+    1
+  );
 });

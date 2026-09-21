@@ -32,11 +32,8 @@ import {
   renameOrderBuyer,
   type PlacedOrder,
 } from "@/lib/admin/orders-db";
-import {
-  discogsCandidates,
-  finishedRequests,
-  soldPatch,
-} from "@/lib/admin/sales";
+import { discogsReady } from "@/lib/admin/fulfillment";
+import { finishedRequests, soldPatch } from "@/lib/admin/sales";
 import { useAdminSession } from "../admin-gate";
 import type { ConfirmRequest, Toast } from "./ui";
 
@@ -776,6 +773,42 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (outcome !== "failed") await flagDiscogsRemoved(r.id);
   }
 
+  // The Discogs removal is offered once a sale can't come back — every
+  // record of the order boxed and every box tracked — wherever the last
+  // tracking number landed (the card, a label PDF, a PayPal sync). The
+  // delete can't be undone, and before shipping a refund would put the
+  // record back on the shelf. Offered, not asked: several orders can
+  // finish at once. What was already ready at load is left to the Next up
+  // chip and the catalog's bulk button, which also catch a skipped toast.
+  const discogsOffered = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    if (loading || records.length === 0) return;
+    const ready = discogsReady(records, shipments, orders);
+    if (discogsOffered.current === null) {
+      discogsOffered.current = new Set(ready.map((r) => r.id));
+      return;
+    }
+    const seen = discogsOffered.current;
+    const fresh = ready.filter((r) => !seen.has(r.id));
+    if (fresh.length === 0) return;
+    for (const r of fresh) seen.add(r.id);
+    pushToast(
+      "info",
+      `${fresh.length} shipped record${fresh.length > 1 ? "s are" : " is"} still in your Discogs collection.`,
+      {
+        label: "Remove",
+        onClick: async () => {
+          // Sequential to be gentle on Discogs rate limits
+          for (const r of fresh) {
+            await removeFromDiscogs(r);
+          }
+        },
+      }
+    );
+    // removeFromDiscogs is recreated each render; the toast keeps the one it was given.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, records, shipments, orders, pushToast]);
+
   // Stable identity (memoised catalog rows take it as a prop); it reads the
   // current records through a ref rather than closing over them.
   const recordsRef = useRef(records);
@@ -827,9 +860,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
 
   // The shared mark-sold path: sale desk, paid invoice, row and bulk
   // checkboxes all land here. Puts the records in an order (paid), then
-  // writes sold/price/buyer, clears holds, closes finished order
-  // requests, and offers the Discogs removal in a toast. No confirm — callers
-  // decide whether one is needed.
+  // writes sold/price/buyer, clears holds and closes finished order
+  // requests. No confirm — callers decide whether one is needed. The
+  // Discogs removal isn't offered here: it waits for tracking (above).
   async function markRecordsSold(
     targets: DbRecord[],
     buyer: string,
@@ -914,25 +947,6 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             const finishedIds = new Set(finished.map((r) => r.id));
             setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
           });
-      }
-      // Offered, not asked: a dialog here would stack up when several
-      // invoices come back paid at once. The catalog's Discogs cleanup
-      // catches any that are skipped.
-      const withDiscogs = discogsCandidates(targets, doneSet);
-      if (withDiscogs.length > 0) {
-        pushToast(
-          "info",
-          `${withDiscogs.length} sold record${withDiscogs.length > 1 ? "s are" : " is"} still in your Discogs collection.`,
-          {
-            label: "Remove",
-            onClick: async () => {
-              // Sequential to be gentle on Discogs rate limits
-              for (const r of withDiscogs) {
-                await removeFromDiscogs(r);
-              }
-            },
-          }
-        );
       }
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");

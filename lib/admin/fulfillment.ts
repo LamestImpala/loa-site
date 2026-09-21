@@ -68,8 +68,11 @@ export type OrderGroup = {
 };
 
 // One group per order, from sold records and their non-refunded parcels.
-// Records and parcels without an order fall back to grouping by buyer
-// name (case-insensitive), the pre-orders rule. Open orders first, then
+// A refunded order is over — it has no group, so it drops out of the
+// panel, the pick and pack lists and the worklist alike (any records it
+// keeps sold went out in a parcel that isn't coming back). Records and
+// parcels without an order fall back to grouping by buyer name
+// (case-insensitive), the pre-orders rule. Open orders first, then
 // alphabetical by buyer.
 export function groupOrders(
   records: DbRecord[],
@@ -100,9 +103,14 @@ export function groupOrders(
     }
     return g;
   };
-  for (const r of records) groupFor(r.order_id, r.buyer_username ?? "").records.push(r);
+  const refunded = (orderId: number | null | undefined) =>
+    orderId != null && orderById.get(orderId)?.status === "refunded";
+  for (const r of records) {
+    if (refunded(r.order_id)) continue;
+    groupFor(r.order_id, r.buyer_username ?? "").records.push(r);
+  }
   for (const s of shipments) {
-    if (s.status === "refunded") continue;
+    if (s.status === "refunded" || refunded(s.order_id)) continue;
     groupFor(s.order_id, s.buyer_username ?? "").shipments.push(s);
   }
   for (const g of map.values()) {
@@ -173,4 +181,51 @@ export function byLongestWaiting(groups: OrderGroup[]): OrderGroup[] {
       ? b.lastActivity - a.lastActivity
       : waitingSince(a) - waitingSince(b) || a.key.localeCompare(b.key);
   });
+}
+
+// Orders PayPal refunded in full, newest refund first, with the records
+// that stayed sold on them (already shipped when the money went back).
+// The panel lists them read-only so a refunded sale isn't invisible.
+export type RefundedOrder = { order: Order; records: DbRecord[] };
+
+export function refundedOrders(orders: Order[], records: DbRecord[]): RefundedOrder[] {
+  return orders
+    .filter((o) => o.status === "refunded")
+    .map((order) => ({
+      order,
+      records: records.filter((r) => r.sold && r.order_id === order.id),
+    }))
+    .sort((a, b) =>
+      (b.order.refunded_at ?? b.order.updated_at).localeCompare(
+        a.order.refunded_at ?? a.order.updated_at
+      )
+    );
+}
+
+// Sold records ready to come out of the owner's Discogs collection. The
+// Discogs delete can't be undone, so it waits until the sale can't come
+// back: every record of the order boxed and every box tracked. Before
+// that a refund would put the record back on the shelf with its
+// collection entry already gone. Records a refunded order kept sold had
+// shipped, so they count too. Hand-delivered sales never get tracking —
+// the catalog drawer removes those one at a time.
+export function discogsReady(
+  records: DbRecord[],
+  shipments: Shipment[],
+  orders: Order[]
+): DbRecord[] {
+  const onDiscogs = (r: DbRecord) =>
+    r.sold && !!r.discogs_release_id && !r.discogs_removed;
+  const refunded = new Set(
+    orders.filter((o) => o.status === "refunded").map((o) => o.id)
+  );
+  const ready = new Set<number>();
+  for (const g of groupOrders(records.filter((r) => r.sold), shipments, orders)) {
+    if (g.done) for (const r of g.records) ready.add(r.id);
+  }
+  return records.filter(
+    (r) =>
+      onDiscogs(r) &&
+      (ready.has(r.id) || (r.order_id != null && refunded.has(r.order_id)))
+  );
 }

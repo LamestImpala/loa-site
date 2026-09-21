@@ -80,8 +80,44 @@ export type InvoiceResult = {
 };
 
 // Invoice statuses that count as paid for tracking and for closing a
-// pending order.
-export const PAID_STATUSES = new Set(["PAID", "MARKED_AS_PAID", "PARTIALLY_PAID"]);
+// pending order. A partly refunded invoice is still a paid one — the
+// order ships; the refunded part is recorded on it.
+export const PAID_STATUSES = new Set([
+  "PAID",
+  "MARKED_AS_PAID",
+  "PARTIALLY_PAID",
+  "PARTIALLY_REFUNDED",
+]);
+
+// The whole payment went back to the buyer: the order is over.
+export const REFUNDED_STATUSES = new Set(["REFUNDED", "MARKED_AS_REFUNDED"]);
+
+// What an invoice's JSON says was refunded: the running total
+// (refunds.refund_amount) and the latest refund's date. Null amount means
+// no refund on the invoice. Pure, so it's tested on fixture JSON.
+export function refundFromInvoice(invoice: unknown): {
+  amount: number | null;
+  date: string | null; // "2026-09-18"
+} {
+  const refunds = ((invoice ?? {}) as {
+    refunds?: {
+      refund_amount?: { value?: string };
+      transactions?: { refund_date?: string; amount?: { value?: string } }[];
+    };
+  }).refunds;
+  const transactions = refunds?.transactions ?? [];
+  const total = Number(refunds?.refund_amount?.value);
+  const summed = transactions.reduce((t, x) => t + (Number(x?.amount?.value) || 0), 0);
+  const amount = Number.isFinite(total) && total > 0 ? total : summed > 0 ? summed : null;
+  const dates = transactions
+    .map((t) => t?.refund_date)
+    .filter((d): d is string => typeof d === "string" && !!d)
+    .sort();
+  return {
+    amount: amount == null ? null : Math.round(amount * 100) / 100,
+    date: dates.length ? dates[dates.length - 1] : null,
+  };
+}
 
 // Where the buyer wants the parcel, read off an invoice's JSON. The
 // payer's address arrives with the payment (payments.transactions[]
@@ -149,6 +185,8 @@ export async function getInvoicePayment(invoiceId: string): Promise<{
   paymentDate: string | null; // "2026-08-20"
   recipientViewUrl: string | null; // the buyer's payment link
   shipTo: ShipTo | null;
+  refundedAmount: number | null; // total refunded so far, null when none
+  refundDate: string | null; // "2026-09-18"
 }> {
   const token = await getPayPalAccessToken();
   const res = await fetch(
@@ -171,6 +209,7 @@ export async function getInvoicePayment(invoiceId: string): Promise<{
   const shippingRaw = invoice?.amount?.breakdown?.shipping?.amount?.value;
   const shipping = shippingRaw == null ? NaN : Number(shippingRaw);
   const meta = invoice?.detail?.metadata ?? {};
+  const refund = refundFromInvoice(invoice);
   return {
     status: invoice?.status ?? "UNKNOWN",
     transactionId: withId?.payment_id ?? null,
@@ -178,6 +217,8 @@ export async function getInvoicePayment(invoiceId: string): Promise<{
     paymentDate: withId?.payment_date ?? null,
     recipientViewUrl: meta.recipient_view_url ?? meta.payer_view_url ?? null,
     shipTo: shipToFromInvoice(invoice),
+    refundedAmount: refund.amount,
+    refundDate: refund.date,
   };
 }
 

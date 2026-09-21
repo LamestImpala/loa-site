@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderRequest } from "../supabase.ts";
 import {
-  discogsCandidates,
   finishedRequests,
   parseMoney,
   saleItem,
@@ -89,14 +88,4 @@ test("a loaded request finishes once every record is sold, now or earlier", () =
   ];
   const done = finishedRequests(requests, new Set([1]), byId);
   assert.deepEqual(done.map((r) => r.id), [1]);
-});
-
-test("Discogs removal is offered only for records that actually sold and still sit in the collection", () => {
-  const targets = [
-    rec({ id: 1, discogs_release_id: 10 }),
-    rec({ id: 2, discogs_release_id: 20, discogs_removed: true }),
-    rec({ id: 3, discogs_release_id: null }),
-    rec({ id: 4, discogs_release_id: 40 }), // write failed
-  ];
-  assert.deepEqual(discogsCandidates(targets, new Set([1, 2, 3])).map((r) => r.id), [1]);
 });

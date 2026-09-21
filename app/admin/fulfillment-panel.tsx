@@ -14,9 +14,11 @@ import {
   orderStage,
   pushNotNeeded,
   pushable,
+  refundedOrders,
   type OrderGroup,
   type OrderStage,
 } from "@/lib/admin/fulfillment";
+import { refundedPatch } from "@/lib/admin/refunds";
 import { parseMoney } from "@/lib/admin/sales";
 import {
   createParcel as createParcelDb,
@@ -151,6 +153,11 @@ export function FulfillmentPanel({
     () => byLongestWaiting(groupOrders(records, shipments, orders)),
     [records, shipments, orders]
   );
+
+  // Orders PayPal refunded in full have no card; they're listed read-only
+  // under the archive so the sale isn't invisible.
+  const refunded = useMemo(() => refundedOrders(orders, records), [orders, records]);
+  const [showRefunded, setShowRefunded] = useState(false);
 
   // Fulfilled orders age out of the completed list into a month-grouped
   // archive once the delivery/grace window has passed.
@@ -553,6 +560,21 @@ export function FulfillmentPanel({
           prev.map((o) => (o.id === syncedOrder.id ? { ...o, ...syncedOrder } : o))
         );
       }
+      // PayPal refunded the whole payment: the route closed the order, put
+      // the unshipped records back for sale and dropped their boxes. The
+      // card goes with the order, so the outcome is always a toast.
+      if (body.refunded) {
+        const dropped = new Set((body.droppedShipments ?? []) as number[]);
+        onShipmentsChange((prev) =>
+          prev.map((s) => (dropped.has(s.id) ? { ...s, status: "refunded" } : s))
+        );
+        for (const id of (body.relisted ?? []) as number[]) {
+          onRecordPatched(id, refundedPatch());
+        }
+        note(g.key, "");
+        note("panel", String(body.note ?? "Refunded in PayPal — order closed."), "info");
+        return true;
+      }
       if (body.error) {
         note(g.key, String(body.error), quiet ? undefined : "error");
         return false;
@@ -591,6 +613,7 @@ export function FulfillmentPanel({
           } in PayPal${created ? `, ${created} new` : ""}.`,
           costBits.length ? `Recorded ${costBits.join(" · ")}.` : null,
           (body.shipToNote as string | null) ?? null,
+          (body.refundNote as string | null) ?? null,
           (body.feeNote as string | null) ?? null,
         ]
           .filter(Boolean)
@@ -774,6 +797,39 @@ export function FulfillmentPanel({
                 </div>
               ))
             : null}
+        </div>
+      ) : null}
+      {refunded.length > 0 ? (
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() => setShowRefunded((v) => !v)}
+            title="Orders PayPal refunded in full — closed by a sync, out of the stats"
+            className={smallButtonClass}
+          >
+            {showRefunded ? "Hide" : "Show"} refunded ({refunded.length} order
+            {refunded.length === 1 ? "" : "s"})
+          </button>
+          {showRefunded ? (
+            <ul className="mt-3 grid gap-1 text-sm text-neutral-400">
+              {refunded.map(({ order, records: kept }) => (
+                <li key={order.id}>
+                  <span className="text-neutral-200">
+                    u/{order.buyer_username || "(no buyer)"}
+                  </span>
+                  {" · "}${Number(order.refunded_amount ?? 0).toFixed(2)} refunded
+                  {order.refunded_at
+                    ? ` ${new Date(order.refunded_at).toLocaleDateString(undefined, { timeZone: "UTC" })}`
+                    : ""}
+                  {kept.length > 0
+                    ? ` · shipped before the refund, left sold: ${kept
+                        .map((r) => `${r.artist} — ${r.title}`)
+                        .join("; ")}`
+                    : " · records back up for sale"}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
     </div>
