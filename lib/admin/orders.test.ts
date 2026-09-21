@@ -95,17 +95,43 @@ test("open orders: held ones need a live hold, invoiced ones outlive their recor
   assert.deepEqual(
     open.map((o) => [o.order.id, o.buyer, o.recs.map((r) => r.id), o.expired, o.invoice?.paypal_invoice_id ?? null]),
     [
-      [12, "cal", [], false, null],
       [11, "bob", [4], true, null],
-      [10, "amy", [1, 2], false, null],
       [14, "eve", [7], false, "INV-E"],
+      [12, "cal", [], false, null],
+      [10, "amy", [1, 2], false, null],
     ],
-    "newest first; sold members drop off; lapsed holds are flagged, not hidden"
+    "lapsed holds, then invoices oldest first, then running holds; sold members drop off"
   );
-  const amy = open[2];
+  const amy = open[3];
   assert.equal(amy.holdUntil, NOW + 2 * DAY, "latest expiry among members");
   assert.equal(amy.totals.total, 66, "two records: $60 plus $6 shipping");
-  assert.equal(open[1].holdUntil, NOW - 1);
+  assert.equal(open[0].holdUntil, NOW - 1);
+});
+
+test("open orders: an invoice goes stale after a day; running holds sort by next to lapse", () => {
+  const HOUR = 3600 * 1000;
+  const records = [
+    rec({ id: 1, order_id: 30 }),
+    rec({ id: 2, order_id: 31 }),
+    rec({ id: 3, order_id: 32, hold_until: iso(NOW + 40 * HOUR) }),
+    rec({ id: 4, order_id: 33, hold_until: iso(NOW + 2 * HOUR) }),
+  ];
+  const orders = [
+    order({ id: 30, status: "invoiced", paypal_invoice_id: "INV-30", created_at: iso(NOW - 23 * HOUR) }),
+    order({ id: 31, status: "invoiced", paypal_invoice_id: "INV-31", created_at: iso(NOW - 24 * HOUR) }),
+    order({ id: 32, status: "held", created_at: iso(NOW - 8 * HOUR) }),
+    order({ id: 33, status: "held", created_at: iso(NOW - 46 * HOUR) }),
+  ];
+  const open = openOrders(orders, records, [], NOW);
+  assert.deepEqual(
+    open.map((o) => [o.order.id, o.stale]),
+    [
+      [31, true],
+      [30, false],
+      [33, false],
+      [32, false],
+    ]
+  );
 });
 
 test("open order totals use negotiated prices and take the order's credit off", () => {
