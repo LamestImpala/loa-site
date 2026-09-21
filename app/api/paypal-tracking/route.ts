@@ -15,14 +15,18 @@ import {
   listTrackers,
   paypalConfigured,
   PAID_STATUSES,
+  REFUNDED_STATUSES,
   type TrackerInput,
 } from "@/lib/paypal";
+import { refundPlan, refundedPatch } from "@/lib/admin/refunds";
 
 // Two-way tracking sync between shipments and PayPal.
 //
 //   { action: "pull", invoiceId }   — labels bought inside PayPal: read the
 //     paid invoice's transaction, list its trackers, and create a shipment
-//     row per tracking number not already stored.
+//     row per tracking number not already stored. An invoice PayPal
+//     refunded in full closes its order instead: unshipped records go
+//     back up for sale and the order leaves fulfillment.
 //   { action: "push", shipmentIds } — labels bought elsewhere: attach each
 //     shipment's tracking number to the invoice's transaction (buyer gets
 //     a PayPal shipping email).
@@ -91,9 +95,198 @@ export async function POST(req: NextRequest) {
   }
 }
 
+type SaleRecord = {
+  id: number;
+  buyer_username: string;
+  order_id: number | null;
+  tracking_number: string | null;
+  discogs_removed: boolean | null;
+};
+
+// The sale an invoice paid for: its records, its parcels, and the order
+// that owns them.
+async function saleForInvoice(supabase: SupabaseClient, invoiceId: string) {
+  const [
+    { data: recs, error: recError },
+    { data: existing, error: shipError },
+    { data: orderRow },
+  ] = await Promise.all([
+    supabase
+      .from("records")
+      .select("id, buyer_username, order_id, tracking_number, discogs_removed")
+      .eq("paypal_invoice_id", invoiceId),
+    supabase.from("shipments").select("*").eq("paypal_invoice_id", invoiceId),
+    // The invoice's order names the buyer and owns the parcels.
+    supabase
+      .from("orders")
+      .select("*")
+      .eq("paypal_invoice_id", invoiceId)
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const records = (recs ?? []) as SaleRecord[];
+  let order = (orderRow ?? null) as Order | null;
+  // The order that owns the sale is the one the records point at. An
+  // order that carries the invoice id but none of its records (a sale
+  // re-placed under a fresh row) would take the address and never show
+  // it, so follow the records when they all agree on another order.
+  const recordOrderIds = [
+    ...new Set(records.map((r) => r.order_id).filter((id): id is number => id != null)),
+  ];
+  if (recordOrderIds.length === 1 && recordOrderIds[0] !== order?.id) {
+    const { data: recordOrder } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("id", recordOrderIds[0])
+      .neq("status", "cancelled")
+      .maybeSingle();
+    if (recordOrder) order = recordOrder as Order;
+  }
+  return {
+    records,
+    shipments: (existing ?? []) as Shipment[],
+    order,
+    error: recError?.message ?? shipError?.message ?? null,
+  };
+}
+
+// PayPal sent the whole payment back: close the order. Records that never
+// shipped go back up for sale, untracked boxes are dropped, the order is
+// marked refunded (which takes it out of fulfillment and the stats).
+// Records first and the order last, so a failure partway leaves the order
+// paid and the next sync finishes the job.
+async function closeRefunded(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  status: string,
+  payment: {
+    transactionId: string | null;
+    paymentDate: string | null;
+    refundedAmount: number | null;
+    refundDate: string | null;
+  }
+) {
+  const sale = await saleForInvoice(supabase, invoiceId);
+  if (sale.error) return NextResponse.json({ error: sale.error }, { status: 502 });
+  const now = new Date().toISOString();
+  const { relist, keepSold } = refundPlan(sale.records, sale.shipments);
+
+  if (relist.length > 0) {
+    const { error } = await supabase
+      .from("records")
+      .update({ ...refundedPatch(), updated_at: now })
+      .in(
+        "id",
+        relist.map((r) => r.id)
+      );
+    if (error) {
+      return NextResponse.json(
+        { error: `Putting the records back for sale failed: ${error.message}` },
+        { status: 502 }
+      );
+    }
+  }
+
+  // Boxes that never got a label have nothing left to ship. Tracked ones
+  // keep their row — the postage was spent either way.
+  const dropped = sale.shipments.filter(
+    (s) => !s.tracking_code && s.status !== "refunded"
+  );
+  if (dropped.length > 0) {
+    const { error } = await supabase
+      .from("shipments")
+      .update({ status: "refunded", updated_at: now })
+      .in(
+        "id",
+        dropped.map((s) => s.id)
+      );
+    if (error) {
+      return NextResponse.json(
+        { error: `Closing the order's boxes failed: ${error.message}` },
+        { status: 502 }
+      );
+    }
+  }
+
+  let order = sale.order;
+  if (order) {
+    const { data, error } = await supabase
+      .from("orders")
+      .update({
+        status: "refunded",
+        refunded_amount: payment.refundedAmount ?? 0,
+        refunded_at: payment.refundDate ?? now,
+        updated_at: now,
+      })
+      .eq("id", order.id)
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json(
+        { error: `Marking the order refunded failed: ${error.message}` },
+        { status: 502 }
+      );
+    }
+    order = data as Order;
+  }
+
+  // PayPal keeps its fee on a refund, so it's still a cost worth having.
+  let fee: number | null = null;
+  if (payment.transactionId) {
+    try {
+      fee = (await getTransactionDetails(payment.transactionId, payment.paymentDate)).fee;
+    } catch {
+      // best-effort — the refund is settled without it
+    }
+  }
+  const { data: invoiceRow } = await supabase
+    .from("invoices")
+    .upsert({
+      paypal_invoice_id: invoiceId,
+      status,
+      ...(fee != null ? { paypal_fee: fee } : {}),
+      updated_at: now,
+    })
+    .select()
+    .single();
+
+  const count = (n: number) => `${n} record${n === 1 ? "" : "s"}`;
+  const handRestore = relist.filter((r) => r.discogs_removed).length;
+  const note = [
+    `Refunded in PayPal${payment.refundedAmount != null ? ` ($${payment.refundedAmount.toFixed(2)})` : ""} — order closed.`,
+    relist.length > 0 ? `${count(relist.length)} back up for sale.` : null,
+    keepSold.length > 0 ? `${count(keepSold.length)} already shipped — left sold.` : null,
+    handRestore > 0
+      ? `${count(handRestore)} had been removed from Discogs — add ${handRestore === 1 ? "it" : "them"} back by hand.`
+      : null,
+    !order ? "No order row for this invoice — only the records were settled." : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return NextResponse.json({
+    refunded: true,
+    order,
+    relisted: relist.map((r) => r.id),
+    droppedShipments: dropped.map((s) => s.id),
+    invoice: invoiceRow ?? null,
+    note,
+  });
+}
+
 async function pull(supabase: SupabaseClient, invoiceId: string) {
   const { status, transactionId, shippingCharged, paymentDate, ...invoicePayment } =
     await getInvoicePayment(invoiceId);
+  if (REFUNDED_STATUSES.has(status)) {
+    return closeRefunded(supabase, invoiceId, status, {
+      transactionId,
+      paymentDate,
+      refundedAmount: invoicePayment.refundedAmount,
+      refundDate: invoicePayment.refundDate,
+    });
+  }
   if (!PAID_STATUSES.has(status)) {
     return NextResponse.json({
       error: `Invoice isn't paid yet (${status}) — sync again after payment.`,
@@ -148,62 +341,43 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
   );
   const trackerNumbers = trackers.map((t) => t.trackingNumber);
 
-  const [
-    { data: recs, error: recError },
-    { data: existing, error: shipError },
-    { data: sameCode, error: dupError },
-    { data: orderRow },
-  ] = await Promise.all([
-    supabase
-      .from("records")
-      .select("id, buyer_username, order_id")
-      .eq("paypal_invoice_id", invoiceId),
-    supabase.from("shipments").select("*").eq("paypal_invoice_id", invoiceId),
+  const [sale, { data: sameCode, error: dupError }] = await Promise.all([
+    saleForInvoice(supabase, invoiceId),
     // A manual parcel typed before the invoice was linked still counts —
     // match by tracking number so sync doesn't duplicate it.
     supabase.from("shipments").select("*").in("tracking_code", trackerNumbers),
-    // The invoice's order names the buyer and owns the parcels.
-    supabase
-      .from("orders")
-      .select("*")
-      .eq("paypal_invoice_id", invoiceId)
-      .neq("status", "cancelled")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
   ]);
-  if (recError || shipError || dupError) {
+  if (sale.error || dupError) {
     return NextResponse.json(
-      { error: recError?.message ?? shipError?.message ?? dupError?.message },
+      { error: sale.error ?? dupError?.message },
       { status: 502 }
     );
   }
-  const records = (recs ?? []) as {
-    id: number;
-    buyer_username: string;
-    order_id: number | null;
-  }[];
-  const shipments = (existing ?? []) as Shipment[];
-  let order = (orderRow ?? null) as Order | null;
-  // The order that owns the sale is the one the records point at. An
-  // order that carries the invoice id but none of its records (a sale
-  // re-placed under a fresh row) would take the address and never show
-  // it, so follow the records when they all agree on another order.
-  const recordOrderIds = [
-    ...new Set(records.map((r) => r.order_id).filter((id): id is number => id != null)),
-  ];
-  if (recordOrderIds.length === 1 && recordOrderIds[0] !== order?.id) {
-    const { data: recordOrder } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("id", recordOrderIds[0])
-      .neq("status", "cancelled")
-      .maybeSingle();
-    if (recordOrder) order = recordOrder as Order;
-  }
+  const { records, shipments } = sale;
+  let order = sale.order;
   // The buyer's ship-to lands on the order now that PayPal has reported
   // payment; overwritten each sync, PayPal being the truth for it. The
   // note says where it came from, so a missing address is explained.
+  // A partial refund rides along: the order still ships, the refunded
+  // part is recorded on it for the stats.
+  const refundedAmount = invoicePayment.refundedAmount;
+  if (order && refundedAmount != null && Number(order.refunded_amount ?? 0) !== refundedAmount) {
+    const { data: updated, error: refundError } = await supabase
+      .from("orders")
+      .update({
+        refunded_amount: refundedAmount,
+        refunded_at: invoicePayment.refundDate ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id)
+      .select()
+      .single();
+    if (refundError) {
+      console.error("paypal-tracking pull: refund update failed:", refundError.message);
+    } else {
+      order = updated as Order;
+    }
+  }
   let shipToNote: string | null = null;
   if (order && shipTo) {
     const { data: updated, error: shipToError } = await supabase
@@ -308,6 +482,10 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
     order,
     feeNote,
     shipToNote,
+    refundNote:
+      refundedAmount != null
+        ? `PayPal shows $${refundedAmount.toFixed(2)} refunded — taken off the sold total.`
+        : null,
   });
 }
 

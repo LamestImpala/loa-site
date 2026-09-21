@@ -23,6 +23,7 @@ import {
   type OpenOrder,
 } from "@/lib/admin/orders";
 import { parseMoney, saleItem } from "@/lib/admin/sales";
+import { salesStats } from "@/lib/admin/stats";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
 import { NextUp } from "./next-up";
@@ -822,50 +823,10 @@ export function InboxPage() {
 
   // Live collection value — recomputed from local state, so it updates the
   // moment a price is edited, a change is approved, or a record is sold.
-  const stats = useMemo(() => {
-    const forSale = records.filter((r) => r.listed && !r.sold);
-    const sold = records.filter((r) => r.sold);
-    const hidden = records.filter((r) => !r.listed && !r.sold);
-    const sum = (list: DbRecord[], pick: (r: DbRecord) => number) =>
-      list.reduce((total, r) => total + pick(r), 0);
-    // Credits live on the order, not the records' sold prices — take
-    // paid orders' credits off the sold total so it's what was billed.
-    const creditTotal = orders.reduce(
-      (t, o) => t + (o.status === "paid" ? Number(o.credit ?? 0) : 0),
-      0
-    );
-    const soldTotal =
-      sum(sold, (r) => Number(r.sold_price ?? r.price)) - creditTotal;
-    // Costs typed in from PayPal's transaction pages: fees and buyer-paid
-    // shipping per invoice, postage per parcel. Net is what actually landed
-    // in the account — record sales + shipping income − fees − postage.
-    const feesTotal = invoices.reduce(
-      (t, inv) => t + Number(inv.paypal_fee ?? 0),
-      0
-    );
-    const shippingCharged = invoices.reduce(
-      (t, inv) => t + Number(inv.shipping_charged ?? 0),
-      0
-    );
-    const postageTotal = shipments.reduce(
-      (t, s) => t + Number(s.postage_cost ?? 0),
-      0
-    );
-    return {
-      forSaleCount: forSale.length,
-      askingTotal: sum(forSale, (r) => Number(r.price)),
-      soldCount: sold.length,
-      soldTotal,
-      creditTotal,
-      asp: sold.length ? soldTotal / sold.length : 0,
-      hiddenCount: hidden.length,
-      hiddenTotal: sum(hidden, (r) => Number(r.price)),
-      feesTotal,
-      postageTotal,
-      shippingCharged,
-      netTotal: soldTotal + shippingCharged - feesTotal - postageTotal,
-    };
-  }, [records, shipments, invoices, orders]);
+  const stats = useMemo(
+    () => salesStats({ records, shipments, invoices, orders }),
+    [records, shipments, invoices, orders]
+  );
 
   const draftParcelCount = useMemo(
     () => shipments.filter((s) => s.status === "draft").length,
@@ -1771,11 +1732,14 @@ export function InboxPage() {
             </p>
             <p
               className="mt-1 text-xs text-neutral-500"
-              title="Uses the final sold price when entered, listed price otherwise, less any credits on paid orders"
+              title="Uses the final sold price when entered, listed price otherwise, less any credits and partial refunds on paid orders. Fully refunded orders don't count."
             >
               {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
               {stats.creditTotal > 0
                 ? ` · $${stats.creditTotal.toFixed(2)} in credits`
+                : ""}
+              {stats.refundedTotal > 0
+                ? ` · $${stats.refundedTotal.toFixed(2)} refunded`
                 : ""}
             </p>
           </div>

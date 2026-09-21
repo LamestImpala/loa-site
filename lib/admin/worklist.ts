@@ -5,7 +5,7 @@ import type {
   OrderRequest,
   Shipment,
 } from "../supabase.ts";
-import { groupOrders } from "./fulfillment.ts";
+import { discogsReady, groupOrders } from "./fulfillment.ts";
 import { openOrders } from "./orders.ts";
 import { openParcels, packList } from "./pack-list.ts";
 import { pickList } from "./pick-list.ts";
@@ -27,6 +27,7 @@ export type Worklist = {
   toPack: number; // records in paid orders not in any box yet
   needLabels: number; // boxes with no tracking number
   toSync: number; // paid orders whose invoice has no PayPal fee recorded
+  toUnlist: number; // shipped records still in the owner's Discogs collection
 };
 
 export function worklist(
@@ -65,6 +66,7 @@ export function worklist(
     ),
     needLabels: openParcels(shipments).length,
     toSync,
+    toUnlist: discogsReady(records, shipments, orders).length,
   };
 }
 

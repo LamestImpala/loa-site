@@ -18,6 +18,7 @@ const RANK: Record<OrderStatus, number> = {
   invoiced: 1,
   paid: 2,
   cancelled: 3,
+  refunded: 4,
 };
 
 // An order only moves forward: holding records that are already invoiced

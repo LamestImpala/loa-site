@@ -7,6 +7,8 @@ import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
 import { holdActive } from "@/lib/admin/records";
+import { discogsReady } from "@/lib/admin/fulfillment";
+import { unsoldPatch } from "@/lib/admin/sales";
 import { bucketEventsByDay } from "@/lib/admin/interest";
 import { detectCollection } from "@/lib/admin/collection";
 import {
@@ -67,6 +69,8 @@ export function CatalogPage() {
     markRecordsSold,
     confirm,
     placeOrder,
+    shipments,
+    orders,
     ordersById,
     renameBuyer,
     releaseHold: releaseRecordHold,
@@ -340,13 +344,11 @@ export function CatalogPage() {
   const discogsBulkCancel = useRef(false);
 
   async function removeAllSoldFromDiscogs() {
-    const targets = records.filter(
-      (r) => r.sold && r.discogs_release_id && !r.discogs_removed
-    );
+    const targets = discogsReady(records, shipments, orders);
     if (targets.length === 0) return;
     if (
       !(await confirm(
-        `Remove ${targets.length} sold record${targets.length === 1 ? "" : "s"} from your Discogs collection? This paces itself for Discogs' rate limit, so it takes about 2 seconds per record.`
+        `Remove ${targets.length} shipped record${targets.length === 1 ? "" : "s"} from your Discogs collection? This can't be undone. This paces itself for Discogs' rate limit, so it takes about 2 seconds per record.`
       ))
     )
       return;
@@ -452,18 +454,12 @@ export function CatalogPage() {
       return;
     // Un-selling takes the record out of its order too.
     if (!sold) {
-      await updateRecord(r.id, {
-        sold: false,
-        sold_at: null,
-        order_id: null,
-        negotiated_price: null,
-        picked_at: null,
-      });
+      await updateRecord(r.id, unsoldPatch());
       return;
     }
     // Selling goes through the same path as the sale desk, so the row
     // checkbox also records the sold price, carries a hold's buyer over,
-    // closes the matching order request and offers the Discogs removal.
+    // and closes the matching order request.
     setSaving(r.id, true);
     try {
       await markRecordsSold([r], "");
@@ -671,7 +667,7 @@ export function CatalogPage() {
     if (
       !(await confirm(
         field === "sold" && value
-          ? `Mark all ${ids.length} unsold record${plural} in the current filter as sold? Each keeps its hold buyer (if any), records its current price as the sold price, and you'll be offered the Discogs removal once.`
+          ? `Mark all ${ids.length} unsold record${plural} in the current filter as sold? Each keeps its hold buyer (if any), and records its current price as the sold price. The Discogs removal is offered once they've shipped.`
           : `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`
       ))
     )
@@ -839,9 +835,9 @@ export function CatalogPage() {
             {filteredRecords.length} of {records.length} records
           </p>
           {(() => {
-            const soldOnDiscogs = records.filter(
-              (r) => r.sold && r.discogs_release_id && !r.discogs_removed
-            ).length;
+            // Shipped only — a paid order can still be refunded, and the
+            // Discogs delete can't be undone.
+            const soldOnDiscogs = discogsReady(records, shipments, orders).length;
             if (soldOnDiscogs === 0 && !discogsBulkBusy) return null;
             return discogsBulkBusy ? (
               <>
@@ -862,10 +858,10 @@ export function CatalogPage() {
               <button
                 type="button"
                 onClick={removeAllSoldFromDiscogs}
-                title="Removes every sold record that has a Discogs release id from your Discogs collection"
+                title="Removes every shipped record (whole order boxed and tracked) that has a Discogs release id from your Discogs collection. Hand-delivered sales: use the record's drawer."
                 className={buttonClass}
               >
-                Remove {soldOnDiscogs} sold from Discogs
+                Remove {soldOnDiscogs} shipped from Discogs
               </button>
             );
           })()}

@@ -72,13 +72,16 @@ export function finishedRequests(
   );
 }
 
-// Records a sale should offer to pull from the owner's Discogs collection:
-// actually written as sold, linked to a release, not already removed.
-export function discogsCandidates(
-  targets: DbRecord[],
-  justSold: Set<number>
-): DbRecord[] {
-  return targets.filter(
-    (r) => justSold.has(r.id) && !!r.discogs_release_id && !r.discogs_removed
-  );
+// The record patch that undoes a sale: back on the shop (listed is never
+// touched by a sale), out of its order, a fresh start on the pick list.
+// The sale's other traces stay on the row — what the catalog's un-sell
+// has always written.
+export function unsoldPatch(): Partial<DbRecord> {
+  return {
+    sold: false,
+    sold_at: null,
+    order_id: null,
+    negotiated_price: null,
+    picked_at: null,
+  };
 }

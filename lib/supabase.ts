@@ -44,8 +44,9 @@ export type DbRecord = {
 // One sale, from the first hold or invoice through fulfillment. Records
 // and parcels point at it; the buyer's name lives here and is mirrored
 // onto them. Status moves held → invoiced → paid; cancelled ends either
-// open stage. "Fulfilled" is derived (every record in a tracked parcel).
-export type OrderStatus = "held" | "invoiced" | "paid" | "cancelled";
+// open stage, refunded ends a paid one (PayPal sent the whole payment
+// back). "Fulfilled" is derived (every record in a tracked parcel).
+export type OrderStatus = "held" | "invoiced" | "paid" | "cancelled" | "refunded";
 
 // Where the buyer wants the parcel, as PayPal reported it when the
 // invoice was paid. Name is what the shipping label prints, which is how
@@ -69,6 +70,8 @@ export type Order = {
   credit: number; // taken off the whole order — a make-good or a deal; 0 = none
   credit_note: string; // why; goes in the invoice note to the buyer
   ship_to: ShipTo | null; // from PayPal once paid; null for off-PayPal sales
+  refunded_amount: number; // what PayPal refunded — all of it on a refunded order, part on a paid one; 0 = none
+  refunded_at: string | null;
   created_at: string;
   updated_at: string;
 };

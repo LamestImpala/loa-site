@@ -60,6 +60,12 @@ export function NextUp() {
       href: "#fulfillment",
       text: plural(w.toSync, "order to sync from PayPal", "orders to sync from PayPal"),
     },
+    {
+      key: "discogs",
+      n: w.toUnlist,
+      href: "/admin/catalog",
+      text: `${w.toUnlist} shipped to remove from Discogs →`,
+    },
   ].filter((c) => c.n > 0);
 
   return (

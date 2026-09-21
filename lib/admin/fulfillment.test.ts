@@ -6,11 +6,13 @@ import {
   buyerNudge,
   byLongestWaiting,
   confirmationComment,
+  discogsReady,
   groupOrders,
   inPayPal,
   needsRepush,
   orderStage,
   pushNotNeeded,
+  refundedOrders,
 } from "./fulfillment.ts";
 import { invoice, order, rec, shipment } from "./fixtures.ts";
 
@@ -150,4 +152,47 @@ test("the panel lists open orders longest-waiting first, then finished ones newe
     byLongestWaiting(groupOrders(records, shipments, orders)).map((g) => g.key),
     ["buyer-old", "order-1", "order-2", "order-4", "order-3"]
   );
+});
+
+test("a refunded order has no group; the panel lists it apart with the records it kept sold", () => {
+  const orders = [
+    order({ id: 1, buyer_username: "amy", status: "paid", paypal_invoice_id: "INV-1" }),
+    order({ id: 2, buyer_username: "bob", status: "refunded", paypal_invoice_id: "INV-2", refunded_amount: 40, refunded_at: "2026-09-18" }),
+    order({ id: 3, buyer_username: "cy", status: "refunded", refunded_at: "2026-09-19" }),
+  ];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1 }),
+    rec({ id: 2, sold: true, order_id: 2, tracking_number: "9400" }), // shipped before the refund
+    rec({ id: 3, sold: false, order_id: null }), // relisted by the refund
+  ];
+  const shipments = [shipment({ order_id: 2, record_ids: [2], tracking_code: "9400", status: "shipped" })];
+  assert.deepEqual(groupOrders(records.filter((r) => r.sold), shipments, orders).map((g) => g.key), ["order-1"]);
+  assert.deepEqual(
+    refundedOrders(orders, records).map((x) => [x.order.id, x.records.map((r) => r.id)]),
+    [[3, []], [2, [2]]],
+    "newest refund first"
+  );
+});
+
+test("Discogs removal waits until the whole order is boxed and tracked", () => {
+  const orders = [
+    order({ id: 1, status: "paid" }),
+    order({ id: 2, status: "paid" }),
+    order({ id: 3, status: "refunded" }),
+  ];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1, discogs_release_id: 10 }),
+    rec({ id: 2, sold: true, order_id: 1, discogs_release_id: 20, discogs_removed: true }),
+    rec({ id: 3, sold: true, order_id: 1, discogs_release_id: null }),
+    rec({ id: 4, sold: true, order_id: 2, discogs_release_id: 40 }), // its box is tracked…
+    rec({ id: 5, sold: true, order_id: 2, discogs_release_id: 50 }), // …but this one isn't boxed
+    rec({ id: 6, sold: true, order_id: 3, discogs_release_id: 60 }), // shipped, then refunded — gone
+    rec({ id: 7, sold: false, discogs_release_id: 70 }),
+    rec({ id: 8, sold: true, discogs_release_id: 80 }), // paid, nothing shipped yet
+  ];
+  const shipments = [
+    shipment({ order_id: 1, record_ids: [1, 2, 3], tracking_code: "9400" }),
+    shipment({ order_id: 2, record_ids: [4], tracking_code: "9401" }),
+  ];
+  assert.deepEqual(discogsReady(records, shipments, orders).map((r) => r.id), [1, 6]);
 });

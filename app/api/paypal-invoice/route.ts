@@ -16,6 +16,7 @@ import {
   createAndSendInvoice,
   getInvoicePayment,
   PAID_STATUSES,
+  REFUNDED_STATUSES,
   paypalConfigured,
 } from "@/lib/paypal";
 
@@ -395,6 +396,16 @@ export async function DELETE(req: NextRequest) {
     if (PAID_STATUSES.has(payment.status)) {
       return NextResponse.json(
         { error: `Invoice is ${payment.status} — it can't be cancelled.` },
+        { status: 409 }
+      );
+    }
+    // A refunded invoice was paid once: it closes through Fulfillment's
+    // sync (which settles the records), not a cancel.
+    if (REFUNDED_STATUSES.has(payment.status)) {
+      return NextResponse.json(
+        {
+          error: `Invoice is ${payment.status} — sync it from Fulfillment to close the order.`,
+        },
         { status: 409 }
       );
     }
