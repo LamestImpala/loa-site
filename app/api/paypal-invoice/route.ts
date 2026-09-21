@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
     if (stampError) {
       console.error("paypal-invoice: failed to stamp invoice id:", stampError.message);
     }
-    // The pending-order row: this is what the admin's Pending invoices
+    // The pending-order row: this is what the admin's Open orders
     // panel lists, payment link included.
     const row = {
       paypal_invoice_id: result.invoiceId,
@@ -260,7 +260,7 @@ export async function POST(req: NextRequest) {
           ? `Couldn't save the order (${orderError}) — the invoice is out, but it won't be listed under Open orders.`
           : null,
         rowError
-          ? "Couldn't save the pending order — copy the payment link now; it won't be listed under Pending invoices."
+          ? "Couldn't save the pending order — copy the payment link now; it won't be listed under Open orders."
           : null,
       ]
         .filter(Boolean)

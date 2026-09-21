@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { DbRecord } from "@/lib/supabase";
 import {
   byLetter,
@@ -12,6 +13,7 @@ import {
   type PickRow,
 } from "@/lib/admin/pick-list";
 import { useAdmin } from "../_shell/admin-provider";
+import { NextStep, nextStepLinkClass } from "../_shell/next-step";
 import { smallButtonClass } from "../_shell/ui";
 
 // The phone page for pulling records off the shelf: every record in a paid
@@ -132,6 +134,15 @@ export function PickPage() {
           </div>
         ) : null}
       </header>
+
+      {total > 0 && picked === total ? (
+        <NextStep>
+          <span>All {total} pulled.</span>
+          <Link href="/admin/pack" className={nextStepLinkClass}>
+            Go to Pack →
+          </Link>
+        </NextStep>
+      ) : null}
 
       {total === 0 ? (
         <div className="mt-8 rounded-2xl border border-white/10 p-6 text-center text-neutral-400">

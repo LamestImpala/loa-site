@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import Link from "next/link";
 import type { Shipment } from "@/lib/supabase";
 import {
   combineLabels,
@@ -18,6 +19,7 @@ import {
 import { openParcels, sortByPackOrder } from "@/lib/admin/pack-list";
 import { setParcelTracking } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
+import { NextStep, nextStepLinkClass } from "../_shell/next-step";
 import { buttonClass, inputClass, smallButtonClass } from "../_shell/ui";
 import { extractLines } from "./pdf-text";
 
@@ -57,6 +59,7 @@ export function LabelsPage() {
   const [layoutError, setLayoutError] = useState("");
   const [startOnBottom, setStartOnBottom] = useState(false);
   const [busy, setBusy] = useState<null | "combine" | "save">(null);
+  const [savedBoxes, setSavedBoxes] = useState(0); // boxes given tracking by the last save
   const [dragging, setDragging] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -271,6 +274,7 @@ export function LabelsPage() {
         ).map((s: Shipment) => byBox.get(s.id)!),
         ...ready.filter((r) => r.parcelId == null),
       ];
+      setSavedBoxes(saved);
       pushToast(
         "success",
         `Saved tracking on ${saved} box${saved === 1 ? "" : "es"} — opening the labels in Box # order.`
@@ -301,6 +305,17 @@ export function LabelsPage() {
           {candidates.length} box{candidates.length === 1 ? "" : "es"} awaiting a label
         </span>
       </header>
+
+      {savedBoxes > 0 ? (
+        <NextStep>
+          <span>
+            Tracking saved on {savedBoxes} box{savedBoxes === 1 ? "" : "es"}.
+          </span>
+          <Link href="/admin#fulfillment" className={nextStepLinkClass}>
+            Back to the Inbox to sync fees and confirm the trades →
+          </Link>
+        </NextStep>
+      ) : null}
 
       <div
         role="button"

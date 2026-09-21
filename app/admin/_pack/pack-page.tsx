@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { DbRecord, Shipment } from "@/lib/supabase";
 import {
   openParcels,
@@ -12,6 +13,7 @@ import {
 import { packingSlips } from "@/lib/admin/packing-slips";
 import { createParcel } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
+import { NextStep, nextStepLinkClass } from "../_shell/next-step";
 import { buttonClass, smallButtonClass } from "../_shell/ui";
 
 // The packing table: one card per paid order still on the table. Each
@@ -171,6 +173,27 @@ export function PackPage() {
         carries it, so keep the boxes in Box # order on the table and the
         labels will print in the same order.
       </p>
+
+      {progress.loose === 0 && progress.boxes > 0 ? (
+        <NextStep>
+          <span>
+            Everything&rsquo;s boxed — {progress.boxes} box
+            {progress.boxes === 1 ? " needs" : "es need"} a label.
+          </span>
+          <a
+            href="https://www.paypal.com/activities"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={nextStepLinkClass}
+          >
+            Buy labels in PayPal ↗
+          </a>
+          <span>then</span>
+          <Link href="/admin/labels" className={nextStepLinkClass}>
+            drop the PDFs on Labels →
+          </Link>
+        </NextStep>
+      ) : null}
 
       {list.length === 0 ? (
         <div className="mt-8 rounded-2xl border border-white/10 p-6 text-center text-neutral-400">
