@@ -38,7 +38,7 @@ import {
   soldPatch,
 } from "@/lib/admin/sales";
 import { useAdminSession } from "../admin-gate";
-import type { Toast } from "./ui";
+import type { ConfirmRequest, Toast } from "./ui";
 
 // Everything the admin pages share: the signed-in Supabase client, the
 // loaded tables, the toast/clipboard helpers, and the sale-desk selection.
@@ -107,6 +107,9 @@ type AdminContextValue = {
   toasts: Toast[];
   pushToast: (kind: Toast["kind"], text: string, action?: Toast["action"]) => void;
   dismissToast: (id: number) => void;
+  // The admin's own confirm dialog: resolves true only on the confirm button.
+  confirm: (message: string, confirmLabel?: string) => Promise<boolean>;
+  confirmRequest: ConfirmRequest | null;
   clipboardFallback: { title: string; text: string } | null;
   setClipboardFallback: Setter<{ title: string; text: string } | null>;
   copyText: (text: string, fallbackTitle: string) => Promise<boolean>;
@@ -282,6 +285,26 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, ttl);
     },
+    []
+  );
+
+  // One question at a time: asking again cancels the one still open.
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const confirm = useCallback(
+    (message: string, confirmLabel?: string) =>
+      new Promise<boolean>((resolve) => {
+        setConfirmRequest((prev) => {
+          prev?.resolve(false);
+          return {
+            message,
+            confirmLabel,
+            resolve: (ok) => {
+              setConfirmRequest(null);
+              resolve(ok);
+            },
+          };
+        });
+      }),
     []
   );
 
@@ -962,6 +985,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     toasts,
     pushToast,
     dismissToast,
+    confirm,
+    confirmRequest,
     clipboardFallback,
     setClipboardFallback,
     copyText,

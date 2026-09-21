@@ -433,12 +433,18 @@ export function LabelsPage() {
                       className={inputClass}
                     >
                       <option value="">— no box (just print) —</option>
-                      {candidates.map((c) => (
+                      {/* Best guesses first, so a wrong match is one pick
+                          away from the runner-up. */}
+                      {(r.extracted
+                        ? matchParcel(r.extracted, candidates).ranked
+                        : candidates.map((candidate) => ({ candidate, score: 0 }))
+                      ).map(({ candidate: c, score }) => (
                         <option
                           key={c.shipment.id}
                           value={c.shipment.id}
                           disabled={takenElsewhere.has(c.shipment.id)}
                         >
+                          {score > 0 ? "★ " : ""}
                           {boxLabel(c)}
                         </option>
                       ))}

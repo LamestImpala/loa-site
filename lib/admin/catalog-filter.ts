@@ -109,3 +109,46 @@ export function sortRecords(
     }
   });
 }
+
+// The catalog's view in the URL (?q=&genre=&sort=…), so a reload, the back
+// button and a bookmark all land on the same list. Defaults are left out;
+// anything unrecognised falls back to its default. Other params on the
+// URL (the drawer's ?record=) are the caller's to keep.
+const SORT_KEYS: SortKey[] = ["artist", "price-desc", "price-asc", "interest", "added"];
+const INTEREST_KEYS: InterestFilter[] = ["all", "clicked-no-request", "manual-off-market"];
+const SHOWN_KEYS: CatalogFilters["shown"][] = ["all", "shown", "hidden"];
+const SOLD_KEYS: CatalogFilters["sold"][] = ["all", "sold", "unsold"];
+export const FILTER_PARAMS = ["q", "genre", "collection", "letter", "shown", "sold", "interest", "sort"];
+
+const oneOf = <T extends string>(keys: T[], raw: string | null, fallback: T): T =>
+  keys.includes(raw as T) ? (raw as T) : fallback;
+
+export function filtersFromQuery(
+  params: Pick<URLSearchParams, "get">
+): { filters: CatalogFilters; sort: SortKey } {
+  return {
+    filters: {
+      search: params.get("q") ?? "",
+      genre: params.get("genre") || "all",
+      collection: params.get("collection") || "all",
+      letter: params.get("letter") || null,
+      shown: oneOf(SHOWN_KEYS, params.get("shown"), "all"),
+      sold: oneOf(SOLD_KEYS, params.get("sold"), "all"),
+      interest: oneOf(INTEREST_KEYS, params.get("interest"), "all"),
+    },
+    sort: oneOf(SORT_KEYS, params.get("sort"), "artist"),
+  };
+}
+
+export function filtersToQuery(filters: CatalogFilters, sort: SortKey): URLSearchParams {
+  const out = new URLSearchParams();
+  if (filters.search) out.set("q", filters.search);
+  if (filters.genre !== "all") out.set("genre", filters.genre);
+  if (filters.collection !== "all") out.set("collection", filters.collection);
+  if (filters.letter) out.set("letter", filters.letter);
+  if (filters.shown !== "all") out.set("shown", filters.shown);
+  if (filters.sold !== "all") out.set("sold", filters.sold);
+  if (filters.interest !== "all") out.set("interest", filters.interest);
+  if (sort !== "artist") out.set("sort", sort);
+  return out;
+}

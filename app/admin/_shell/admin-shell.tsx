@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useAdmin } from "./admin-provider";
 import { AdminNav } from "./admin-nav";
-import { ClipboardFallbackModal, ToastStack, buttonClass } from "./ui";
+import { ClipboardFallbackModal, ConfirmDialog, ToastStack, buttonClass } from "./ui";
 
 // Page chrome shared by every /admin page: nav, account controls, the
 // load-error banner, and the toast / clipboard-fallback overlays.
@@ -17,6 +17,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     setLoadError,
     toasts,
     dismissToast,
+    confirmRequest,
     clipboardFallback,
     setClipboardFallback,
   } = useAdmin();
@@ -65,6 +66,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       </section>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <ConfirmDialog request={confirmRequest} />
       <ClipboardFallbackModal
         fallback={clipboardFallback}
         onClose={() => setClipboardFallback(null)}

@@ -83,18 +83,13 @@ export type Shipment = {
   buyer_username: string;
   record_ids: number[];
   to_address: Record<string, unknown>;
-  address_verified: boolean | null;
-  parcel: Record<string, unknown>;
   paypal_invoice_id: string | null;
   order_id: number | null; // fulfillment groups parcels by order
-  rate_amount: number | null;
-  service: string | null;
-  label_url: string | null;
   tracking_code: string | null;
   carrier: string; // USPS default
   postage_cost: number | null; // what the label cost — a deductible expense
   mode: string | null;
-  status: "draft" | "purchased" | "shipped" | "refunded";
+  status: "draft" | "shipped" | "refunded";
   paypal_tracker_id: string | null; // "{txnId}-{trackingNumber}" once known in PayPal
   paypal_tracked_number: string | null; // the tracking number PayPal currently has
   paypal_synced_at: string | null;
