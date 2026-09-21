@@ -1,4 +1,4 @@
-import type { DbRecord, Order, Shipment } from "../supabase.ts";
+import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
 
 // Fulfillment rules: how sold records and parcels group per order, what
 // PayPal already knows about a parcel, and the r/VinylCollectors trade
@@ -128,5 +128,49 @@ export function groupOrders(
   return [...map.values()].sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
     return a.buyer.localeCompare(b.buyer);
+  });
+}
+
+// Where an order stands, as the one job still open on it — what the
+// fulfillment card names in its pill and offers as its main button:
+//   pack   records not in a box yet            → the pack page
+//   label  a box with no tracking number       → the labels page
+//   push   tracking PayPal hasn't been told    → Push to PayPal
+//   sync   invoice with no PayPal fee recorded → Sync from PayPal
+//   done   nothing left but the trade confirmation
+export type OrderStage = "pack" | "label" | "push" | "sync" | "done";
+
+export const pushable = (s: Shipment) =>
+  !!s.tracking_code && !!s.paypal_invoice_id && !inPayPal(s) && !pushNotNeeded(s);
+
+export function orderStage(
+  g: Pick<OrderGroup, "unassigned" | "shipments" | "invoiceId">,
+  invoice: Pick<Invoice, "paypal_fee"> | null | undefined
+): OrderStage {
+  if (g.unassigned.length > 0) return "pack";
+  if (g.shipments.some((s) => !s.tracking_code)) return "label";
+  if (g.shipments.some(pushable)) return "push";
+  if (g.invoiceId && invoice?.paypal_fee == null) return "sync";
+  return "done";
+}
+
+// When the order started waiting on the seller: the order row's date, or
+// for sales that predate the orders table the earliest sold date.
+export function waitingSince(g: Pick<OrderGroup, "order" | "records">): number {
+  if (g.order) return new Date(g.order.created_at).getTime();
+  const times = g.records
+    .map((r) => new Date(r.sold_at ?? r.updated_at).getTime())
+    .filter((t) => Number.isFinite(t));
+  return times.length ? Math.min(...times) : 0;
+}
+
+// The fulfillment panel's order: open orders longest-waiting first, then
+// finished ones most recently shipped first.
+export function byLongestWaiting(groups: OrderGroup[]): OrderGroup[] {
+  return [...groups].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return a.done
+      ? b.lastActivity - a.lastActivity
+      : waitingSince(a) - waitingSince(b) || a.key.localeCompare(b.key);
   });
 }

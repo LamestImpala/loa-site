@@ -1,17 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DbRecord, Invoice, Order, Shipment } from "@/lib/supabase";
 import {
   buyerNudge,
+  byLongestWaiting,
   confirmationComment,
   groupOrders,
   inPayPal,
   needsRepush,
+  orderStage,
   pushNotNeeded,
+  pushable,
   type OrderGroup,
+  type OrderStage,
 } from "@/lib/admin/fulfillment";
+import { parseMoney } from "@/lib/admin/sales";
 import {
   createParcel as createParcelDb,
   mirrorTracking as mirrorTrackingDb,
@@ -42,6 +48,39 @@ import { BuyerField } from "./_shell/buyer-field";
 
 
 const CARRIERS = ["USPS", "UPS", "FEDEX", "DHL", "OTHER"];
+
+// The button for the one job an order is waiting on.
+const primaryButtonClass =
+  "rounded-lg border border-white bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40";
+
+const amberPill = "border-amber-400/40 text-amber-300";
+const STAGE_PILL: Record<OrderStage, { label: string; title: string; className: string }> = {
+  pack: {
+    label: "To pack",
+    title: "Records on this order aren't in a box yet",
+    className: amberPill,
+  },
+  label: {
+    label: "Needs label",
+    title: "A box on this order has no tracking number",
+    className: amberPill,
+  },
+  push: {
+    label: "Tracking not in PayPal",
+    title: "A manual tracking number hasn't been pushed to PayPal",
+    className: amberPill,
+  },
+  sync: {
+    label: "Shipped · fee not recorded",
+    title: "Everything has tracking; the PayPal fee isn't recorded yet — Sync from PayPal reads it once PayPal publishes the transaction",
+    className: "border-sky-400/40 text-sky-300",
+  },
+  done: {
+    label: "Fulfilled",
+    title: "Every record is in a tracked parcel and the costs are recorded",
+    className: "border-green-500/40 bg-green-500/10 text-green-400",
+  },
+};
 
 // A fulfilled order stays under "completed" this long after its last
 // shipment update, then moves to the archive. Keyed to fulfillment (not the
@@ -107,7 +146,7 @@ export function FulfillmentPanel({
   );
 
   const groups = useMemo(
-    () => groupOrders(records, shipments, orders),
+    () => byLongestWaiting(groupOrders(records, shipments, orders)),
     [records, shipments, orders]
   );
 
@@ -245,14 +284,6 @@ export function FulfillmentPanel({
       return next;
     });
     await mirrorTracking(s.record_ids ?? [], value);
-  }
-
-  // "" clears the stored amount; "$" prefixes are tolerated.
-  function parseMoney(raw: string): number | null | undefined {
-    const t = raw.trim().replace(/^\$/, "");
-    if (t === "") return null;
-    const n = Number(t);
-    return Number.isFinite(n) && n >= 0 ? n : undefined;
   }
 
   async function savePostage(s: Shipment) {
@@ -485,9 +516,11 @@ export function FulfillmentPanel({
     return body;
   }
 
-  async function syncFromPayPal(g: OrderGroup) {
+  // `quiet` (a sync-all pass) keeps the outcome as the card's inline note
+  // and leaves the toast to the caller's one summary.
+  async function syncFromPayPal(g: OrderGroup, quiet = false): Promise<boolean> {
     const invoiceId = (invoiceEdits[g.key] ?? g.invoiceId).trim();
-    if (!invoiceId || busy) return;
+    if (!invoiceId || (busy && !quiet)) return false;
     setBusy(g.key);
     note(g.key, "Syncing…");
     try {
@@ -519,8 +552,8 @@ export function FulfillmentPanel({
         );
       }
       if (body.error) {
-        note(g.key, String(body.error), "error");
-        return;
+        note(g.key, String(body.error), quiet ? undefined : "error");
+        return false;
       }
       const returned = (body.shipments ?? []) as Shipment[];
       const returnedIds = new Set(returned.map((s) => s.id));
@@ -560,13 +593,35 @@ export function FulfillmentPanel({
         ]
           .filter(Boolean)
           .join(" "),
-        "success"
+        quiet ? undefined : "success"
       );
+      return true;
     } catch (e) {
-      note(g.key, e instanceof Error ? e.message : "Sync failed", "error");
+      note(g.key, e instanceof Error ? e.message : "Sync failed", quiet ? undefined : "error");
+      return false;
     } finally {
       setBusy(null);
     }
+  }
+
+  // Every order still missing its PayPal fee, one after another. Each
+  // card keeps its own note; one toast sums the pass up.
+  const [syncingAll, setSyncingAll] = useState(false);
+  async function syncAll(targets: OrderGroup[]) {
+    if (targets.length === 0 || busy || syncingAll) return;
+    setSyncingAll(true);
+    let ok = 0;
+    for (const g of targets) {
+      if (await syncFromPayPal(g, true)) ok++;
+    }
+    setSyncingAll(false);
+    const failed = targets.length - ok;
+    pushToast?.(
+      failed > 0 ? "error" : "success",
+      `Synced ${ok} of ${targets.length} order${targets.length === 1 ? "" : "s"} from PayPal${
+        failed > 0 ? ` — ${failed} couldn't be synced; see the note on each card` : ""
+      }.`
+    );
   }
 
   async function pushToPayPal(list: Shipment[], noteKey: string) {
@@ -631,33 +686,64 @@ export function FulfillmentPanel({
   };
 
   const doneCount = completedGroups.length;
+  // Orders inside the archive window whose invoice has no PayPal fee yet.
+  const syncTargets = groups.filter(
+    (g) =>
+      !!g.invoiceId &&
+      (!g.done || g.lastActivity >= archiveCutoff) &&
+      invoiceById.get(g.invoiceId)?.paypal_fee == null
+  );
 
   return (
     <div className="mt-3">
       <p className="text-sm text-neutral-400">
-        One card per order. Split each order into parcels, one
-        tracking number per parcel. &ldquo;Sync from PayPal&rdquo; pulls the
-        numbers from labels bought inside PayPal; a manual parcel&rsquo;s
-        number can be pushed the other way (PayPal emails the buyer). PayPal
-        Shipping labels never show up in the sync — click a parcel&rsquo;s
-        &ldquo;manual&rdquo; chip to mark it &ldquo;PayPal label&rdquo; instead
-        of pushing, since its tracking is already on the transaction. Each
-        parcel takes its postage cost, and each invoice the PayPal fee and
-        shipping charged — those feed the Net stat and the tax records.
+        One card per order, longest-waiting first. The pill says what&rsquo;s
+        left on it; the bright button does that job.
       </p>
+      <details className="mt-1 text-sm text-neutral-400">
+        <summary className="cursor-pointer text-neutral-500 transition hover:text-white">
+          How tracking and costs sync with PayPal
+        </summary>
+        <p className="mt-2 max-w-3xl">
+          One card per order. Split each order into parcels, one
+          tracking number per parcel. &ldquo;Sync from PayPal&rdquo; pulls the
+          numbers from labels bought inside PayPal; a manual parcel&rsquo;s
+          number can be pushed the other way (PayPal emails the buyer). PayPal
+          Shipping labels never show up in the sync — click a parcel&rsquo;s
+          &ldquo;manual&rdquo; chip to mark it &ldquo;PayPal label&rdquo; instead
+          of pushing, since its tracking is already on the transaction. Each
+          parcel takes its postage cost, and each invoice the PayPal fee and
+          shipping charged — those feed the Net stat and the tax records.
+        </p>
+      </details>
       {notes["panel"] ? (
         <p className="mt-2 text-xs text-yellow-400">{notes["panel"]}</p>
       ) : null}
-      {doneCount > 0 ? (
-        <button
-          type="button"
-          onClick={() => setShowDone((v) => !v)}
-          className={`mt-3 ${smallButtonClass}`}
-        >
-          {showDone ? "Hide" : "Show"} {doneCount} completed order
-          {doneCount === 1 ? "" : "s"}
-        </button>
-      ) : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {syncTargets.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => syncAll(syncTargets)}
+            disabled={!!busy || syncingAll}
+            title="Sync from PayPal on every order still missing its PayPal fee — also reads tracking and the buyer's address. PayPal publishes a transaction's fee a few hours after payment."
+            className={smallButtonClass}
+          >
+            {syncingAll
+              ? "Syncing…"
+              : `Sync ${syncTargets.length} order${syncTargets.length === 1 ? "" : "s"} from PayPal`}
+          </button>
+        ) : null}
+        {doneCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowDone((v) => !v)}
+            className={smallButtonClass}
+          >
+            {showDone ? "Hide" : "Show"} {doneCount} completed order
+            {doneCount === 1 ? "" : "s"}
+          </button>
+        ) : null}
+      </div>
       {visibleGroups.length === 0 ? (
         <p className="mt-3 text-sm text-neutral-400">
           Nothing to fulfill — sold records with a buyer show up here.
@@ -713,14 +799,16 @@ export function FulfillmentPanel({
     const invoicedTotal = recordsTotal - credit + (shippingCharged ?? 0);
     const money = (n: number) =>
       `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-    const pushables = g.shipments.filter(
-      (s) =>
-        s.tracking_code &&
-        s.paypal_invoice_id &&
-        !inPayPal(s) &&
-        !pushNotNeeded(s)
-    );
+    const pushables = g.shipments.filter(pushable);
     const paid = !!invoice?.paid_at;
+    const stage = orderStage(g, invoice);
+    // The address comes with the payment; without it Pack has nowhere to
+    // send the box.
+    const needsAddress =
+      !g.done && !!g.order && !!invoiceValue.trim() && !g.order.ship_to?.name;
+    // One bright button per card: fetching the address (one click) comes
+    // before packing, since the slip and the label match both use it.
+    const linkClass = `inline-block ${needsAddress ? buttonClass : primaryButtonClass}`;
     return (
               <div
                 key={g.key}
@@ -795,46 +883,51 @@ export function FulfillmentPanel({
                       {new Date(invoice!.paid_at!).toLocaleDateString()}
                     </span>
                   ) : null}
-                  {g.done ? (
-                    <span className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-400">
-                      Fulfilled
-                    </span>
-                  ) : null}
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-xs ${STAGE_PILL[stage].className}`}
+                    title={STAGE_PILL[stage].title}
+                  >
+                    {STAGE_PILL[stage].label}
+                  </span>
                 </div>
 
+                {/* The one job left on this order gets the bright button; the
+                    rest stay available beside it. */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={invoiceValue}
-                    onChange={(e) =>
-                      setInvoiceEdits((prev) => ({
-                        ...prev,
-                        [g.key]: e.target.value,
-                      }))
-                    }
-                    onBlur={() => saveInvoiceId(g)}
-                    onKeyDown={blurOnEnter}
-                    placeholder="PayPal invoice id (INV2-…)"
-                    className={`w-64 ${inputClass}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => syncFromPayPal(g)}
-                    disabled={!invoiceValue.trim() || groupBusy}
-                    title="Record the invoice's PayPal fee and shipping charge, and read tracking from labels bought via the transaction page (PayPal Shipping labels don't appear — mark those parcels 'PayPal label')"
-                    className={buttonClass}
-                  >
-                    {groupBusy ? "Working…" : "Sync from PayPal"}
-                  </button>
+                  {stage === "pack" ? (
+                    <Link href="/admin/pack" className={linkClass}>
+                      Pack {g.unassigned.length} record
+                      {g.unassigned.length === 1 ? "" : "s"} →
+                    </Link>
+                  ) : stage === "label" ? (
+                    <Link href="/admin/labels" className={linkClass}>
+                      Add labels →
+                    </Link>
+                  ) : null}
                   {pushables.length > 0 ? (
                     <button
                       type="button"
                       onClick={() => pushToPayPal(pushables, g.key)}
                       disabled={groupBusy}
                       title="Send this order's manual tracking numbers to PayPal — the buyer gets a shipping email"
-                      className={buttonClass}
+                      className={
+                        stage === "push" && !needsAddress ? primaryButtonClass : buttonClass
+                      }
                     >
                       Push {pushables.length} to PayPal
+                    </button>
+                  ) : null}
+                  {invoiceValue.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() => syncFromPayPal(g)}
+                      disabled={groupBusy || syncingAll}
+                      title="Record the invoice's PayPal fee and shipping charge, read the buyer's address, and read tracking from labels bought via the transaction page (PayPal Shipping labels don't appear — mark those parcels 'PayPal label')"
+                      className={
+                        stage === "sync" || needsAddress ? primaryButtonClass : buttonClass
+                      }
+                    >
+                      {groupBusy ? "Working…" : "Sync from PayPal"}
                     </button>
                   ) : null}
                   {paid && g.records.length > 0 ? (
@@ -865,27 +958,50 @@ export function FulfillmentPanel({
                           ? "Copied!"
                           : "Copy buyer nudge"}
                       </button>
-                      <input
-                        type="text"
-                        value={
-                          threadEdits[g.key] ??
-                          invoice?.reddit_thread_url ??
-                          ""
-                        }
-                        onChange={(e) =>
-                          setThreadEdits((prev) => ({
-                            ...prev,
-                            [g.key]: e.target.value,
-                          }))
-                        }
-                        onBlur={() => saveThreadUrl(g)}
-                        onKeyDown={blurOnEnter}
-                        placeholder="confirmation thread URL (this sale)"
-                        title="Used instead of the saved sale-post URL for this sale — e.g. when it came from a weekly post. Blank = default."
-                        className={`w-72 ${inputClass}`}
-                      />
                     </>
                   ) : null}
+                </div>
+                {needsAddress ? (
+                  <p className="mt-2 text-xs text-amber-400">
+                    No ship-to address on this order yet — Sync from PayPal
+                    reads it off the payment.
+                  </p>
+                ) : null}
+
+                <details className="mt-3 text-sm">
+                  <summary className="cursor-pointer text-xs text-neutral-500 transition hover:text-white">
+                    Invoice &amp; costs
+                    <span className="ml-2 text-neutral-400">
+                      {[
+                        invoiceValue.trim() || "no invoice",
+                        invoiceValue.trim()
+                          ? invoice?.paypal_fee != null
+                            ? `fee ${money(Number(invoice.paypal_fee))}`
+                            : "fee not recorded"
+                          : null,
+                        shippingCharged != null
+                          ? `shipping ${money(shippingCharged)}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </summary>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={invoiceValue}
+                    onChange={(e) =>
+                      setInvoiceEdits((prev) => ({
+                        ...prev,
+                        [g.key]: e.target.value,
+                      }))
+                    }
+                    onBlur={() => saveInvoiceId(g)}
+                    onKeyDown={blurOnEnter}
+                    placeholder="PayPal invoice id (INV2-…)"
+                    className={`w-64 ${inputClass}`}
+                  />
                   {invoiceValue.trim() ? (
                     <>
                       <input
@@ -920,7 +1036,31 @@ export function FulfillmentPanel({
                       />
                     </>
                   ) : null}
-                </div>
+                  {paid && g.records.length > 0 ? (
+                    <>
+                      <input
+                        type="text"
+                        value={
+                          threadEdits[g.key] ??
+                          invoice?.reddit_thread_url ??
+                          ""
+                        }
+                        onChange={(e) =>
+                          setThreadEdits((prev) => ({
+                            ...prev,
+                            [g.key]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => saveThreadUrl(g)}
+                        onKeyDown={blurOnEnter}
+                        placeholder="confirmation thread URL (this sale)"
+                        title="Used instead of the saved sale-post URL for this sale — e.g. when it came from a weekly post. Blank = default."
+                        className={`w-72 ${inputClass}`}
+                      />
+                    </>
+                  ) : null}
+                  </div>
+                </details>
                 {notes[g.key] ? (
                   <p className="mt-2 text-xs text-yellow-400">{notes[g.key]}</p>
                 ) : null}
