@@ -1,5 +1,5 @@
-import type { DbRecord, Order, Shipment, ShipTo } from "../supabase.ts";
-import { groupOrders } from "./fulfillment.ts";
+import type { DbRecord, Invoice, Order, Shipment, ShipTo } from "../supabase.ts";
+import { groupOrders, orderStage } from "./fulfillment.ts";
 
 // Pack rules: which paid orders are on the packing table, what's still
 // loose in each, which boxes are sealed, and the one order boxes go in
@@ -139,4 +139,79 @@ export function packProgress(list: PackOrder[]) {
     0
   );
   return { orders: list.length, loose, boxes };
+}
+
+// Ship manifest rows: every package still open on the fulfillment board,
+// labeled or not — a box has its label on when its tracking is recorded,
+// which is before it leaves the house, so "awaiting a label" is the
+// wrong net. An order leaves the manifest when its stage is done (all
+// boxed, tracked, pushed and fee-synced), the same moment it leaves the
+// board. Boxed rows first in pack order (the slip and label order), then
+// one row per order whose records aren't in a box in the app yet.
+export type ManifestRow = {
+  boxId: number | null; // null: the order's records aren't boxed in the app
+  buyer: string;
+  shipTo: ShipTo | null;
+  boxIndex: number;
+  boxCount: number;
+  tracking: string | null;
+  records: number;
+};
+
+export function manifestRows(
+  records: DbRecord[],
+  shipments: Shipment[],
+  orders: Order[],
+  invoices: Pick<Invoice, "paypal_invoice_id" | "paypal_fee">[]
+): ManifestRow[] {
+  const invoiceById = new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv]));
+  const boxed: { row: ManifestRow; s: Shipment }[] = [];
+  const loose: ManifestRow[] = [];
+  for (const g of groupOrders(records.filter((r) => r.sold), shipments, orders)) {
+    if (g.order && g.order.status !== "paid") continue;
+    if (orderStage(g, invoiceById.get(g.invoiceId)) === "done") continue;
+    const parcels = sortByPackOrder(g.shipments);
+    const shipToOf = (s: Shipment): ShipTo | null => {
+      const snap = s.to_address as Partial<ShipTo> | null | undefined;
+      return snap && (snap.name || snap.line1)
+        ? {
+            name: snap.name ?? null,
+            line1: snap.line1 ?? null,
+            line2: snap.line2 ?? null,
+            city: snap.city ?? null,
+            state: snap.state ?? null,
+            postal_code: snap.postal_code ?? null,
+            country_code: snap.country_code ?? null,
+          }
+        : (g.order?.ship_to ?? null);
+    };
+    parcels.forEach((s, i) =>
+      boxed.push({
+        s,
+        row: {
+          boxId: s.id,
+          buyer: g.buyer,
+          shipTo: shipToOf(s),
+          boxIndex: i + 1,
+          boxCount: parcels.length,
+          tracking: s.tracking_code,
+          records: (s.record_ids ?? []).length,
+        },
+      })
+    );
+    if (g.unassigned.length > 0)
+      loose.push({
+        boxId: null,
+        buyer: g.buyer,
+        shipTo: g.order?.ship_to ?? null,
+        boxIndex: 1,
+        boxCount: 1,
+        tracking: null,
+        records: g.unassigned.length,
+      });
+  }
+  return [
+    ...sortByPackOrder(boxed.map(({ s, row }) => ({ ...s, row }))).map((x) => x.row),
+    ...loose.sort((a, b) => a.buyer.localeCompare(b.buyer, undefined, { sensitivity: "base" })),
+  ];
 }

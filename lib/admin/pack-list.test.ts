@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  manifestRows,
   openParcels,
   packList,
   packProgress,
@@ -103,4 +104,40 @@ test("open parcels: untracked and not refunded, sealed ones first, card-made one
     shipment({ id: 4, packed_at: "2026-09-15T08:00:00Z", tracking_code: null, status: "refunded" }),
   ]);
   assert.deepEqual(open.map((s) => s.id), [1, 3]);
+});
+
+test("manifest: open orders' boxes in pack order, labeled or not, then unboxed orders; done orders drop", () => {
+  const orders = [
+    order({ id: 1, status: "paid", buyer_username: "zed", ship_to: shipTo, paypal_invoice_id: "INV-1" }),
+    order({ id: 2, status: "paid", buyer_username: "amy" }),
+    order({ id: 3, status: "paid", buyer_username: "bob", paypal_invoice_id: "INV-3" }),
+    order({ id: 4, status: "invoiced", buyer_username: "cal" }),
+  ];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1 }),
+    rec({ id: 2, sold: true, order_id: 1 }),
+    rec({ id: 3, sold: true, order_id: 2 }),
+    rec({ id: 4, sold: true, order_id: 3 }),
+    rec({ id: 5, sold: true, order_id: 4 }),
+  ];
+  const shipments = [
+    // zed: two boxes, both labeled, manual mode so they wait on "push"
+    shipment({ id: 7, order_id: 1, record_ids: [1], tracking_code: "9400111", paypal_invoice_id: "INV-1", packed_at: "2026-09-15T10:00:00Z" }),
+    shipment({ id: 8, order_id: 1, record_ids: [2], tracking_code: "9400222", paypal_invoice_id: "INV-1", packed_at: "2026-09-15T09:00:00Z" }),
+    // bob: labeled, PayPal-bought (no push needed), fee synced → done
+    shipment({ id: 9, order_id: 3, record_ids: [4], tracking_code: "9400333", mode: "paypal", paypal_invoice_id: "INV-3" }),
+  ];
+  const rows = manifestRows(records, shipments, orders, [
+    { paypal_invoice_id: "INV-1", paypal_fee: null },
+    { paypal_invoice_id: "INV-3", paypal_fee: 1.5 },
+  ]);
+  assert.deepEqual(
+    rows.map((r) => [r.boxId, r.buyer, r.boxIndex, r.boxCount, r.tracking, r.records]),
+    [
+      [8, "zed", 1, 2, "9400222", 1],
+      [7, "zed", 2, 2, "9400111", 1],
+      [null, "amy", 1, 1, null, 1],
+    ]
+  );
+  assert.equal(rows[0].shipTo?.name, "Jane Buyer");
 });
