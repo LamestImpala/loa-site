@@ -19,24 +19,29 @@ import {
   shuffle,
 } from "./reddit.ts";
 import { DAY, iso, rec } from "./fixtures.ts";
+import { INVOICE_HOLD_UNTIL } from "./records.ts";
 
 const NOW = Date.parse("2026-09-13T12:00:00Z");
 const lines = (md: string) => md.split("\n");
 const tableRows = (md: string) =>
   lines(md).filter((l) => l.startsWith("| ") && !l.startsWith("| Artist"));
 
-test("full-catalog post lists only listed, unsold records, alphabetically", () => {
+test("full-catalog post lists only listed, unsold, unheld records, alphabetically", () => {
   const md = redditMarkdown([
     rec({ id: 1, artist: "Zappa", title: "Hot Rats" }),
     rec({ id: 2, artist: "Beatles", title: "Revolver" }),
     rec({ id: 3, artist: "Can", title: "Ege Bamyasi", sold: true }),
     rec({ id: 4, artist: "Ash", title: "1977", listed: false }),
-  ]);
+    rec({ id: 5, artist: "Devo", title: "Freedom", hold_until: INVOICE_HOLD_UNTIL }),
+    rec({ id: 6, artist: "Eno", title: "Another Green World", hold_until: iso(NOW + DAY) }),
+    rec({ id: 7, artist: "Fela", title: "Zombie", hold_until: iso(NOW - DAY) }), // lapsed
+  ], NOW);
   const rows = tableRows(md);
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.match(rows[0], /^\| Beatles \| Revolver \| \$30 \|/);
-  assert.match(rows[1], /^\| Zappa \| Hot Rats \|/);
-  assert.equal(lines(md)[0], "[For Sale] 2 vinyl records — collection sale, audiophile pressings — PayPal G&S");
+  assert.match(rows[1], /^\| Fela \| Zombie \|/);
+  assert.match(rows[2], /^\| Zappa \| Hot Rats \|/);
+  assert.equal(lines(md)[0], "[For Sale] 3 vinyl records — collection sale, audiophile pressings — PayPal G&S");
   assert.ok(md.includes(SHOP_URL));
   assert.ok(md.includes(`bundles of ${FREE_SHIPPING_MIN}+ records`));
 });

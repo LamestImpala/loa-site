@@ -2,7 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PendingPriceChange, PriceRun } from "../supabase.ts";
-import { forSaleById, isActionable } from "./pricing.ts";
+import { approvalBlock, forSaleById, isActionable } from "./pricing.ts";
+import { rec } from "./fixtures.ts";
+import { INVOICE_HOLD_UNTIL } from "./records.ts";
 
 const run = (id: number, summary: { record_id: number; for_sale?: number | null }[]): PriceRun => ({
   id,
@@ -50,4 +52,26 @@ test("actionable cuts: modest with competition, or anything on a stocked release
   assert.equal(isActionable(change(3, 0.2), copies), false, "raises are never actionable");
   assert.equal(isActionable(change(3, 0), copies), false);
   assert.equal(isActionable(change(99, -0.1), copies), false, "unknown stock counts as none");
+});
+
+test("a flagged change waits while its record is sold, held, invoiced or repriced", () => {
+  const NOW = Date.parse("2026-09-22T12:00:00Z");
+  const p = { old_price: 30 };
+  assert.equal(approvalBlock(p, rec({ price: 30 }), NOW), null);
+  assert.equal(approvalBlock(p, undefined, NOW), "record not found");
+  assert.equal(approvalBlock(p, rec({ price: 30, sold: true }), NOW), "sold");
+  assert.equal(
+    approvalBlock(p, rec({ price: 30, hold_until: INVOICE_HOLD_UNTIL }), NOW),
+    "on an invoice"
+  );
+  assert.equal(
+    approvalBlock(p, rec({ price: 30, hold_until: "2026-09-23T00:00:00Z" }), NOW),
+    "on hold"
+  );
+  assert.equal(
+    approvalBlock(p, rec({ price: 30, hold_until: "2026-09-21T00:00:00Z" }), NOW),
+    null,
+    "a lapsed hold no longer blocks"
+  );
+  assert.equal(approvalBlock(p, rec({ price: 25 }), NOW), "price is now $25");
 });

@@ -6,6 +6,7 @@ import type { DbRecord, RedditPost } from "@/lib/supabase";
 import {
   REDDIT_BODY_LIMIT,
   pickWeekly,
+  offerable,
   redditMarkdown,
   redditStaleMarkdown,
   redditUpdateMarkdown,
@@ -126,9 +127,7 @@ export function RedditPage() {
       flash("table");
     }
     warnIfOverRedditLimit(md);
-    const listedIds = records
-      .filter((r) => r.listed && !r.sold)
-      .map((r) => r.id);
+    const listedIds = records.filter((r) => offerable(r)).map((r) => r.id);
     await archivePost("full", md.split("\n")[0], md, listedIds);
   }
 
@@ -144,10 +143,19 @@ export function RedditPage() {
   }
 
   async function copyWeeklyPost() {
-    const picks = records.filter((r) => selectedIds.has(r.id) && !r.sold);
+    const picks = records.filter((r) => selectedIds.has(r.id) && offerable(r));
     if (picks.length === 0) return;
+    const skipped = records.filter(
+      (r) => selectedIds.has(r.id) && !r.sold && !offerable(r)
+    ).length;
+    if (skipped > 0) {
+      pushToast(
+        "info",
+        `Left out ${skipped} pick${skipped === 1 ? "" : "s"} that are hidden, held or on an invoice.`
+      );
+    }
     warnIfStillLive("weekly");
-    const liveCount = records.filter((r) => r.listed && !r.sold).length;
+    const liveCount = records.filter((r) => offerable(r)).length;
     const md = redditWeeklyMarkdown(picks, liveCount, market);
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.

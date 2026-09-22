@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import type { DbRecord, RecordInterest } from "@/lib/supabase";
-import { holdActive } from "@/lib/admin/records";
+import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
 import type { MarketStats } from "@/lib/admin/market";
 import { buttonClass, inputClass, pct } from "../_shell/ui";
 
@@ -165,9 +165,9 @@ export const CatalogRow = memo(function CatalogRow({
         ) : holdActive(r) ? (
           <span
             className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
-            title={`Until ${new Date(r.hold_until as string).toLocaleString()}`}
+            title={`Held ${holdUntilText(r)}`}
           >
-            Held · u/{r.hold_buyer}
+            {invoiceHold(r) ? "Invoiced" : "Held"} · u/{r.hold_buyer}
           </span>
         ) : r.listed ? (
           <span className="text-neutral-500">on shop</span>

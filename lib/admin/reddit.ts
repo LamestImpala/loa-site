@@ -1,6 +1,6 @@
 import type { DbRecord, RedditPost } from "../supabase.ts";
 import { FREE_SHIPPING_MIN, SELLER_INFO } from "../records.ts";
-import { holdActive } from "./records.ts";
+import { reserved } from "./records.ts";
 import type { MarketMap, MarketStats } from "./market.ts";
 
 // Reddit post bodies for r/VinylCollectors: the full-catalog table, the
@@ -37,9 +37,14 @@ function topCollections(list: DbRecord[], n: number) {
     .map(([c]) => c);
 }
 
-export function redditMarkdown(records: DbRecord[]) {
+// What a new post may offer: on the shop and not reserved — a record held
+// for a buyer or on a live invoice would read as available for weeks.
+export const offerable = (r: DbRecord, now: number = Date.now()) =>
+  r.listed && !reserved(r, now);
+
+export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
   const list = records
-    .filter((r) => r.listed && !r.sold)
+    .filter((r) => offerable(r, now))
     .sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title));
   const rows = list.map((r) => {
     const title = r.photos
@@ -265,9 +270,7 @@ export function pickWeekly(
         (market[a.id]?.forSale ?? Infinity) - (market[b.id]?.forSale ?? Infinity)
       );
     });
-  const pool = records.filter(
-    (r) => r.listed && !r.sold && !holdActive(r, now)
-  );
+  const pool = records.filter((r) => offerable(r, now));
   const drops = pool
     .filter((r) => isRecentDrop(r, now))
     .sort((a, b) => dropPct(b) - dropPct(a))

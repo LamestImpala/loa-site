@@ -33,6 +33,22 @@ export const HOLD_HOURS = 48;
 export const holdExpiry = (now: number = Date.now()) =>
   new Date(now + HOLD_HOURS * 3600 * 1000).toISOString();
 
+// The live PayPal invoice any of these records is already on, if one is:
+// stamped on an unsold record, or held by an invoiced order a record
+// belongs to. A second invoice would replace the first on the order while
+// the first stays payable on PayPal, so the desk must cancel it first.
+export function liveInvoiceOn(
+  targets: Pick<DbRecord, "sold" | "paypal_invoice_id" | "order_id">[],
+  orders: Map<number, Pick<Order, "status" | "paypal_invoice_id">>
+): string | null {
+  for (const r of targets) {
+    if (!r.sold && r.paypal_invoice_id) return r.paypal_invoice_id;
+    const o = r.order_id != null ? orders.get(r.order_id) : undefined;
+    if (o?.status === "invoiced" && o.paypal_invoice_id) return o.paypal_invoice_id;
+  }
+  return null;
+}
+
 // An invoice unpaid this long is worth a nudge or a cancel.
 export const STALE_INVOICE_HOURS = 24;
 

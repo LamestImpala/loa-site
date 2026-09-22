@@ -9,7 +9,8 @@ import {
   type OrderRequest,
 } from "@/lib/supabase";
 import { bundleBreakdown } from "@/lib/records";
-import { holdExpiry } from "@/lib/admin/orders";
+import { liveInvoiceOn } from "@/lib/admin/orders";
+import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
 import { placeOrder, type PlacedOrder } from "@/lib/admin/orders-db";
 import {
   cancelInvoice,
@@ -27,14 +28,16 @@ import {
 //
 //   POST   { ids, buyer, email?, prices?, credit?, creditNote? } — create +
 //     send an invoice for a set of records, put them in an order
-//     (invoiced), hold them for the buyer, and save a pending `invoices`
+//     (invoiced), hold them for the buyer until the invoice is paid or
+//     cancelled, and save a pending `invoices`
 //     row (with the payment link) so the order survives clearing the sale
 //     desk. `prices` maps record id → negotiated price: the line shows the
 //     listed price with the difference as a discount. `credit` comes off
 //     the whole invoice as an invoice-level discount, `creditNote` in the
 //     note to the buyer.
 //   GET    ?id=INV2-…              — read the invoice's status from PayPal
-//     and mirror it (status, payment link, paid_at) onto the row.
+//     and mirror it (status, payment link, paid_at) onto the row. While
+//     it's still payable, its unsold records are (re)held until resolved.
 //   DELETE ?id=INV2-…              — cancel the invoice on PayPal, cancel
 //     its order, and release the records (stamp + hold + order cleared).
 
@@ -121,7 +124,7 @@ export async function POST(req: NextRequest) {
   const { data: recs, error: fetchError } = await supabase
     .from("records")
     .select(
-      "id, artist, title, media, sleeve, price, sold, order_id, hold_buyer, buyer_username"
+      "id, artist, title, media, sleeve, price, sold, order_id, hold_buyer, buyer_username, paypal_invoice_id"
     )
     .in("id", ids);
   if (fetchError) {
@@ -144,6 +147,38 @@ export async function POST(req: NextRequest) {
       { status: 409 }
     );
   }
+  // One live invoice per sale: re-invoicing would orphan the first one,
+  // still payable on PayPal. The seller cancels it first.
+  const orderIds = [
+    ...new Set(recs.map((r) => r.order_id).filter((id): id is number => id != null)),
+  ];
+  const { data: recOrders, error: ordersError } = orderIds.length
+    ? await supabase
+        .from("orders")
+        .select("id, status, paypal_invoice_id")
+        .in("id", orderIds)
+    : { data: [], error: null };
+  if (ordersError) {
+    return NextResponse.json({ error: ordersError.message }, { status: 502 });
+  }
+  const live = liveInvoiceOn(
+    recs,
+    new Map(
+      ((recOrders ?? []) as Pick<Order, "id" | "status" | "paypal_invoice_id">[]).map(
+        (o) => [o.id, o]
+      )
+    )
+  );
+  if (live) {
+    return NextResponse.json(
+      {
+        error: `These records are already on invoice ${live} — cancel it under Open orders first, then invoice again.`,
+        invoiceId: live,
+      },
+      { status: 409 }
+    );
+  }
+
   // Keep invoice line order matching the order the admin selected.
   recs.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 
@@ -185,7 +220,7 @@ export async function POST(req: NextRequest) {
       recipientEmail: email,
     });
     const now = new Date().toISOString();
-    const holdUntil = holdExpiry();
+    const holdUntil = INVOICE_HOLD_UNTIL;
     // The order: continue the open one these records share, else a new
     // one, now invoiced. Non-fatal: the invoice already exists.
     let placed: PlacedOrder | null = null;
@@ -210,7 +245,8 @@ export async function POST(req: NextRequest) {
       console.error("paypal-invoice: order failed:", orderError);
     }
     // Link the records to the invoice so fulfillment can find the PayPal
-    // transaction later, hold them for the buyer while they pay, and keep
+    // transaction later, hold them for the buyer until they pay or the
+    // invoice is cancelled, and keep
     // the negotiated price on each (so the sale lands at what was
     // invoiced). Non-fatal: the invoice already exists.
     const stamps = await Promise.all(
@@ -357,9 +393,27 @@ export async function GET(req: NextRequest) {
         order = (orderRow ?? null) as Order | null;
       }
     }
+    // Still payable: its unsold records stay held until it resolves. Heals
+    // holds that lapsed on invoices sent before holds lasted that long.
+    let heldIds: number[] = [];
+    if (!paid && !REFUNDED_STATUSES.has(payment.status) && payment.status !== "CANCELLED") {
+      const { data: held, error: holdError } = await supabase
+        .from("records")
+        .update({ hold_until: INVOICE_HOLD_UNTIL, updated_at: new Date().toISOString() })
+        .eq("paypal_invoice_id", id)
+        .eq("sold", false)
+        .or(`hold_until.is.null,hold_until.lt."${INVOICE_HOLD_UNTIL}"`)
+        .select("id");
+      if (holdError) {
+        console.error("paypal-invoice status: hold refresh failed:", holdError.message);
+      } else {
+        heldIds = (held ?? []).map((r) => r.id);
+      }
+    }
     return NextResponse.json({
       status: payment.status,
       paid,
+      heldIds,
       paidAt: (saved as Invoice).paid_at,
       recipientViewUrl: (saved as Invoice).recipient_view_url ?? null,
       invoice: saved as Invoice,

@@ -5,6 +5,7 @@ import type { Order, OrderRequest } from "../supabase.ts";
 import {
   advanceStatus,
   fallbackBuyer,
+  liveInvoiceOn,
   openOrders,
   pickOrder,
   requestForOrder,
@@ -150,4 +151,20 @@ test("open order totals use negotiated prices and take the order's credit off", 
   assert.equal(o.totals.total, 46, "$50 − $10 credit + $6 shipping");
   assert.match(o.totals.lines[0], /\$30 \(listed \$40\)$/);
   assert.doesNotMatch(o.totals.lines[1], /listed/);
+});
+
+test("a record already on a live invoice can't be invoiced again", () => {
+  const orders = new Map<number, Order>([
+    [1, order({ id: 1, status: "invoiced", paypal_invoice_id: "INV2-A" })],
+    [2, order({ id: 2, status: "held" })],
+    [3, order({ id: 3, status: "cancelled", paypal_invoice_id: "INV2-C" })],
+  ]);
+  assert.equal(liveInvoiceOn([rec({ paypal_invoice_id: "INV2-B" })], orders), "INV2-B");
+  assert.equal(liveInvoiceOn([rec({ order_id: 2 }), rec({ order_id: 1 })], orders), "INV2-A");
+  // Sold records keep their stamp after payment; a cancelled order is over.
+  assert.equal(
+    liveInvoiceOn([rec({ sold: true, paypal_invoice_id: "INV2-B" }), rec({ order_id: 3 })], orders),
+    null
+  );
+  assert.equal(liveInvoiceOn([rec({ order_id: 2 })], orders), null);
 });
