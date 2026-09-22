@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderRequest } from "../supabase.ts";
-import { inboxCount, worklist } from "./worklist.ts";
+import { inboxCount, sendCount, worklist } from "./worklist.ts";
 import { DAY, invoice, iso, order, rec, shipment } from "./fixtures.ts";
 
 const NOW = new Date("2026-09-20T12:00:00.000Z").getTime();
@@ -35,10 +35,37 @@ test("nothing to do is all zeros", () => {
     toPack: 0,
     needLabels: 0,
     toSend: 0,
+    toPush: 0,
     toSync: 0,
     toUnlist: 0,
   });
   assert.equal(inboxCount(w), 0);
+  assert.equal(sendCount(w), 0);
+});
+
+test("manual tracking PayPal hasn't heard about counts as a push", () => {
+  const w = worklist(
+    {
+      ...empty,
+      orders: [order({ id: 1, status: "paid", paypal_invoice_id: "INV-1" })],
+      invoices: [invoice({ paypal_invoice_id: "INV-1", paypal_fee: 1 })],
+      records: [rec({ id: 1, sold: true, order_id: 1 })],
+      shipments: [
+        shipment({
+          order_id: 1,
+          record_ids: [1],
+          tracking_code: "9400",
+          status: "shipped",
+          mode: "manual",
+          paypal_invoice_id: "INV-1",
+          sent_at: iso(NOW),
+        }),
+      ],
+    },
+    NOW
+  );
+  assert.equal(w.toPush, 1);
+  assert.equal(sendCount(w), 1);
 });
 
 test("only new requests count, not loaded ones", () => {

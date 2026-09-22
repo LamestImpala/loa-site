@@ -66,7 +66,6 @@ export function PackPage() {
     () => awaitingDropOff(shipments, orders),
     [shipments, orders]
   );
-  const [droppingOff, setDroppingOff] = useState(false);
   const invoiceById = useMemo(
     () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
     [invoices]
@@ -184,30 +183,6 @@ export function PackPage() {
     }
   }
 
-  async function markDroppedOff() {
-    if (droppingOff || dropOff.length === 0) return;
-    const n = dropOff.length;
-    if (
-      !(await confirm(
-        `Mark ${n} labeled box${n === 1 ? "" : "es"} as dropped off?\n\n${dropOff
-          .map((s) => `• Box #${s.id} — u/${s.buyer_username || "?"}`)
-          .join("\n")}\n\nThey come off the order sheet.`
-      ))
-    )
-      return;
-    setDroppingOff(true);
-    const sentAt = new Date().toISOString();
-    const ids = dropOff.map((s) => s.id);
-    const { error } = await supabase.from("shipments").update({ sent_at: sentAt }).in("id", ids);
-    setDroppingOff(false);
-    if (error) {
-      pushToast("error", `Couldn't mark dropped off: ${error.message}`);
-      return;
-    }
-    setShipments((prev) => prev.map((s) => (ids.includes(s.id) ? { ...s, sent_at: sentAt } : s)));
-    pushToast("success", `${n} box${n === 1 ? "" : "es"} marked dropped off`);
-  }
-
   if (loading && records.length === 0) {
     return <p className="mt-6 text-neutral-400">Loading…</p>;
   }
@@ -248,17 +223,15 @@ export function PackPage() {
           >
             {printing === "sheet4x6" ? "Building…" : "Order sheet 4×6"}
           </button>
-          <button
-            type="button"
-            onClick={markDroppedOff}
-            disabled={dropOff.length === 0 || droppingOff}
-            title="After the post office run: stamp every labeled box as dropped off, which takes it off the order sheet"
-            className={buttonClass}
-          >
-            {droppingOff
-              ? "Saving…"
-              : `Mark dropped off${dropOff.length ? ` (${dropOff.length})` : ""}`}
-          </button>
+          {dropOff.length > 0 ? (
+            <Link
+              href="/admin/ship#drop-off"
+              title="After the post office run, mark the labeled boxes dropped off on the Send page — that takes them off the order sheet"
+              className={buttonClass}
+            >
+              Drop off ({dropOff.length}) on Send →
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={() => print("manifest")}

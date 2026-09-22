@@ -239,7 +239,7 @@ export function CatalogPage() {
     if ((parcels ?? []).length > 0) {
       pushToast(
         "error",
-        `"${r.artist} — ${r.title}" is in a parcel — remove it in Fulfillment first.`
+        `"${r.artist} — ${r.title}" is in a parcel — remove it on the Send page first.`
       );
       return;
     }
@@ -1356,11 +1356,11 @@ export function CatalogPage() {
                             {(r.buyer_username ?? "").trim() ? (
                               <button
                                 type="button"
-                                onClick={() => router.push("/admin")}
-                                title="The swap-bot trade confirmation for this order is copied from its Fulfillment card"
+                                onClick={() => router.push("/admin/ship#fulfillment")}
+                                title="The swap-bot trade confirmation for this order is copied from its card on the Send page"
                                 className="whitespace-nowrap text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                               >
-                                confirm in Fulfillment
+                                confirm on Send
                               </button>
                             ) : null}
                           </div>
@@ -1389,23 +1389,23 @@ export function CatalogPage() {
                               placeholder="sold for"
                               className={`w-24 ${inputClass}`}
                             />
-                            {/* Tracking lives on parcels in Fulfillment —
+                            {/* Tracking lives on parcels on the Send page —
                                 shown read-only here so the two can't disagree */}
                             {r.tracking_number ? (
                               <span
                                 className="font-mono text-xs text-neutral-400"
-                                title="Tracking number, managed per parcel in the Fulfillment section"
+                                title="Tracking number, managed per parcel on the Send page"
                               >
                                 {r.tracking_number}
                               </span>
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => router.push("/admin")}
-                                title="Tracking numbers are managed per parcel in the Fulfillment section"
+                                onClick={() => router.push("/admin/ship#fulfillment")}
+                                title="Tracking numbers are managed per parcel on the Send page"
                                 className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                               >
-                                add tracking in Fulfillment
+                                add tracking on Send
                               </button>
                             )}
                           </div>

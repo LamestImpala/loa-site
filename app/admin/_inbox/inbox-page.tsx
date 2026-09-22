@@ -27,7 +27,6 @@ import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
 import { parseMoney, saleItem } from "@/lib/admin/sales";
 import { salesStats } from "@/lib/admin/stats";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
-import { FulfillmentPanel } from "../fulfillment-panel";
 import { NextUp } from "./next-up";
 import { BuyerField } from "../_shell/buyer-field";
 import { MoneyField, NoteField } from "../_shell/inline-fields";
@@ -38,16 +37,16 @@ import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
 const CHECKED_AT_KEY = "admin-paypal-checked-at";
 const AUTO_CHECK_MINUTES = 15;
 
-// The inbox: everything between "a buyer wants records" and "the parcel
-// is on its way" — requests, the sale desk, open orders (held or
-// invoiced), pasted DMs, and fulfillment — in one top-to-bottom flow.
+// The inbox: everything between "a buyer wants records" and "paid" —
+// requests, the sale desk, open orders (held or invoiced) and pasted
+// DMs — in one top-to-bottom flow. Once paid, an order moves down the
+// Ship pages: Pick → Pack → Labels → Send.
 export function InboxPage() {
   const {
     supabase,
     records,
     setRecords,
     shipments,
-    setShipments,
     invoices,
     setInvoices,
     orders,
@@ -55,7 +54,6 @@ export function InboxPage() {
     orderRequests,
     setOrderRequests,
     events,
-    postUrl,
     loading,
     loadData,
     pushToast,
@@ -84,7 +82,6 @@ export function InboxPage() {
     setSaleCredit,
     saleCreditNote,
     setSaleCreditNote,
-    getAccessToken,
     clearSelection,
     confirm,
   } = useAdmin();
@@ -369,7 +366,7 @@ export function InboxPage() {
   // Orders in progress: held or invoiced, with the unsold records they
   // cover. This is the durable "order in progress": it survives clearing
   // the sale desk, and leaves the list once its records are marked sold
-  // (the order then shows up in Fulfillment) or it's cancelled.
+  // (the order then shows up on Send) or it's cancelled.
   const open = useMemo(
     () => openOrders(orders, records, invoices),
     [orders, records, invoices]
@@ -524,7 +521,7 @@ export function InboxPage() {
   }
 
   // Ask PayPal where the invoice stands. Paid → the records are marked
-  // sold to the buyer right away and the order moves to Fulfillment.
+  // sold to the buyer right away and the order moves to Pick → Pack → Send.
   // `quiet` (a check-all pass) leaves "not paid yet" and errors to the
   // caller's one summary toast.
   async function checkInvoice(
@@ -621,7 +618,7 @@ export function InboxPage() {
     }
     const unpaid = targets.length - paid - failed;
     const parts = [
-      paid > 0 ? `${paid} paid — moved to Fulfillment` : "",
+      paid > 0 ? `${paid} paid — on the pick list now` : "",
       unpaid > 0 ? `${unpaid} still unpaid` : "",
       failed > 0 ? `${failed} couldn't be checked` : "",
     ].filter(Boolean);
@@ -850,10 +847,6 @@ export function InboxPage() {
     [records, shipments, invoices, orders]
   );
 
-  const draftParcelCount = useMemo(
-    () => shipments.filter((s) => s.status === "draft").length,
-    [shipments]
-  );
 
   return (
     <>
@@ -1212,7 +1205,7 @@ export function InboxPage() {
                       className={buttonClass}
                       disabled={checkingAll || !!orderBusy}
                       onClick={() => checkAllInvoices()}
-                      title="Ask PayPal about every invoiced order, one after another. Paid ones are marked sold and move to Fulfillment."
+                      title="Ask PayPal about every invoiced order, one after another. Paid ones are marked sold and go to the pick list."
                     >
                       {checkingAll ? "Checking…" : "Check all PayPal"}
                     </button>
@@ -1222,7 +1215,7 @@ export function InboxPage() {
                   Held or invoiced, not yet paid — the ones that need you
                   first: lapsed holds, then the longest-unpaid invoices.
                   Opening the inbox checks PayPal by itself; a paid invoice
-                  is marked sold and moves to Fulfillment. A held order is
+                  is marked sold and goes to the pick list. A held order is
                   marked paid by hand or released back to the shop.
                 </p>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -1487,36 +1480,6 @@ export function InboxPage() {
                 </div>
               </>
             ) : null}
-
-        {/* Fulfillment: parcels + tracking for sold records */}
-        <h2 id="fulfillment" className="mt-10 scroll-mt-24 text-xl font-medium">
-            Fulfillment{" "}
-            <span className="text-sm text-neutral-400">
-              ({draftParcelCount} parcel{draftParcelCount === 1 ? "" : "s"}{" "}
-              awaiting tracking)
-            </span>
-        </h2>
-          <FulfillmentPanel
-            records={records.filter((r) => r.sold)}
-            shipments={shipments}
-            invoices={invoices}
-            orders={orders}
-            supabase={supabase}
-            onShipmentsChange={setShipments}
-            onInvoicesChange={setInvoices}
-            onOrdersChange={setOrders}
-            onRecordPatched={(id, patch) =>
-              setRecords((prev) =>
-                prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
-              )
-            }
-            onRenameBuyer={renameBuyer}
-            getAccessToken={getAccessToken}
-            copyText={copyText}
-            pushToast={pushToast}
-            confirm={confirm}
-            defaultThreadUrl={postUrl}
-          />
 
             <h2 id="paste-dm" className="mt-10 scroll-mt-24 text-xl font-medium">Paste a DM</h2>
             <p className="mt-1 text-sm text-neutral-400">

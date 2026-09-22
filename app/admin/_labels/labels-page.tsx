@@ -326,8 +326,8 @@ export function LabelsPage() {
           <span>
             Tracking saved on {savedBoxes} box{savedBoxes === 1 ? "" : "es"}.
           </span>
-          <Link href="/admin#fulfillment" className={nextStepLinkClass}>
-            Back to the Inbox to sync fees and confirm the trades →
+          <Link href="/admin/ship" className={nextStepLinkClass}>
+            Stick them on, then drop off and sync on Send →
           </Link>
         </NextStep>
       ) : null}
