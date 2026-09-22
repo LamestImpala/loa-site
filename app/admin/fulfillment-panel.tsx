@@ -18,6 +18,7 @@ import {
   type OrderGroup,
   type OrderStage,
 } from "@/lib/admin/fulfillment";
+import { dropOffState } from "@/lib/admin/pack-list";
 import { refundedPatch } from "@/lib/admin/refunds";
 import { parseMoney } from "@/lib/admin/sales";
 import {
@@ -73,13 +74,13 @@ const STAGE_PILL: Record<OrderStage, { label: string; title: string; className: 
     className: amberPill,
   },
   sync: {
-    label: "Shipped · fee not recorded",
-    title: "Everything has tracking; the PayPal fee isn't recorded yet — Sync from PayPal reads it once PayPal publishes the transaction",
+    label: "Labeled · fee not recorded",
+    title: "Every box has tracking; the PayPal fee isn't recorded yet — Sync from PayPal reads it once PayPal publishes the transaction",
     className: "border-sky-400/40 text-sky-300",
   },
   done: {
     label: "Fulfilled",
-    title: "Every record is in a tracked parcel and the costs are recorded",
+    title: "Every record is in a labeled box and the costs are recorded — the drop-off pill says whether the boxes have left",
     className: "border-green-500/40 bg-green-500/10 text-green-400",
   },
 };
@@ -947,6 +948,23 @@ export function FulfillmentPanel({
                   >
                     {STAGE_PILL[stage].label}
                   </span>
+                  {(() => {
+                    // A label isn't a drop-off: say whether the boxes left.
+                    const drop = dropOffState(g.shipments);
+                    if (drop.state === "none") return null;
+                    return drop.state === "waiting" ? (
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-xs ${amberPill}`}
+                        title="A labeled box on this order is still in the house — Mark dropped off once it's at the post office"
+                      >
+                        Not dropped off
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs text-neutral-400">
+                        Dropped off {new Date(drop.sentAt as string).toLocaleDateString()}
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {/* The one job left on this order gets the bright button; the

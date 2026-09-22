@@ -62,7 +62,10 @@ export function PackPage() {
     () => orderSheet(records, shipments, orders),
     [records, shipments, orders]
   );
-  const dropOff = useMemo(() => awaitingDropOff(shipments), [shipments]);
+  const dropOff = useMemo(
+    () => awaitingDropOff(shipments, orders),
+    [shipments, orders]
+  );
   const [droppingOff, setDroppingOff] = useState(false);
   const invoiceById = useMemo(
     () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
