@@ -10,7 +10,7 @@ import {
   slipsForParcels,
   type PackOrder,
 } from "@/lib/admin/pack-list";
-import { packingSlips } from "@/lib/admin/packing-slips";
+import { packingSlips, shipManifest } from "@/lib/admin/packing-slips";
 import { createParcel } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
@@ -21,7 +21,9 @@ import { buttonClass, smallButtonClass } from "../_shell/ui";
 // that writes the parcel (with packed_at) and gives it a Box # for the
 // mailer. Sealed boxes leave the phone pick list. "Print packing slips"
 // makes one 4×6 slip per sealed box, in box order, for the thermal
-// printer; the slip is the box's tag until the label is on it.
+// printer; the slip is the box's tag until the label is on it. "Print
+// manifest" is one 4×6 checklist of those same boxes, ticked as each
+// label goes on.
 export function PackPage() {
   const {
     records,
@@ -39,7 +41,7 @@ export function PackPage() {
   } = useAdmin();
   const [checked, setChecked] = useState<Record<string, number[]>>({});
   const [busy, setBusy] = useState<string | null>(null); // order key or `box-${id}`
-  const [printing, setPrinting] = useState(false);
+  const [printing, setPrinting] = useState<"slips" | "manifest" | null>(null);
 
   const list = useMemo(() => packList(records, shipments, orders), [records, shipments, orders]);
   const progress = packProgress(list);
@@ -114,26 +116,41 @@ export function PackPage() {
     setShipments((prev) => prev.filter((x) => x.id !== s.id));
   }
 
-  async function printSlips() {
+  // Open a built PDF in a new tab. Popup blockers may refuse this; the
+  // toast's link still works.
+  function openPdf(bytes: Uint8Array, message: string) {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+    const win = window.open(url, "_blank", "noopener");
+    pushToast(
+      "success",
+      message,
+      win ? undefined : { label: "Open", onClick: () => window.open(url, "_blank", "noopener") }
+    );
+  }
+
+  async function print(kind: "slips" | "manifest") {
     if (openBoxes.length === 0 || printing) return;
-    setPrinting(true);
+    setPrinting(kind);
     try {
       const slips = slipsForParcels(openBoxes, shipments, byId, ordersById);
-      const bytes = await packingSlips(slips);
-      const url = URL.createObjectURL(
-        new Blob([bytes as BlobPart], { type: "application/pdf" })
-      );
-      // Popup blockers may refuse this; the toast's link still works.
-      const win = window.open(url, "_blank", "noopener");
-      pushToast(
-        "success",
-        `${slips.length} slip${slips.length === 1 ? "" : "s"} ready — print at 100% on 4×6.`,
-        win ? undefined : { label: "Open", onClick: () => window.open(url, "_blank", "noopener") }
-      );
+      if (kind === "slips") {
+        openPdf(
+          await packingSlips(slips),
+          `${slips.length} slip${slips.length === 1 ? "" : "s"} ready — print at 100% on 4×6.`
+        );
+      } else {
+        openPdf(
+          await shipManifest(slips),
+          `Manifest for ${slips.length} box${slips.length === 1 ? "" : "es"} ready — print at 100% on 4×6.`
+        );
+      }
     } catch (e) {
-      pushToast("error", e instanceof Error ? e.message : "Couldn't build the slips");
+      pushToast(
+        "error",
+        e instanceof Error ? e.message : `Couldn't build the ${kind === "slips" ? "slips" : "manifest"}`
+      );
     } finally {
-      setPrinting(false);
+      setPrinting(null);
     }
   }
 
@@ -156,17 +173,28 @@ export function PackPage() {
                 ].join(" · ")}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={printSlips}
-          disabled={openBoxes.length === 0 || printing}
-          title="One 4×6 slip per box without a label yet (sealed here or made on the fulfillment card), in Box # order — for the thermal printer"
-          className={buttonClass}
-        >
-          {printing
-            ? "Building…"
-            : `Print packing slips${openBoxes.length ? ` (${openBoxes.length})` : ""}`}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => print("manifest")}
+            disabled={openBoxes.length === 0 || !!printing}
+            title="One 4×6 checklist of every box without a label yet, in Box # order — tick each as its label goes on"
+            className={buttonClass}
+          >
+            {printing === "manifest" ? "Building…" : "Print manifest"}
+          </button>
+          <button
+            type="button"
+            onClick={() => print("slips")}
+            disabled={openBoxes.length === 0 || !!printing}
+            title="One 4×6 slip per box without a label yet (sealed here or made on the fulfillment card), in Box # order — for the thermal printer"
+            className={buttonClass}
+          >
+            {printing === "slips"
+              ? "Building…"
+              : `Print packing slips${openBoxes.length ? ` (${openBoxes.length})` : ""}`}
+          </button>
+        </div>
       </header>
       <p className="mt-2 text-sm text-neutral-400">
         Check each record into the mailer as it goes in, then seal the box.
