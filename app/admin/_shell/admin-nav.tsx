@@ -84,12 +84,19 @@ export function AdminNav() {
   const segment = useSelectedLayoutSegment();
   const work = useWorklist();
   // On a phone the row scrolls; keep the current page's pill on screen
-  // (again when the badges arrive and widen the row).
+  // (again when the badges arrive and widen the row). Only the row scrolls:
+  // scrollIntoView would also yank the window back up to the nav, and this
+  // runs on every worklist change — every click or keystroke on the inbox.
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    navRef.current
-      ?.querySelector('[aria-current="page"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const nav = navRef.current;
+    const pill = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !pill) return;
+    const n = nav.getBoundingClientRect();
+    const p = pill.getBoundingClientRect();
+    const pad = 16; // matches scroll-px-4
+    if (p.left < n.left + pad) nav.scrollLeft -= n.left + pad - p.left;
+    else if (p.right > n.right - pad) nav.scrollLeft += p.right - (n.right - pad);
   }, [segment, work]);
   return (
     // One row that scrolls sideways on a phone instead of wrapping into
