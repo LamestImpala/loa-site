@@ -2,9 +2,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  invoiceIdFromEvent,
   refundFromInvoice,
   shipToFromInvoice,
   shipToFromTransaction,
+  verifyWebhookSignature,
 } from "./paypal.ts";
 
 const address = {
@@ -155,4 +157,50 @@ test("refund transactions are summed when the total is missing", () => {
 test("an invoice with no refunds reports none", () => {
   assert.deepEqual(refundFromInvoice({ status: "PAID" }), { amount: null, date: null });
   assert.deepEqual(refundFromInvoice(null), { amount: null, date: null });
+});
+
+test("webhook events name their invoice under resource.invoice or resource", () => {
+  assert.equal(
+    invoiceIdFromEvent({ resource: { invoice: { id: "INV2-AB12-CD34-EF56-GH78" } } }),
+    "INV2-AB12-CD34-EF56-GH78"
+  );
+  assert.equal(invoiceIdFromEvent({ resource: { id: "INV2-AB12-CD34" } }), "INV2-AB12-CD34");
+  assert.equal(invoiceIdFromEvent({ resource: { id: "WH-123" } }), null);
+  assert.equal(invoiceIdFromEvent({ resource: { invoice: { id: "../orders" } } }), null);
+  assert.equal(invoiceIdFromEvent(null), null);
+});
+
+test("webhook verification sends the event bytes untouched and needs every header", async () => {
+  const headers = {
+    "paypal-auth-algo": "SHA256withRSA",
+    "paypal-cert-url": "https://api.paypal.com/cert",
+    "paypal-transmission-id": "t-1",
+    "paypal-transmission-sig": "sig",
+    "paypal-transmission-time": "2026-09-22T12:00:00Z",
+  };
+  // Odd spacing, a float and "$&" must reach PayPal exactly as sent.
+  const raw = '{"id":"WH-1", "amount":1.10,"note":"$& $1"}';
+  const sent: string[] = [];
+  const realFetch = globalThis.fetch;
+  process.env.PAYPAL_CLIENT_ID = "id";
+  process.env.PAYPAL_CLIENT_SECRET = "secret";
+  globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+    if (String(url).endsWith("/v1/oauth2/token")) {
+      return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+    }
+    sent.push(init?.body ?? "");
+    return new Response(JSON.stringify({ verification_status: "SUCCESS" }));
+  }) as typeof fetch;
+  try {
+    assert.equal(await verifyWebhookSignature(headers, raw, "WH-ID"), true);
+    assert.ok(sent[0].endsWith(`"webhook_event":${raw}}`));
+    assert.ok(sent[0].includes('"webhook_id":"WH-ID"'));
+    assert.equal(
+      await verifyWebhookSignature({ ...headers, "paypal-transmission-sig": null }, raw, "WH-ID"),
+      false
+    );
+    assert.equal(sent.length, 1, "a delivery missing a header never reaches PayPal");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

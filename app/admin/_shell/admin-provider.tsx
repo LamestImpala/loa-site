@@ -33,12 +33,8 @@ import {
   type PlacedOrder,
 } from "@/lib/admin/orders-db";
 import { discogsReady } from "@/lib/admin/fulfillment";
-import {
-  finishedRequests,
-  soldPatch,
-  unsellPlan,
-  unsoldPatch,
-} from "@/lib/admin/sales";
+import { unsellPlan, unsoldPatch } from "@/lib/admin/sales";
+import { markSold, type SaleTerms } from "@/lib/admin/sales-db";
 import { useAdminSession } from "../admin-gate";
 import type { ConfirmRequest, Toast } from "./ui";
 
@@ -212,11 +208,7 @@ export const discogsStatusText = (outcome: DiscogsOutcome, error?: string) =>
       : error || "Failed";
 
 // What the sale desk negotiated, handed to the mark-sold path.
-export type SaleTerms = {
-  prices?: Map<number, number>; // record id -> agreed price (only where it differs)
-  credit?: number;
-  creditNote?: string;
-};
+export type { SaleTerms };
 
 const AdminContext = createContext<AdminContextValue | null>(null);
 
@@ -955,90 +947,38 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   ): Promise<boolean> {
     if (targets.length === 0) return false;
     try {
-      // The order first: it names the buyer when the desk left it blank
-      // (a hold's buyer, or the order the records were invoiced on). The
-      // desk's credit lands on it here.
-      const extra: Partial<Order> | undefined =
-        terms?.credit != null
-          ? { credit: terms.credit, credit_note: (terms.creditNote ?? "").trim() }
-          : undefined;
-      const placed = await placeOrder(targets, buyer, "paid", extra);
-      // No order, no sale: records sold outside a paid order never reach
-      // the pick or pack lists. placeOrder already said why.
-      if (!placed) return false;
-      const buyerName = buyer.trim() || placed.order.buyer_username || "";
-      const now = new Date();
-      const patches = new Map(
-        targets.map((r) => [
-          r.id,
-          {
-            ...soldPatch(r, buyerName, now, terms?.prices?.get(r.id)),
-            order_id: placed.order.id,
-          },
-        ])
-      );
-      // Track per-record success so the UI reflects exactly what landed in
-      // the DB, even when a chunk fails partway through.
-      const chunk = 10;
-      const done: number[] = [];
-      let failure: string | null = null;
-      for (let i = 0; i < targets.length && !failure; i += chunk) {
-        const slice = targets.slice(i, i + chunk);
-        const results = await Promise.all(
-          slice.map((r) =>
-            supabase
-              .from("records")
-              .update({
-                ...patches.get(r.id),
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", r.id)
-          )
-        );
-        slice.forEach((r, j) => {
-          if (results[j].error) failure = failure ?? results[j].error!.message;
-          else done.push(r.id);
-        });
-      }
-      const doneSet = new Set(done);
-      if (done.length > 0) {
+      // The shared sale write (lib/admin/sales-db.ts): the order first —
+      // it names the buyer when the desk left it blank — then the records,
+      // then the requests it finished. No order, no sale.
+      const result = await markSold(supabase, targets, buyer, {
+        terms,
+        requests: orderRequests,
+        byId,
+      });
+      applyPlacedOrder(result.placed);
+      if (result.patches.size > 0) {
         setRecords((prev) =>
-          prev.map((r) =>
-            doneSet.has(r.id) ? { ...r, ...patches.get(r.id) } : r
-          )
+          prev.map((r) => {
+            const patch = result.patches.get(r.id);
+            return patch ? { ...r, ...patch } : r;
+          })
         );
       }
-      if (failure) {
+      if (result.finishedRequestIds.length > 0) {
+        const finishedIds = new Set(result.finishedRequestIds);
+        setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
+      }
+      if (result.failure) {
         pushToast(
           "error",
-          `Marked ${done.length} of ${targets.length} sold before an error: ${failure}`
+          `Marked ${result.soldIds.length} of ${targets.length} sold before an error: ${result.failure}`
         );
         return false;
       }
-      pushToast("success", `Marked ${done.length} sold ✓`);
-      // Best-effort: close open order requests whose records are now all
-      // sold. Failures are non-fatal — the card keeps its manual buttons.
-      const finished = finishedRequests(orderRequests, doneSet, byId);
-      if (finished.length > 0) {
-        supabase
-          .from("order_requests")
-          .update({ status: "completed", updated_at: new Date().toISOString() })
-          .in(
-            "id",
-            finished.map((r) => r.id)
-          )
-          .then(({ error }) => {
-            if (error) {
-              console.warn("order request auto-complete failed:", error.message);
-              return;
-            }
-            const finishedIds = new Set(finished.map((r) => r.id));
-            setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
-          });
-      }
+      pushToast("success", `Marked ${result.soldIds.length} sold ✓`);
       return true;
     } catch (e) {
-      pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");
+      pushToast("error", e instanceof Error ? e.message : "Mark sold failed");
       return false;
     }
   }
