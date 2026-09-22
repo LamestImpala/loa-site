@@ -15,6 +15,7 @@ const order = (i: number, n: number, over: Partial<OrderSheetOrder> = {}): Order
     media: "VG+",
     sleeve: "VG",
     boxId: j === 0 ? 40 + i : null,
+    labeled: j === 0 && i % 2 === 0,
   })),
   ...over,
 });
@@ -58,7 +59,7 @@ test("survives long names, non-Latin text and no ship-to name", async () => {
     order(2, 1, { shipToName: null, buyer: "" }),
     {
       ...order(3, 1),
-      records: [{ artist: "坂本龍一", title: "Björk — Début ".repeat(8), media: "NM", sleeve: "NM", boxId: null }],
+      records: [{ artist: "坂本龍一", title: "Björk — Début ".repeat(8), media: "NM", sleeve: "NM", boxId: null, labeled: false }],
     },
   ]);
   assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);

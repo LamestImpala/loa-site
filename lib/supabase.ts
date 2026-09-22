@@ -97,6 +97,7 @@ export type Shipment = {
   paypal_tracked_number: string | null; // the tracking number PayPal currently has
   paypal_synced_at: string | null;
   packed_at: string | null; // sealed on /admin/pack with its records checked in; null for parcels made on the fulfillment card
+  sent_at: string | null; // dropped off with the carrier ("Mark dropped off" on /admin/pack); null = still in the house
 };
 
 // Money facts about one PayPal invoice, typed in from the transaction

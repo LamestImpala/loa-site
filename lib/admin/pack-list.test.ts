@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  awaitingDropOff,
   manifestRows,
   openParcels,
   orderSheet,
@@ -143,10 +144,12 @@ test("manifest: open orders' boxes in pack order, labeled or not, then unboxed o
   assert.equal(rows[0].shipTo?.name, "Jane Buyer");
 });
 
-test("order sheet: loose records, then unlabeled boxes tagged with Box #; labeled boxes and empty orders drop", () => {
+test("order sheet: every paid order with a record not yet dropped off, labeled or not", () => {
   const orders = [
     order({ id: 1, status: "paid", buyer_username: "amy", ship_to: shipTo }),
     order({ id: 2, status: "paid", buyer_username: "bob" }),
+    order({ id: 3, status: "paid", buyer_username: "cal" }),
+    order({ id: 4, status: "invoiced", buyer_username: "dee" }),
   ];
   const records = [
     rec({ id: 1, sold: true, order_id: 1, artist: "Zappa" }),
@@ -154,16 +157,32 @@ test("order sheet: loose records, then unlabeled boxes tagged with Box #; labele
     rec({ id: 3, sold: true, order_id: 1, artist: "Abba" }),
     rec({ id: 4, sold: true, order_id: 1, artist: "Cream" }),
     rec({ id: 5, sold: true, order_id: 2 }),
+    rec({ id: 6, sold: true, order_id: 3, artist: "Can" }),
+    rec({ id: 7, sold: true, order_id: 4 }),
   ];
   const shipments = [
     shipment({ id: 7, order_id: 1, record_ids: [3], packed_at: "2026-09-15T00:00:00Z", status: "draft" }),
-    shipment({ id: 8, order_id: 1, record_ids: [4], tracking_code: "9400" }),
-    shipment({ id: 9, order_id: 2, record_ids: [5], packed_at: "2026-09-15T00:00:00Z", tracking_code: "9401" }),
+    shipment({ id: 8, order_id: 1, record_ids: [4], packed_at: "2026-09-15T01:00:00Z", tracking_code: "9400", status: "shipped" }),
+    shipment({ id: 9, order_id: 2, record_ids: [5], tracking_code: "9401", status: "shipped", sent_at: "2026-09-16T00:00:00Z" }),
+    shipment({ id: 10, order_id: 3, record_ids: [6], tracking_code: "9402", status: "shipped" }),
   ];
-  const byId = new Map(records.map((r) => [r.id, r]));
-  const sheet = orderSheet(packList(records, shipments, orders), byId);
+  const sheet = orderSheet(records, shipments, orders);
   assert.deepEqual(
-    sheet.map((o) => [o.buyer, o.shipToName, o.records.map((r) => [r.artist, r.boxId])]),
-    [["amy", "Jane Buyer", [["Beatles", null], ["Zappa", null], ["Abba", 7]]]]
+    sheet.map((o) => [o.buyer, o.shipToName, o.records.map((r) => [r.artist, r.boxId, r.labeled])]),
+    [
+      ["amy", "Jane Buyer", [["Beatles", null, false], ["Zappa", null, false], ["Abba", 7, false], ["Cream", 8, true]]],
+      ["cal", null, [["Can", 10, true]]],
+    ]
   );
+});
+
+test("awaiting drop-off: labeled, not sent, not refunded, in pack order", () => {
+  const list = awaitingDropOff([
+    shipment({ id: 3, tracking_code: "1", packed_at: "2026-09-15T02:00:00Z" }),
+    shipment({ id: 1, tracking_code: null }),
+    shipment({ id: 2, tracking_code: "2", sent_at: "2026-09-16T00:00:00Z" }),
+    shipment({ id: 4, tracking_code: "3", status: "refunded" }),
+    shipment({ id: 5, tracking_code: "4", packed_at: "2026-09-15T01:00:00Z" }),
+  ]);
+  assert.deepEqual(list.map((s) => s.id), [5, 3]);
 });

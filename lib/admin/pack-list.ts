@@ -216,14 +216,16 @@ export function manifestRows(
   ];
 }
 
-// Order sheet: the Letter-size packing checklist — every order on the
-// packing table with each record still to go into a mailer, in the same
-// buyer A→Z order as the Pack page cards. Loose records first (shelf
-// order), then records already in a box that has no label yet, tagged
-// with the Box # so a sealed box reads as done at a glance. Records in a
-// labeled box are finished and left off; an order with none left drops.
+// Order sheet: the Letter-size packing checklist — every paid order with
+// a record still in the house, whatever stage it's at: loose, in a sealed
+// box, or in a labeled box that hasn't been dropped off (sent_at). Labels
+// are bought and tracking saved before the boxes are taped up, so
+// "tracked" isn't "gone" — only the drop-off is. Buyer A→Z, like the Pack
+// cards. Loose records first (shelf order), then each box's records
+// tagged with its Box # and whether it's labeled yet.
 export type OrderSheetRecord = Pick<DbRecord, "artist" | "title" | "media" | "sleeve"> & {
   boxId: number | null;
+  labeled: boolean;
 };
 
 export type OrderSheetOrder = {
@@ -234,33 +236,52 @@ export type OrderSheetOrder = {
 };
 
 export function orderSheet(
-  list: PackOrder[],
-  byId: Map<number, DbRecord>
+  records: DbRecord[],
+  shipments: Shipment[],
+  orders: Order[]
 ): OrderSheetOrder[] {
-  const line = (r: DbRecord, boxId: number | null): OrderSheetRecord => ({
+  const line = (r: DbRecord, s: Shipment | null): OrderSheetRecord => ({
     artist: r.artist,
     title: r.title,
     media: r.media,
     sleeve: r.sleeve,
-    boxId,
+    boxId: s?.id ?? null,
+    labeled: !!s?.tracking_code,
   });
-  return list
-    .map((o) => ({
-      key: o.key,
-      buyer: o.buyer,
-      shipToName: o.shipTo?.name ?? null,
-      records: [
-        ...o.loose.map((r) => line(r, null)),
-        ...o.parcels
-          .filter((s) => !s.tracking_code)
-          .flatMap((s) =>
-            (s.record_ids ?? [])
-              .map((id) => byId.get(id))
-              .filter((r): r is DbRecord => !!r)
-              .sort(shelfCompare)
-              .map((r) => line(r, s.id))
-          ),
-      ],
-    }))
-    .filter((o) => o.records.length > 0);
+  const out: OrderSheetOrder[] = [];
+  for (const g of groupOrders(records.filter((r) => r.sold), shipments, orders)) {
+    if (g.order && g.order.status !== "paid") continue;
+    const byId = new Map(g.records.map((r) => [r.id, r]));
+    const lines = [
+      ...[...g.unassigned].sort(shelfCompare).map((r) => line(r, null)),
+      ...sortByPackOrder(g.shipments)
+        .filter((s) => !s.sent_at)
+        .flatMap((s) =>
+          (s.record_ids ?? [])
+            .map((id) => byId.get(id))
+            .filter((r): r is DbRecord => !!r)
+            .sort(shelfCompare)
+            .map((r) => line(r, s))
+        ),
+    ];
+    if (lines.length === 0) continue;
+    out.push({
+      key: g.key,
+      buyer: g.buyer,
+      shipToName: g.order?.ship_to?.name ?? null,
+      records: lines,
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      a.buyer.localeCompare(b.buyer, undefined, { sensitivity: "base" }) ||
+      a.key.localeCompare(b.key)
+  );
+}
+
+// Labeled boxes still in the house — what "Mark dropped off" stamps.
+export function awaitingDropOff(shipments: Shipment[]): Shipment[] {
+  return sortByPackOrder(
+    shipments.filter((s) => !!s.tracking_code && !s.sent_at && s.status !== "refunded")
+  );
 }

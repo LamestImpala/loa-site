@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DbRecord, Shipment } from "@/lib/supabase";
 import {
+  awaitingDropOff,
   manifestRows,
   openParcels,
   orderSheet,
@@ -27,8 +28,10 @@ import { buttonClass, smallButtonClass } from "../_shell/ui";
 // printer; the slip is the box's tag until the label is on it. "Print
 // manifest" is one 4×6 checklist of every package still open on the
 // fulfillment board, labeled or not, ticked as each is ready to go.
-// "Print order sheet" is one Letter page of every order on the table and
-// each record still to go in its mailer, ticked off while packing.
+// "Print order sheet" is one Letter page of every paid order not yet
+// dropped off and each of its records, ticked off while packing. "Mark
+// dropped off" stamps every labeled box as gone after the post office
+// run, which takes it off the order sheet.
 export function PackPage() {
   const {
     records,
@@ -55,7 +58,12 @@ export function PackPage() {
     () => manifestRows(records, shipments, orders, invoices),
     [records, shipments, orders, invoices]
   );
-  const sheet = useMemo(() => orderSheet(list, byId), [list, byId]);
+  const sheet = useMemo(
+    () => orderSheet(records, shipments, orders),
+    [records, shipments, orders]
+  );
+  const dropOff = useMemo(() => awaitingDropOff(shipments), [shipments]);
+  const [droppingOff, setDroppingOff] = useState(false);
   const invoiceById = useMemo(
     () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
     [invoices]
@@ -172,6 +180,30 @@ export function PackPage() {
     }
   }
 
+  async function markDroppedOff() {
+    if (droppingOff || dropOff.length === 0) return;
+    const n = dropOff.length;
+    if (
+      !(await confirm(
+        `Mark ${n} labeled box${n === 1 ? "" : "es"} as dropped off?\n\n${dropOff
+          .map((s) => `• Box #${s.id} — u/${s.buyer_username || "?"}`)
+          .join("\n")}\n\nThey come off the order sheet.`
+      ))
+    )
+      return;
+    setDroppingOff(true);
+    const sentAt = new Date().toISOString();
+    const ids = dropOff.map((s) => s.id);
+    const { error } = await supabase.from("shipments").update({ sent_at: sentAt }).in("id", ids);
+    setDroppingOff(false);
+    if (error) {
+      pushToast("error", `Couldn't mark dropped off: ${error.message}`);
+      return;
+    }
+    setShipments((prev) => prev.map((s) => (ids.includes(s.id) ? { ...s, sent_at: sentAt } : s)));
+    pushToast("success", `${n} box${n === 1 ? "" : "es"} marked dropped off`);
+  }
+
   if (loading && records.length === 0) {
     return <p className="mt-6 text-neutral-400">Loading…</p>;
   }
@@ -196,12 +228,23 @@ export function PackPage() {
             type="button"
             onClick={() => print("sheet")}
             disabled={sheet.length === 0 || !!printing}
-            title="One Letter page of every order on the table and each record still to go in its mailer, with a checkbox for each — for the office printer"
+            title="One Letter page of every paid order not yet dropped off — loose, boxed or labeled — and each of its records, with a checkbox for each — for the office printer"
             className={buttonClass}
           >
             {printing === "sheet"
               ? "Building…"
               : `Print order sheet${sheet.length ? ` (${sheet.length})` : ""}`}
+          </button>
+          <button
+            type="button"
+            onClick={markDroppedOff}
+            disabled={dropOff.length === 0 || droppingOff}
+            title="After the post office run: stamp every labeled box as dropped off, which takes it off the order sheet"
+            className={buttonClass}
+          >
+            {droppingOff
+              ? "Saving…"
+              : `Mark dropped off${dropOff.length ? ` (${dropOff.length})` : ""}`}
           </button>
           <button
             type="button"
