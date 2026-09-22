@@ -20,6 +20,7 @@ export type DbRecord = {
   photos: string;
   discogs_release_id: number | null;
   discogs_removed?: boolean; // copy already removed from the owner's Discogs collection
+  discogs_folder_id?: number | null; // admin-only; collection folder it was removed from, for the re-add
   cover_image: string;
   genres: string[]; // from Discogs release data, e.g. ["Rock", "Jazz"]
   collection: string | null; // curated series like "VMP" or "IVC"

@@ -101,5 +101,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ removed: true });
+  // The folder goes back to the admin so a re-add can put it back there.
+  return NextResponse.json({ removed: true, folderId: instance.folder_id });
 }

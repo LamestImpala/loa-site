@@ -65,6 +65,8 @@ export function CatalogPage() {
     discogsRemoveRequest,
     flagDiscogsRemoved,
     removeFromDiscogs,
+    readdToDiscogs,
+    discogsReadding,
     markRecordsSold,
     confirm,
     placeOrder,
@@ -366,7 +368,7 @@ export function CatalogPage() {
           `Removing ${i + 1}/${targets.length}: ${r.artist} — ${r.title}`
         );
         setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
-        const { outcome, error } = await discogsRemoveRequest(
+        const { outcome, error, folderId } = await discogsRemoveRequest(
           r.discogs_release_id!
         );
         if (outcome === "removed") removed++;
@@ -374,7 +376,7 @@ export function CatalogPage() {
         else if (outcome === "ambiguous") ambiguous++;
         else failed++;
         setDiscogsStatus((prev) => ({ ...prev, [r.id]: discogsStatusText(outcome, error) }));
-        if (outcome === "removed" || outcome === "gone") await flagDiscogsRemoved(r.id);
+        if (outcome === "removed" || outcome === "gone") await flagDiscogsRemoved(r.id, folderId);
         // Each removal is two Discogs API calls; ~2s keeps us under the
         // 60-requests-per-minute token limit.
         if (i < targets.length - 1 && !discogsBulkCancel.current) {
@@ -1325,9 +1327,21 @@ export function CatalogPage() {
                     <p className="mt-2 text-xs text-amber-300">
                       For sale again, but it came out of your Discogs
                       collection.{" "}
+                      {r.discogs_release_id ? (
+                        <button
+                          type="button"
+                          disabled={discogsReadding.has(r.id)}
+                          onClick={() => readdToDiscogs(r)}
+                          className="text-amber-200 underline underline-offset-2 transition hover:text-white disabled:opacity-50"
+                        >
+                          {discogsReadding.has(r.id) ? "Re-adding…" : "Re-add to Discogs"}
+                        </button>
+                      ) : null}{" "}
                       <button
                         type="button"
-                        onClick={() => updateRecord(r.id, { discogs_removed: false })}
+                        onClick={() =>
+                          updateRecord(r.id, { discogs_removed: false, discogs_folder_id: null })
+                        }
                         className="text-neutral-400 underline underline-offset-2 transition hover:text-white"
                       >
                         I re-added it ✓
