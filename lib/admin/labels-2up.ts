@@ -9,7 +9,11 @@ import { PDFDocument, degrees, type PDFEmbeddedPage } from "pdf-lib";
 //   half-sheet — a letter page with the 6×4 label drawn in the top half
 //                (the old format). Two labels go on one sheet, top half of
 //                each source only so nothing bleeds into the other slot,
-//                at 100% so they land on half-sheet label stock.
+//                at 100% so they land on half-sheet label stock. Or, with
+//                `cropToThermal`, the 6×4 label is lifted off each letter
+//                page onto its own 4×6 page for the thermal printer —
+//                labels bought before PayPal's format was switched print
+//                on the same stock as the new ones.
 //
 // The layout is detected from the pages; a batch that mixes the two is
 // refused rather than guessed at.
@@ -17,16 +21,32 @@ import { PDFDocument, degrees, type PDFEmbeddedPage } from "pdf-lib";
 export const LETTER = { width: 612, height: 792 } as const;
 export const HALF = LETTER.height / 2; // 396pt = 5.5in, one half-sheet label
 export const THERMAL = { width: 288, height: 432 } as const; // 4×6 in
+// Where PayPal draws the 6×4 label on a letter page: centered in the top
+// half, landscape. Cropping to this box gives exactly one thermal label.
+export const LABEL_ON_LETTER = {
+  left: (LETTER.width - THERMAL.height) / 2, // 90
+  bottom: HALF + (HALF - THERMAL.width) / 2, // 450
+  right: (LETTER.width + THERMAL.height) / 2, // 522
+  top: HALF + (HALF + THERMAL.width) / 2, // 738
+} as const;
 
 export type Layout = "thermal" | "half-sheet";
 export type LabelSource = { name: string; bytes: Uint8Array | ArrayBuffer };
 export type CombineOptions = {
-  // Detected from the pages when omitted.
+  // The source format; detected from the pages when omitted.
   layout?: Layout;
-  // Half-sheet only: the first sheet in the tray already had its top label
-  // peeled off, so leave that slot empty and start on the bottom one.
+  // Half-sheet sources only: crop the label out of each letter page onto
+  // a 4×6 page for the thermal printer instead of pairing them on sheets.
+  cropToThermal?: boolean;
+  // Half-sheet stock only: the first sheet in the tray already had its top
+  // label peeled off, so leave that slot empty and start on the bottom one.
   startOnBottom?: boolean;
 };
+
+// What the combined PDF is laid out for, given the source format.
+export function outputLayout(source: Layout, opts: Pick<CombineOptions, "cropToThermal">): Layout {
+  return source === "half-sheet" && opts.cropToThermal ? "thermal" : source;
+}
 
 // How many sheets `labels` labels need.
 export function sheetCount(labels: number, startOnBottom = false, layout: Layout = "half-sheet") {
@@ -119,7 +139,8 @@ export async function combineLabels(
         : `These are 4×6 labels — print them on the thermal printer, or use the thermal layout.`
     );
   }
-  return layout === "thermal" ? combineThermal(loaded) : combineHalfSheet(loaded, opts);
+  if (layout === "thermal") return combineThermal(loaded);
+  return opts.cropToThermal ? combineLetterAsThermal(loaded) : combineHalfSheet(loaded, opts);
 }
 
 // Every page copied as-is; a landscape 6×4 is turned upright so the
@@ -134,6 +155,22 @@ async function combineThermal(loaded: Loaded[]): Promise<Uint8Array> {
         page.setRotation(degrees((page.getRotation().angle + 90) % 360));
       }
       out.addPage(page);
+    }
+  }
+  return out.save();
+}
+
+// The 6×4 label clipped out of each letter page onto a 6×4 page, turned
+// upright the same way a landscape thermal source is, so old and new
+// labels feed the printer identically.
+async function combineLetterAsThermal(loaded: Loaded[]): Promise<Uint8Array> {
+  const out = await PDFDocument.create();
+  for (const { doc } of loaded) {
+    for (const page of doc.getPages()) {
+      const label = await out.embedPage(page, LABEL_ON_LETTER);
+      const target = out.addPage([THERMAL.height, THERMAL.width]);
+      target.drawPage(label, { x: 0, y: 0 });
+      target.setRotation(degrees(90));
     }
   }
   return out.save();
