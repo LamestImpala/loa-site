@@ -6,6 +6,7 @@ import type { Shipment } from "@/lib/supabase";
 import {
   combineLabels,
   detectLayout,
+  outputLayout,
   sheetCount,
   type LabelSource,
   type Layout,
@@ -29,6 +30,9 @@ import { extractLines } from "./pdf-text";
 // glance-check. "Save tracking & print" writes each tracking number onto
 // its box and opens one PDF with the labels in Box # order — 4×6 pages
 // for the thermal printer, or two per letter sheet for half-sheet stock.
+// Letter-size labels (bought before PayPal's format was switched to 4×6)
+// default to being cropped onto 4×6 pages so they print on the thermal
+// printer too; half-sheet stock is still a choice.
 // The files never leave the machine; only the tracking numbers are saved.
 
 type Row = {
@@ -55,8 +59,11 @@ export function LabelsPage() {
     updateRecords,
   } = useAdmin();
   const [rows, setRows] = useState<Row[]>([]);
-  const [layout, setLayout] = useState<Layout | null>(null);
+  const [layout, setLayout] = useState<Layout | null>(null); // the files' format
   const [layoutError, setLayoutError] = useState("");
+  // Where letter-size labels go: cropped onto 4×6 pages for the thermal
+  // printer (the format going forward), or two per sheet on half-sheet stock.
+  const [letterTarget, setLetterTarget] = useState<Layout>("thermal");
   const [startOnBottom, setStartOnBottom] = useState(false);
   const [busy, setBusy] = useState<null | "combine" | "save">(null);
   const [savedBoxes, setSavedBoxes] = useState(0); // boxes given tracking by the last save
@@ -196,7 +203,10 @@ export function LabelsPage() {
 
   const ready = rows.filter((r) => r.bytes);
   const assigned = ready.filter((r) => r.parcelId != null);
-  const sheets = layout ? sheetCount(ready.length, startOnBottom, layout) : 0;
+  const cropToThermal = letterTarget === "thermal";
+  // What the combined PDF will be laid out for.
+  const output = layout ? outputLayout(layout, { cropToThermal }) : null;
+  const sheets = output ? sheetCount(ready.length, startOnBottom, output) : 0;
 
   // What stops "Save tracking & print": a box chosen twice, a tracking
   // number typed twice, or one that's already on another parcel.
@@ -223,16 +233,21 @@ export function LabelsPage() {
   }, [assigned, shipments]);
 
   async function open(sources: LabelSource[], chosen: Layout) {
-    const bytes = await combineLabels(sources, { layout: chosen, startOnBottom });
+    const bytes = await combineLabels(sources, {
+      layout: chosen,
+      cropToThermal,
+      startOnBottom,
+    });
     const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const stamp = new Date().toISOString().slice(0, 10);
+    const produced = outputLayout(chosen, { cropToThermal });
     setResult({
       url,
       name: `labels-${stamp}.pdf`,
       labels: sources.length,
-      sheets: sheetCount(sources.length, startOnBottom, chosen),
-      layout: chosen,
+      sheets: sheetCount(sources.length, startOnBottom, produced),
+      layout: produced,
     });
     // Popup blockers may refuse this; the links below still work.
     window.open(url, "_blank", "noopener");
@@ -475,18 +490,51 @@ export function LabelsPage() {
       ) : null}
 
       {layout === "half-sheet" ? (
-        <label className="mt-4 flex items-center gap-2 text-sm text-neutral-300">
-          <input
-            type="checkbox"
-            checked={startOnBottom}
-            onChange={(e) => {
-              setStartOnBottom(e.target.checked);
-              setResult(null);
-            }}
-            className="h-4 w-4 accent-white"
-          />
-          First sheet already has its top label used — start on the bottom
-        </label>
+        <fieldset className="mt-4 text-sm text-neutral-300">
+          <legend className="text-neutral-400">
+            These are letter-size labels (PayPal&apos;s old format). Print them:
+          </legend>
+          <label className="mt-1 flex items-center gap-2">
+            <input
+              type="radio"
+              name="letter-target"
+              checked={letterTarget === "thermal"}
+              onChange={() => {
+                setLetterTarget("thermal");
+                setResult(null);
+              }}
+              className="h-4 w-4 accent-white"
+            />
+            on the thermal printer — each label cropped onto a 4×6 page
+          </label>
+          <label className="mt-1 flex items-center gap-2">
+            <input
+              type="radio"
+              name="letter-target"
+              checked={letterTarget === "half-sheet"}
+              onChange={() => {
+                setLetterTarget("half-sheet");
+                setResult(null);
+              }}
+              className="h-4 w-4 accent-white"
+            />
+            two per letter sheet on half-sheet stock
+          </label>
+          {letterTarget === "half-sheet" ? (
+            <label className="mt-2 flex items-center gap-2 pl-6">
+              <input
+                type="checkbox"
+                checked={startOnBottom}
+                onChange={(e) => {
+                  setStartOnBottom(e.target.checked);
+                  setResult(null);
+                }}
+                className="h-4 w-4 accent-white"
+              />
+              First sheet already has its top label used — start on the bottom
+            </label>
+          ) : null}
+        </fieldset>
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -521,9 +569,9 @@ export function LabelsPage() {
         <span className="text-sm text-neutral-400" aria-live="polite">
           {ready.length === 0
             ? "No labels yet"
-            : layout === "thermal"
+            : output === "thermal"
               ? `${ready.length} label${ready.length === 1 ? "" : "s"} → ${sheets} 4×6 page${sheets === 1 ? "" : "s"}`
-              : layout === "half-sheet"
+              : output === "half-sheet"
                 ? `${ready.length} label${ready.length === 1 ? "" : "s"} → ${sheets} letter sheet${sheets === 1 ? "" : "s"}`
                 : ""}
         </span>

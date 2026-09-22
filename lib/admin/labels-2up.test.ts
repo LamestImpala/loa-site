@@ -16,8 +16,10 @@ import {
   combineLabels,
   detectLayout,
   HALF,
+  LABEL_ON_LETTER,
   layoutOfSizes,
   LETTER,
+  outputLayout,
   sheetCount,
   THERMAL,
 } from "./labels-2up.ts";
@@ -140,6 +142,47 @@ test("three labels become two letter sheets, two-up", async () => {
   const text = content(doc, 0);
   assert.match(text, /1 0 0 1 0 396 cm/);
   assert.match(text, /1 0 0 1 0 0 cm/);
+});
+
+test("the label box on a letter page is the 6×4 centered in the top half", () => {
+  assert.deepEqual(LABEL_ON_LETTER, { left: 90, bottom: 450, right: 522, top: 738 });
+  assert.equal(LABEL_ON_LETTER.right - LABEL_ON_LETTER.left, THERMAL.height);
+  assert.equal(LABEL_ON_LETTER.top - LABEL_ON_LETTER.bottom, THERMAL.width);
+});
+
+test("outputLayout: cropping turns letter sources into thermal pages, and nothing else", () => {
+  assert.equal(outputLayout("half-sheet", {}), "half-sheet");
+  assert.equal(outputLayout("half-sheet", { cropToThermal: true }), "thermal");
+  assert.equal(outputLayout("thermal", { cropToThermal: true }), "thermal");
+  assert.equal(outputLayout("thermal", {}), "thermal");
+});
+
+test("cropToThermal: each letter label becomes one 6×4 page, clipped to the label and turned upright", async () => {
+  const bytes = await combineLabels(
+    [await label("a.pdf"), await label("b.pdf"), await label("c.pdf")],
+    { cropToThermal: true, startOnBottom: true } // startOnBottom is a half-sheet setting: ignored
+  );
+  const doc = await load(bytes);
+  assert.equal(doc.getPageCount(), 3);
+  for (let i = 0; i < 3; i++) {
+    const page = doc.getPage(i);
+    // Same page as a landscape thermal source: 6×4 rotated to feed as 4×6.
+    assert.deepEqual(page.getSize(), { width: THERMAL.height, height: THERMAL.width });
+    assert.equal(page.getRotation().angle, 90);
+    // Only the label box survives — the stray bottom-half mark is clipped.
+    assert.deepEqual(forms(doc, i), [[90, 450, 522, 738]]);
+    assert.match(content(doc, i), /1 0 0 1 0 0 cm/);
+  }
+});
+
+test("cropToThermal changes nothing for 4×6 sources", async () => {
+  const bytes = await combineLabels([await thermal("a.pdf"), await thermal("b.pdf", true)], {
+    cropToThermal: true,
+  });
+  const doc = await load(bytes);
+  assert.equal(doc.getPageCount(), 2);
+  assert.deepEqual(doc.getPage(0).getSize(), { width: THERMAL.width, height: THERMAL.height });
+  assert.equal(doc.getPage(1).getRotation().angle, 90);
 });
 
 test("startOnBottom leaves the first top slot empty", async () => {
