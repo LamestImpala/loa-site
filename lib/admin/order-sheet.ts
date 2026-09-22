@@ -1,24 +1,62 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { OrderSheetOrder } from "./pack-list.ts";
-import { fit, pdfSafe } from "./packing-slips.ts";
+import { fit, pdfSafe, THERMAL } from "./packing-slips.ts";
 
-// Order sheet: one Letter page, two columns, of every paid order not yet
-// dropped off and each of its records — a checkbox for the
-// order and one per record, ticked at the table. Printed on the office
-// printer, not the thermal. The type steps down until everything fits on
-// one page; only a really big day spills onto a second.
+// Order sheet: every paid order not yet dropped off and each of its
+// records — a checkbox for the order and one per record, ticked at the
+// table. Two page shapes: one Letter page in two columns for the office
+// printer, or 4×6 labels in one column for the thermal. The type steps
+// down until everything fits on one page, but never below the sheet's
+// smallest scale — past that it continues onto more pages.
 
 export const LETTER = { width: 612, height: 792 } as const; // 8.5×11 in at 72pt
 
-const MARGIN = 36;
-const GUTTER = 20;
-const COLUMNS = 2;
-const COL_WIDTH = (LETTER.width - 2 * MARGIN - GUTTER * (COLUMNS - 1)) / COLUMNS;
-const HEADER = 44; // title, count line, rule
-const FOOTER = 14;
-const COL_TOP = LETTER.height - MARGIN - HEADER;
-const COL_HEIGHT = COL_TOP - MARGIN - FOOTER;
-const SCALES = [1, 0.9, 0.8, 0.72] as const;
+export type SheetGeometry = {
+  width: number;
+  height: number;
+  margin: number;
+  columns: number;
+  gutter: number;
+  header: number; // title, count line, rule
+  footer: number;
+  titleSize: number;
+  hint: boolean; // the "tick each record…" line under the title
+  scales: readonly number[]; // largest first; the last is the floor
+};
+
+export const LETTER_SHEET: SheetGeometry = {
+  ...LETTER,
+  margin: 36,
+  columns: 2,
+  gutter: 20,
+  header: 44,
+  footer: 14,
+  titleSize: 18,
+  hint: true,
+  scales: [1, 0.9, 0.8, 0.72],
+};
+
+// Record text bottoms out at 0.8 × 8.5 = 6.8pt — sharp at 203 dpi.
+export const THERMAL_SHEET: SheetGeometry = {
+  ...THERMAL,
+  margin: 14,
+  columns: 1,
+  gutter: 0,
+  header: 34,
+  footer: 10,
+  titleSize: 14,
+  hint: false,
+  scales: [1, 0.9, 0.8],
+};
+
+const frame = (g: SheetGeometry) => {
+  const colTop = g.height - g.margin - g.header;
+  return {
+    colTop,
+    colHeight: colTop - g.margin - g.footer,
+    colWidth: (g.width - 2 * g.margin - g.gutter * (g.columns - 1)) / g.columns,
+  };
+};
 
 const INK = rgb(0, 0, 0);
 const GREY = rgb(0.4, 0.4, 0.4);
@@ -45,32 +83,37 @@ const heights = (s: number) => ({ order: 15 * s, record: 12 * s, gap: 7 * s });
 // Flow the orders down the columns. An order moves whole to the next
 // column when it doesn't fit what's left of this one; only an order
 // taller than a whole column splits, with a "(cont.)" heading.
-export function layoutOrderSheet(orders: OrderSheetOrder[], scale: number) {
+export function layoutOrderSheet(
+  orders: OrderSheetOrder[],
+  scale: number,
+  sheet: SheetGeometry = LETTER_SHEET
+) {
   const h = heights(scale);
+  const { colTop, colHeight } = frame(sheet);
   const placed: Placed[] = [];
   let page = 0;
   let col = 0;
   let used = 0;
   const advance = () => {
     col++;
-    if (col === COLUMNS) {
+    if (col === sheet.columns) {
       col = 0;
       page++;
     }
     used = 0;
   };
   const put = (line: Line, height: number) => {
-    placed.push({ line, page, col, y: COL_TOP - used });
+    placed.push({ line, page, col, y: colTop - used });
     used += height;
   };
   for (const order of orders) {
     if (used > 0) used += h.gap;
     const block = h.order + order.records.length * h.record;
-    if (used + block > COL_HEIGHT && block <= COL_HEIGHT) advance();
-    if (used + h.order + h.record > COL_HEIGHT) advance();
+    if (used + block > colHeight && block <= colHeight) advance();
+    if (used + h.order + h.record > colHeight) advance();
     put({ kind: "order", order, cont: false }, h.order);
     for (const record of order.records) {
-      if (used + h.record > COL_HEIGHT) {
+      if (used + h.record > colHeight) {
         advance();
         put({ kind: "order", order, cont: true }, h.order);
       }
@@ -82,13 +125,13 @@ export function layoutOrderSheet(orders: OrderSheetOrder[], scale: number) {
 
 // The largest type that fits on one page, else the smallest over as many
 // pages as it takes.
-export function fitOrderSheet(orders: OrderSheetOrder[]) {
-  for (const scale of SCALES) {
-    const layout = layoutOrderSheet(orders, scale);
+export function fitOrderSheet(orders: OrderSheetOrder[], sheet: SheetGeometry = LETTER_SHEET) {
+  for (const scale of sheet.scales) {
+    const layout = layoutOrderSheet(orders, scale, sheet);
     if (layout.pages === 1) return { scale, ...layout };
   }
-  const scale = SCALES[SCALES.length - 1];
-  return { scale, ...layoutOrderSheet(orders, scale) };
+  const scale = sheet.scales[sheet.scales.length - 1];
+  return { scale, ...layoutOrderSheet(orders, scale, sheet) };
 }
 
 function checkbox(page: PDFPage, x: number, baseline: number, side: number, size: number) {
@@ -109,14 +152,16 @@ function rightText(page: PDFPage, s: string, font: PDFFont, size: number, xRight
 
 export async function orderSheetPdf(
   orders: OrderSheetOrder[],
-  printedAt: Date = new Date()
+  { sheet = LETTER_SHEET, printedAt = new Date() }: { sheet?: SheetGeometry; printedAt?: Date } = {}
 ): Promise<Uint8Array> {
   if (orders.length === 0) throw new Error("No orders to print a sheet for.");
   const doc = await PDFDocument.create();
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const regular = await doc.embedFont(StandardFonts.Helvetica);
-  const { scale, placed, pages } = fitOrderSheet(orders);
+  const { scale, placed, pages } = fitOrderSheet(orders, sheet);
   const h = heights(scale);
+  const { margin, gutter } = sheet;
+  const { colWidth } = frame(sheet);
 
   const recordCount = orders.reduce((n, o) => n + o.records.length, 0);
   const date = printedAt.toLocaleDateString("en-US", {
@@ -126,35 +171,35 @@ export async function orderSheetPdf(
   });
 
   const pdfPages = Array.from({ length: pages }, (_, p) => {
-    const page = doc.addPage([LETTER.width, LETTER.height]);
-    let y = LETTER.height - MARGIN - 18;
-    page.drawText("PACKING SHEET", { x: MARGIN, y, size: 18, font: bold, color: INK });
+    const page = doc.addPage([sheet.width, sheet.height]);
+    const small = sheet.titleSize < 18;
+    let y = sheet.height - margin - sheet.titleSize;
+    page.drawText("PACKING SHEET", { x: margin, y, size: sheet.titleSize, font: bold, color: INK });
     rightText(
       page,
-      pages > 1 ? `${date} · page ${p + 1} of ${pages}` : date,
+      pages > 1 ? `${date} · ${small ? "" : "page "}${p + 1} of ${pages}` : date,
       regular,
-      10,
-      LETTER.width - MARGIN,
-      y + 4
+      small ? 8 : 10,
+      sheet.width - margin,
+      y + (small ? 3 : 4)
     );
-    y -= 14;
+    y -= small ? 11 : 14;
+    const counts = `${orders.length} order${orders.length === 1 ? "" : "s"} · ${recordCount} record${recordCount === 1 ? "" : "s"}`;
     page.drawText(
-      pdfSafe(
-        `${orders.length} order${orders.length === 1 ? "" : "s"} · ${recordCount} record${recordCount === 1 ? "" : "s"} · tick each record as it goes in the mailer, then the order`
-      ),
-      { x: MARGIN, y, size: 9, font: regular, color: GREY }
+      pdfSafe(sheet.hint ? `${counts} · tick each record as it goes in the mailer, then the order` : counts),
+      { x: margin, y, size: small ? 8 : 9, font: regular, color: GREY }
     );
-    y -= 7;
+    y -= small ? 5 : 7;
     page.drawLine({
-      start: { x: MARGIN, y },
-      end: { x: LETTER.width - MARGIN, y },
+      start: { x: margin, y },
+      end: { x: sheet.width - margin, y },
       thickness: 0.75,
       color: INK,
     });
     page.drawText("Curiouser Records · Phoenix, AZ", {
-      x: MARGIN,
-      y: MARGIN - 4,
-      size: 7,
+      x: margin,
+      y: margin - (small ? 7 : 4),
+      size: small ? 6 : 7,
       font: regular,
       color: GREY,
     });
@@ -163,9 +208,9 @@ export async function orderSheetPdf(
 
   for (const { line, page: p, col, y: top } of placed) {
     const page = pdfPages[p];
-    const x = MARGIN + col * (COL_WIDTH + GUTTER);
+    const x = margin + col * (colWidth + gutter);
     const owner = line.kind === "record" ? line.order : null;
-    const right = x + COL_WIDTH;
+    const right = x + colWidth;
     if (line.kind === "order") {
       const size = 10.5 * scale;
       const baseline = top - size;

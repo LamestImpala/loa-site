@@ -14,7 +14,7 @@ import {
   type PackOrder,
 } from "@/lib/admin/pack-list";
 import { packingSlips, shipManifest } from "@/lib/admin/packing-slips";
-import { orderSheetPdf } from "@/lib/admin/order-sheet";
+import { orderSheetPdf, THERMAL_SHEET } from "@/lib/admin/order-sheet";
 import { createParcel } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
@@ -49,7 +49,7 @@ export function PackPage() {
   } = useAdmin();
   const [checked, setChecked] = useState<Record<string, number[]>>({});
   const [busy, setBusy] = useState<string | null>(null); // order key or `box-${id}`
-  const [printing, setPrinting] = useState<"slips" | "manifest" | "sheet" | null>(null);
+  const [printing, setPrinting] = useState<"slips" | "manifest" | "sheet" | "sheet4x6" | null>(null);
 
   const list = useMemo(() => packList(records, shipments, orders), [records, shipments, orders]);
   const progress = packProgress(list);
@@ -146,7 +146,7 @@ export function PackPage() {
     );
   }
 
-  async function print(kind: "slips" | "manifest" | "sheet") {
+  async function print(kind: "slips" | "manifest" | "sheet" | "sheet4x6") {
     if (printing) return;
     setPrinting(kind);
     try {
@@ -156,11 +156,12 @@ export function PackPage() {
           await packingSlips(slips),
           `${slips.length} slip${slips.length === 1 ? "" : "s"} ready — print at 100% on 4×6.`
         );
-      } else if (kind === "sheet") {
+      } else if (kind === "sheet" || kind === "sheet4x6") {
         const recs = sheet.reduce((n, o) => n + o.records.length, 0);
+        const thermal = kind === "sheet4x6";
         openPdf(
-          await orderSheetPdf(sheet),
-          `Order sheet for ${sheet.length} order${sheet.length === 1 ? "" : "s"}, ${recs} record${recs === 1 ? "" : "s"} ready — print on Letter.`
+          await orderSheetPdf(sheet, thermal ? { sheet: THERMAL_SHEET } : {}),
+          `Order sheet for ${sheet.length} order${sheet.length === 1 ? "" : "s"}, ${recs} record${recs === 1 ? "" : "s"} ready — ${thermal ? "print at 100% on 4×6" : "print on Letter"}.`
         );
       } else {
         openPdf(
@@ -173,7 +174,7 @@ export function PackPage() {
         "error",
         e instanceof Error
           ? e.message
-          : `Couldn't build the ${kind === "slips" ? "slips" : kind === "sheet" ? "order sheet" : "manifest"}`
+          : `Couldn't build the ${kind === "slips" ? "slips" : kind === "manifest" ? "manifest" : "order sheet"}`
       );
     } finally {
       setPrinting(null);
@@ -234,6 +235,15 @@ export function PackPage() {
             {printing === "sheet"
               ? "Building…"
               : `Print order sheet${sheet.length ? ` (${sheet.length})` : ""}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => print("sheet4x6")}
+            disabled={sheet.length === 0 || !!printing}
+            title="The same order sheet on 4×6 labels for the thermal printer — one column, continuing onto more labels on a big day"
+            className={buttonClass}
+          >
+            {printing === "sheet4x6" ? "Building…" : "Order sheet 4×6"}
           </button>
           <button
             type="button"
