@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DbRecord, Shipment } from "@/lib/supabase";
 import {
+  manifestRows,
   openParcels,
   packList,
   packProgress,
@@ -22,8 +23,8 @@ import { buttonClass, smallButtonClass } from "../_shell/ui";
 // mailer. Sealed boxes leave the phone pick list. "Print packing slips"
 // makes one 4×6 slip per sealed box, in box order, for the thermal
 // printer; the slip is the box's tag until the label is on it. "Print
-// manifest" is one 4×6 checklist of those same boxes, ticked as each
-// label goes on.
+// manifest" is one 4×6 checklist of every package still open on the
+// fulfillment board, labeled or not, ticked as each is ready to go.
 export function PackPage() {
   const {
     records,
@@ -46,6 +47,10 @@ export function PackPage() {
   const list = useMemo(() => packList(records, shipments, orders), [records, shipments, orders]);
   const progress = packProgress(list);
   const openBoxes = useMemo(() => openParcels(shipments), [shipments]);
+  const manifest = useMemo(
+    () => manifestRows(records, shipments, orders, invoices),
+    [records, shipments, orders, invoices]
+  );
   const invoiceById = useMemo(
     () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
     [invoices]
@@ -129,19 +134,19 @@ export function PackPage() {
   }
 
   async function print(kind: "slips" | "manifest") {
-    if (openBoxes.length === 0 || printing) return;
+    if (printing) return;
     setPrinting(kind);
     try {
-      const slips = slipsForParcels(openBoxes, shipments, byId, ordersById);
       if (kind === "slips") {
+        const slips = slipsForParcels(openBoxes, shipments, byId, ordersById);
         openPdf(
           await packingSlips(slips),
           `${slips.length} slip${slips.length === 1 ? "" : "s"} ready — print at 100% on 4×6.`
         );
       } else {
         openPdf(
-          await shipManifest(slips),
-          `Manifest for ${slips.length} box${slips.length === 1 ? "" : "es"} ready — print at 100% on 4×6.`
+          await shipManifest(manifest),
+          `Manifest for ${manifest.length} package${manifest.length === 1 ? "" : "s"} ready — print at 100% on 4×6.`
         );
       }
     } catch (e) {
@@ -177,11 +182,13 @@ export function PackPage() {
           <button
             type="button"
             onClick={() => print("manifest")}
-            disabled={openBoxes.length === 0 || !!printing}
-            title="One 4×6 checklist of every box without a label yet, in Box # order — tick each as its label goes on"
+            disabled={manifest.length === 0 || !!printing}
+            title="One 4×6 checklist of every package still open on the fulfillment board, labeled or not, in Box # order — tick each as it's ready to go"
             className={buttonClass}
           >
-            {printing === "manifest" ? "Building…" : "Print manifest"}
+            {printing === "manifest"
+              ? "Building…"
+              : `Print manifest${manifest.length ? ` (${manifest.length})` : ""}`}
           </button>
           <button
             type="button"

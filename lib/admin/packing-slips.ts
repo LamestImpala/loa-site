@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import type { PackingSlip } from "./pack-list.ts";
+import type { ManifestRow, PackingSlip } from "./pack-list.ts";
 
 // Packing slips: one 4×6 page per sealed box, for the thermal label
 // printer at the packing table. The slip is the box's tag until the
@@ -170,12 +170,14 @@ export async function packingSlips(slips: PackingSlip[]): Promise<Uint8Array> {
   return doc.save();
 }
 
-// Ship manifest: one 4×6 checklist of every box awaiting a label, in the
-// same Box # order as the slips and the label sheet. Each row is a
-// checkbox, the Box #, the buyer, the record count and "n of m" for an
-// order that spans boxes, then the ship-to name and place — the name is
+// Ship manifest: one 4×6 checklist of every package still open on the
+// fulfillment board, in the same Box # order as the slips and the label
+// sheet. Each row is a checkbox, the Box # (or "No box" for an order
+// whose records aren't boxed in the app), the buyer, the record count,
+// "n of m" for an order that spans boxes and the tracking's last four
+// once a label exists, then the ship-to name and place — the name is
 // what the PayPal label prints, so the box and its label match by eye.
-// Ticked as each label goes on. Continues onto more pages when full.
+// Ticked as each package is ready to go. Continues onto more pages.
 
 const ROW = 28; // points per box row: 11pt line, 8pt line, gap
 const BOX = 9; // checkbox side
@@ -186,26 +188,26 @@ export const MANIFEST_ROWS_PER_PAGE = Math.floor(
 );
 
 export async function shipManifest(
-  slips: PackingSlip[],
+  rows: ManifestRow[],
   printedAt: Date = new Date()
 ): Promise<Uint8Array> {
-  if (slips.length === 0) throw new Error("No boxes to print a manifest for.");
+  if (rows.length === 0) throw new Error("No packages to print a manifest for.");
   const doc = await PDFDocument.create();
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const regular = await doc.embedFont(StandardFonts.Helvetica);
 
-  const pages: PackingSlip[][] = [];
-  for (let i = 0; i < slips.length; i += MANIFEST_ROWS_PER_PAGE)
-    pages.push(slips.slice(i, i + MANIFEST_ROWS_PER_PAGE));
-  const boxes = slips.length;
-  const records = slips.reduce((n, s) => n + s.records.length, 0);
+  const pages: ManifestRow[][] = [];
+  for (let i = 0; i < rows.length; i += MANIFEST_ROWS_PER_PAGE)
+    pages.push(rows.slice(i, i + MANIFEST_ROWS_PER_PAGE));
+  const boxes = rows.length;
+  const records = rows.reduce((n, r) => n + r.records, 0);
   const date = printedAt.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
 
-  pages.forEach((rows, p) => {
+  pages.forEach((pageRows, p) => {
     const page = doc.addPage([THERMAL.width, THERMAL.height]);
     const c = cursor(page);
 
@@ -213,7 +215,7 @@ export async function shipManifest(
     c.right(pages.length > 1 ? `${date} · page ${p + 1} of ${pages.length}` : date, 9, regular, c.y + 4);
     c.y -= 6;
     c.text(
-      `${boxes} box${boxes === 1 ? "" : "es"} · ${records} record${records === 1 ? "" : "s"} · tick as each label goes on`,
+      `${boxes} package${boxes === 1 ? "" : "s"} · ${records} record${records === 1 ? "" : "s"} · tick as each is ready to go`,
       9,
       regular,
       { color: GREY }
@@ -221,7 +223,7 @@ export async function shipManifest(
     c.rule();
     c.y -= 4;
 
-    for (const s of rows) {
+    for (const r of pageRows) {
       const top = c.y;
       // Checkbox, centred on the first line.
       page.drawRectangle({
@@ -233,15 +235,20 @@ export async function shipManifest(
         borderColor: INK,
       });
       const left = MARGIN + BOX + 7;
-      const n = s.records.length;
-      const tail =
-        `${n} rec${n === 1 ? "" : "s"}` + (s.boxCount > 1 ? ` · ${s.boxIndex} of ${s.boxCount}` : "");
+      const n = r.records;
+      const tail = [
+        `${n} rec${n === 1 ? "" : "s"}`,
+        r.boxCount > 1 ? `${r.boxIndex} of ${r.boxCount}` : "",
+        r.boxId == null ? "not boxed" : r.tracking ? `…${r.tracking.slice(-4)}` : "no label",
+      ]
+        .filter(Boolean)
+        .join(" · ");
       const tailWidth = regular.widthOfTextAtSize(pdfSafe(tail), 9);
-      c.text(`Box #${s.boxId}`, 11, bold, { x: left });
-      const boxWidth = bold.widthOfTextAtSize(`Box #${s.boxId}`, 11);
-      const buyerX = left + boxWidth + 8;
+      const head = r.boxId == null ? "No box" : `Box #${r.boxId}`;
+      c.text(head, 11, bold, { x: left, color: r.boxId == null ? GREY : INK });
+      const buyerX = left + bold.widthOfTextAtSize(head, 11) + 8;
       const buyerWidth = THERMAL.width - MARGIN - tailWidth - 6 - buyerX;
-      page.drawText(fit(s.buyer ? `u/${s.buyer}` : "(no buyer)", regular, 11, buyerWidth), {
+      page.drawText(fit(r.buyer ? `u/${r.buyer}` : "(no buyer)", regular, 11, buyerWidth), {
         x: buyerX,
         y: c.y,
         size: 11,
@@ -250,7 +257,7 @@ export async function shipManifest(
       });
       c.right(tail, 9, regular, c.y + 1);
       c.y -= 3;
-      const who = [s.shipTo?.name, place(s.shipTo)].filter(Boolean).join(" · ") || "no address on file";
+      const who = [r.shipTo?.name, place(r.shipTo)].filter(Boolean).join(" · ") || "no address on file";
       c.text(fit(who, regular, 8, THERMAL.width - MARGIN - left), 8, regular, { x: left, color: GREY });
       c.y = top - ROW;
     }
