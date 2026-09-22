@@ -142,7 +142,7 @@ type AdminContextValue = {
   setDiscogsStatus: Setter<Record<number, string>>;
   discogsRemoveRequest: (
     releaseId: number
-  ) => Promise<{ outcome: "removed" | "gone" | "failed"; error?: string }>;
+  ) => Promise<{ outcome: DiscogsOutcome; error?: string }>;
   flagDiscogsRemoved: (id: number) => Promise<void>;
   removeFromDiscogs: (r: DbRecord) => Promise<void>;
   // The one mark-sold path: sale desk, paid invoice, held order, catalog drawer.
@@ -198,6 +198,18 @@ type AdminContextValue = {
   toggleSelected: (id: number) => void;
   clearSelection: () => void;
 };
+
+// How a Discogs removal went. "ambiguous" = the collection has more than
+// one copy of the release, so nothing was deleted — the seller removes
+// the right copy on Discogs by hand. Only removed/gone flag the record.
+export type DiscogsOutcome = "removed" | "gone" | "ambiguous" | "failed";
+
+export const discogsStatusText = (outcome: DiscogsOutcome, error?: string) =>
+  outcome === "removed"
+    ? "Removed from Discogs ✓"
+    : outcome === "gone"
+      ? "Already gone from Discogs ✓"
+      : error || "Failed";
 
 // What the sale desk negotiated, handed to the mark-sold path.
 export type SaleTerms = {
@@ -728,7 +740,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // "gone" means Discogs already doesn't have it — success for our purposes.
   async function discogsRemoveRequest(
     releaseId: number
-  ): Promise<{ outcome: "removed" | "gone" | "failed"; error?: string }> {
+  ): Promise<{ outcome: DiscogsOutcome; error?: string }> {
     try {
       const {
         data: { session: current },
@@ -744,6 +756,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       if (res.ok) return { outcome: "removed" };
       const body = await res.json();
       if (res.status === 404) return { outcome: "gone", error: body.error };
+      if (res.status === 409 && body.ambiguous) {
+        return { outcome: "ambiguous", error: body.error };
+      }
       return { outcome: "failed", error: body.error || "Failed" };
     } catch {
       return { outcome: "failed", error: "Request failed" };
@@ -769,16 +784,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (!r.discogs_release_id) return;
     setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
     const { outcome, error } = await discogsRemoveRequest(r.discogs_release_id);
-    setDiscogsStatus((prev) => ({
-      ...prev,
-      [r.id]:
-        outcome === "removed"
-          ? "Removed from Discogs ✓"
-          : outcome === "gone"
-            ? "Already gone from Discogs ✓"
-            : error || "Failed",
-    }));
-    if (outcome !== "failed") await flagDiscogsRemoved(r.id);
+    setDiscogsStatus((prev) => ({ ...prev, [r.id]: discogsStatusText(outcome, error) }));
+    if (outcome === "removed" || outcome === "gone") await flagDiscogsRemoved(r.id);
   }
 
   // The Discogs removal is offered once a sale can't come back — every

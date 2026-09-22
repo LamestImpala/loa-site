@@ -19,7 +19,7 @@ import {
   type InterestFilter,
   type SortKey,
 } from "@/lib/admin/catalog-filter";
-import { useAdmin, useSlice } from "../_shell/admin-provider";
+import { discogsStatusText, useAdmin, useSlice } from "../_shell/admin-provider";
 import { CatalogRow } from "./catalog-row";
 import { blurOnEnter, buttonClass, inputClass, pct } from "../_shell/ui";
 
@@ -356,6 +356,7 @@ export function CatalogPage() {
     discogsBulkCancel.current = false;
     let removed = 0;
     let gone = 0;
+    let ambiguous = 0;
     let failed = 0;
     try {
       for (let i = 0; i < targets.length; i++) {
@@ -370,17 +371,10 @@ export function CatalogPage() {
         );
         if (outcome === "removed") removed++;
         else if (outcome === "gone") gone++;
+        else if (outcome === "ambiguous") ambiguous++;
         else failed++;
-        setDiscogsStatus((prev) => ({
-          ...prev,
-          [r.id]:
-            outcome === "removed"
-              ? "Removed from Discogs ✓"
-              : outcome === "gone"
-                ? "Already gone from Discogs ✓"
-                : error || "Failed",
-        }));
-        if (outcome !== "failed") await flagDiscogsRemoved(r.id);
+        setDiscogsStatus((prev) => ({ ...prev, [r.id]: discogsStatusText(outcome, error) }));
+        if (outcome === "removed" || outcome === "gone") await flagDiscogsRemoved(r.id);
         // Each removal is two Discogs API calls; ~2s keeps us under the
         // 60-requests-per-minute token limit.
         if (i < targets.length - 1 && !discogsBulkCancel.current) {
@@ -394,10 +388,16 @@ export function CatalogPage() {
     const parts = [
       `${removed} removed`,
       ...(gone > 0 ? [`${gone} already gone`] : []),
+      ...(ambiguous > 0
+        ? [`${ambiguous} left for you — Discogs has more than one copy (see the record's drawer)`]
+        : []),
       ...(failed > 0 ? [`${failed} failed`] : []),
       ...(discogsBulkCancel.current ? ["stopped early"] : []),
     ];
-    pushToast(failed > 0 ? "error" : "success", `Discogs cleanup: ${parts.join(", ")}.`);
+    pushToast(
+      failed > 0 ? "error" : ambiguous > 0 ? "info" : "success",
+      `Discogs cleanup: ${parts.join(", ")}.`
+    );
   }
 
   // Inline hold editor (which row is asking for a buyer name, and the draft)
@@ -1441,6 +1441,30 @@ export function CatalogPage() {
                                 >
                                   {discogsStatus[r.id]}
                                 </span>
+                              ) : null}
+                              {/* The route wouldn't pick a copy (or failed):
+                                  remove it on Discogs, then record that. */}
+                              {!r.discogs_removed &&
+                              discogsStatus[r.id] &&
+                              !discogsStatus[r.id].includes("✓") &&
+                              discogsStatus[r.id] !== "Removing…" ? (
+                                <>
+                                  <a
+                                    href={`https://www.discogs.com/release/${r.discogs_release_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                                  >
+                                    Open on Discogs ↗
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => flagDiscogsRemoved(r.id)}
+                                    className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                                  >
+                                    I removed it ✓
+                                  </button>
+                                </>
                               ) : null}
                             </div>
                           ) : null}

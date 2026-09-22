@@ -5,10 +5,17 @@ import {
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
 } from "@/lib/supabase";
+import { removableInstance } from "@/lib/admin/discogs-instances";
 
 // Removes a release from the owner's Discogs collection. The Discogs token
 // only exists server-side (same env vars the vinyl-collection page uses),
 // so the admin page calls this route instead of Discogs directly.
+//
+// A record only knows its release id, not which collection copy it is.
+// With one copy that's the same thing; with two or more (a keeper and a
+// sale copy, say) any pick could delete the wrong one, and the delete
+// can't be undone — so the route deletes nothing and answers 409 with
+// the copies, for the seller to remove the right one on Discogs.
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";
   const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -59,13 +66,29 @@ export async function POST(req: NextRequest) {
     );
   }
   const found = await findRes.json();
-  const instance = found?.releases?.[0];
-  if (!instance?.instance_id) {
+  const pick = removableInstance(found?.releases);
+  if (pick.kind === "none") {
     return NextResponse.json(
       { error: "Not found in your Discogs collection" },
       { status: 404 }
     );
   }
+  if (pick.kind === "several") {
+    return NextResponse.json(
+      {
+        error: `Your Discogs collection has ${pick.instances.length} copies of this release — remove the sold one on Discogs, then mark it removed here.`,
+        ambiguous: true,
+        releaseUrl: `https://www.discogs.com/release/${releaseId}`,
+        instances: pick.instances.map((x) => ({
+          instanceId: x.instance_id,
+          folderId: x.folder_id,
+          dateAdded: x.date_added ?? null,
+        })),
+      },
+      { status: 409 }
+    );
+  }
+  const instance = pick.instance;
 
   const delRes = await fetch(
     `https://api.discogs.com/users/${username}/collection/folders/${instance.folder_id}/releases/${releaseId}/instances/${instance.instance_id}`,
