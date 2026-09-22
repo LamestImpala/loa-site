@@ -68,6 +68,7 @@ export function shipment(over: Partial<Shipment> = {}): Shipment {
     paypal_tracked_number: null,
     paypal_synced_at: null,
     packed_at: null,
+    sent_at: null,
     ...over,
   };
 }

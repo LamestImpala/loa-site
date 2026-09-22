@@ -2,8 +2,8 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import type { OrderSheetOrder } from "./pack-list.ts";
 import { fit, pdfSafe } from "./packing-slips.ts";
 
-// Order sheet: one Letter page, two columns, of every order on the packing
-// table and each record still to go into its mailer — a checkbox for the
+// Order sheet: one Letter page, two columns, of every paid order not yet
+// dropped off and each of its records — a checkbox for the
 // order and one per record, ticked at the table. Printed on the office
 // printer, not the thermal. The type steps down until everything fits on
 // one page; only a really big day spills onto a second.
@@ -25,7 +25,18 @@ const GREY = rgb(0.4, 0.4, 0.4);
 
 type Line =
   | { kind: "order"; order: OrderSheetOrder; cont: boolean }
-  | { kind: "record"; record: OrderSheetOrder["records"][number] };
+  | { kind: "record"; record: OrderSheetOrder["records"][number]; order: OrderSheetOrder };
+
+// When every record of an order is in the same place (all loose, or all
+// in one box), the box goes on the order's heading line and the record
+// rows keep their full width for the title.
+function oneBox(o: OrderSheetOrder): OrderSheetOrder["records"][number] | null {
+  const [first] = o.records;
+  return o.records.every((r) => r.boxId === first.boxId) ? first : null;
+}
+
+const boxLabel = (r: { boxId: number | null; labeled: boolean }) =>
+  r.boxId != null ? `Box #${r.boxId}${r.labeled ? " labeled" : ""}` : "";
 
 type Placed = { line: Line; page: number; col: number; y: number }; // y: top of the line
 
@@ -63,7 +74,7 @@ export function layoutOrderSheet(orders: OrderSheetOrder[], scale: number) {
         advance();
         put({ kind: "order", order, cont: true }, h.order);
       }
-      put({ kind: "record", record }, h.record);
+      put({ kind: "record", record, order }, h.record);
     }
   }
   return { placed, pages: page + 1 };
@@ -153,6 +164,7 @@ export async function orderSheetPdf(
   for (const { line, page: p, col, y: top } of placed) {
     const page = pdfPages[p];
     const x = MARGIN + col * (COL_WIDTH + GUTTER);
+    const owner = line.kind === "record" ? line.order : null;
     const right = x + COL_WIDTH;
     if (line.kind === "order") {
       const size = 10.5 * scale;
@@ -160,9 +172,13 @@ export async function orderSheetPdf(
       const o = line.order;
       const box = 9 * scale;
       checkbox(page, x, baseline, box, size);
-      const tail = line.cont
-        ? "(cont.)"
-        : `${o.records.length} rec${o.records.length === 1 ? "" : "s"}`;
+      const shared = oneBox(o);
+      const tail = [
+        shared ? boxLabel(shared) : "",
+        line.cont ? "(cont.)" : `${o.records.length} rec${o.records.length === 1 ? "" : "s"}`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
       const tailSize = 8 * scale;
       const tailWidth = regular.widthOfTextAtSize(tail, tailSize);
       const left = x + box + 5;
@@ -195,7 +211,7 @@ export async function orderSheetPdf(
       const box = 7 * scale;
       const indent = x + 12 * scale;
       checkbox(page, indent, baseline, box, size);
-      const tail = [r.boxId != null ? `Box #${r.boxId}` : "", `${r.media}/${r.sleeve}`]
+      const tail = [owner && oneBox(owner) ? "" : boxLabel(r), `${r.media}/${r.sleeve}`]
         .filter(Boolean)
         .join(" · ");
       const tailSize = 7.5 * scale;
