@@ -1,4 +1,4 @@
-import type { DbRecord, OrderRequest } from "../supabase.ts";
+import type { DbRecord, Order, OrderRequest, Shipment } from "../supabase.ts";
 import type { BundleItem } from "../records.ts";
 
 // The sale side of the admin: what a mark-sold writes and what it
@@ -76,9 +76,10 @@ export function finishedRequests(
 }
 
 // The record patch that undoes a sale: back on the shop (listed is never
-// touched by a sale), out of its order, a fresh start on the pick list.
-// The sale's other traces stay on the row — what the catalog's un-sell
-// has always written.
+// touched by a sale), out of its order, a fresh start on the pick list,
+// and cleared of the dead sale's buyer, price, invoice and tracking so the
+// row doesn't regroup under it in fulfillment. discogs_removed stays — it
+// records what happened on Discogs, not the sale.
 export function unsoldPatch(): Partial<DbRecord> {
   return {
     sold: false,
@@ -86,5 +87,54 @@ export function unsoldPatch(): Partial<DbRecord> {
     order_id: null,
     negotiated_price: null,
     picked_at: null,
+    sold_price: null,
+    buyer_username: "",
+    paypal_invoice_id: null,
+    tracking_number: "",
+  };
+}
+
+// Everything else an un-sell has to tidy so no trace of the sale is left
+// working: the records leave their parcels (an untracked parcel left
+// empty is deleted; a tracked one keeps its row as shipping history), an
+// order left with no records is cancelled (never an invoiced one — that
+// has a live PayPal invoice to cancel first), and records already taken
+// off Discogs are named so the seller can re-add them.
+export type UnsellPlan = {
+  parcels: { id: number; record_ids: number[]; remove: boolean }[];
+  cancelOrderIds: number[];
+  offDiscogs: DbRecord[];
+};
+
+export function unsellPlan(
+  targets: DbRecord[],
+  records: DbRecord[],
+  shipments: Shipment[],
+  orders: Order[]
+): UnsellPlan {
+  const ids = new Set(targets.map((r) => r.id));
+  const parcels = shipments
+    .filter(
+      (s) => s.status !== "refunded" && (s.record_ids ?? []).some((id) => ids.has(id))
+    )
+    .map((s) => {
+      const left = (s.record_ids ?? []).filter((id) => !ids.has(id));
+      return { id: s.id, record_ids: left, remove: left.length === 0 && !s.tracking_code };
+    });
+  const touched = new Set(
+    targets.map((r) => r.order_id).filter((id): id is number => id != null)
+  );
+  const cancelOrderIds = orders
+    .filter(
+      (o) =>
+        touched.has(o.id) &&
+        (o.status === "held" || o.status === "paid") &&
+        !records.some((r) => r.order_id === o.id && !ids.has(r.id))
+    )
+    .map((o) => o.id);
+  return {
+    parcels,
+    cancelOrderIds,
+    offDiscogs: targets.filter((r) => r.discogs_removed),
   };
 }

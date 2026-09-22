@@ -8,8 +8,9 @@ import {
   saleItem,
   salePrice,
   soldPatch,
+  unsellPlan,
 } from "./sales.ts";
-import { DAY, iso, rec } from "./fixtures.ts";
+import { DAY, iso, order, rec, shipment } from "./fixtures.ts";
 
 const NOW = Date.parse("2026-09-13T12:00:00Z");
 const at = new Date(NOW);
@@ -90,4 +91,32 @@ test("an open request finishes once this sale sells its last record", () => {
   ];
   const done = finishedRequests(requests, new Set([1]), byId);
   assert.deepEqual(done.map((r) => r.id), [1, 3]);
+});
+
+test("un-selling pulls records out of parcels and cancels an order left empty", () => {
+  const a = rec({ id: 1, sold: true, order_id: 10 });
+  const b = rec({ id: 2, sold: true, order_id: 10 });
+  const c = rec({ id: 3, sold: true, order_id: 11, discogs_removed: true });
+  const d = rec({ id: 4, order_id: 12 });
+  const records = [a, b, c, d];
+  const shipments = [
+    shipment({ id: 100, record_ids: [1, 2] }),
+    shipment({ id: 101, record_ids: [3] }), // untracked, left empty: deleted
+    shipment({ id: 102, record_ids: [3], tracking_code: "9400" }), // kept as history
+    shipment({ id: 103, record_ids: [3], status: "refunded" }), // left alone
+  ];
+  const orders = [
+    order({ id: 10, status: "paid" }),
+    order({ id: 11, status: "paid" }),
+    order({ id: 12, status: "invoiced" }),
+  ];
+  const plan = unsellPlan([a, c, d], records, shipments, orders);
+  assert.deepEqual(plan.parcels, [
+    { id: 100, record_ids: [2], remove: false },
+    { id: 101, record_ids: [], remove: true },
+    { id: 102, record_ids: [], remove: false },
+  ]);
+  // 10 still has record 2; 12 is invoiced — its invoice gets cancelled first.
+  assert.deepEqual(plan.cancelOrderIds, [11]);
+  assert.deepEqual(plan.offDiscogs.map((r) => r.id), [3]);
 });

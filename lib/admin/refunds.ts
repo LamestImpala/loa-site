@@ -29,15 +29,8 @@ export function refundPlan<R extends PlanRecord>(
   return { relist, keepSold };
 }
 
-// The record patch for a refunded sale's unshipped records: un-sold, and
-// cleared of the dead sale's buyer, price and invoice so the row doesn't
-// regroup under it in fulfillment.
+// The record patch for a refunded sale's unshipped records: the same
+// clean un-sell as the catalog's.
 export function refundedPatch(): Partial<DbRecord> {
-  return {
-    ...unsoldPatch(),
-    sold_price: null,
-    buyer_username: "",
-    paypal_invoice_id: null,
-    tracking_number: "",
-  };
+  return unsoldPatch();
 }
