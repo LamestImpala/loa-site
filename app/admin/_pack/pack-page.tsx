@@ -6,12 +6,14 @@ import type { DbRecord, Shipment } from "@/lib/supabase";
 import {
   manifestRows,
   openParcels,
+  orderSheet,
   packList,
   packProgress,
   slipsForParcels,
   type PackOrder,
 } from "@/lib/admin/pack-list";
 import { packingSlips, shipManifest } from "@/lib/admin/packing-slips";
+import { orderSheetPdf } from "@/lib/admin/order-sheet";
 import { createParcel } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
@@ -25,6 +27,8 @@ import { buttonClass, smallButtonClass } from "../_shell/ui";
 // printer; the slip is the box's tag until the label is on it. "Print
 // manifest" is one 4×6 checklist of every package still open on the
 // fulfillment board, labeled or not, ticked as each is ready to go.
+// "Print order sheet" is one Letter page of every order on the table and
+// each record still to go in its mailer, ticked off while packing.
 export function PackPage() {
   const {
     records,
@@ -42,7 +46,7 @@ export function PackPage() {
   } = useAdmin();
   const [checked, setChecked] = useState<Record<string, number[]>>({});
   const [busy, setBusy] = useState<string | null>(null); // order key or `box-${id}`
-  const [printing, setPrinting] = useState<"slips" | "manifest" | null>(null);
+  const [printing, setPrinting] = useState<"slips" | "manifest" | "sheet" | null>(null);
 
   const list = useMemo(() => packList(records, shipments, orders), [records, shipments, orders]);
   const progress = packProgress(list);
@@ -51,6 +55,7 @@ export function PackPage() {
     () => manifestRows(records, shipments, orders, invoices),
     [records, shipments, orders, invoices]
   );
+  const sheet = useMemo(() => orderSheet(list, byId), [list, byId]);
   const invoiceById = useMemo(
     () => new Map(invoices.map((inv) => [inv.paypal_invoice_id, inv])),
     [invoices]
@@ -133,7 +138,7 @@ export function PackPage() {
     );
   }
 
-  async function print(kind: "slips" | "manifest") {
+  async function print(kind: "slips" | "manifest" | "sheet") {
     if (printing) return;
     setPrinting(kind);
     try {
@@ -142,6 +147,12 @@ export function PackPage() {
         openPdf(
           await packingSlips(slips),
           `${slips.length} slip${slips.length === 1 ? "" : "s"} ready — print at 100% on 4×6.`
+        );
+      } else if (kind === "sheet") {
+        const recs = sheet.reduce((n, o) => n + o.records.length, 0);
+        openPdf(
+          await orderSheetPdf(sheet),
+          `Order sheet for ${sheet.length} order${sheet.length === 1 ? "" : "s"}, ${recs} record${recs === 1 ? "" : "s"} ready — print on Letter.`
         );
       } else {
         openPdf(
@@ -152,7 +163,9 @@ export function PackPage() {
     } catch (e) {
       pushToast(
         "error",
-        e instanceof Error ? e.message : `Couldn't build the ${kind === "slips" ? "slips" : "manifest"}`
+        e instanceof Error
+          ? e.message
+          : `Couldn't build the ${kind === "slips" ? "slips" : kind === "sheet" ? "order sheet" : "manifest"}`
       );
     } finally {
       setPrinting(null);
@@ -179,6 +192,17 @@ export function PackPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => print("sheet")}
+            disabled={sheet.length === 0 || !!printing}
+            title="One Letter page of every order on the table and each record still to go in its mailer, with a checkbox for each — for the office printer"
+            className={buttonClass}
+          >
+            {printing === "sheet"
+              ? "Building…"
+              : `Print order sheet${sheet.length ? ` (${sheet.length})` : ""}`}
+          </button>
           <button
             type="button"
             onClick={() => print("manifest")}

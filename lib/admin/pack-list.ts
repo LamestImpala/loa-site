@@ -215,3 +215,52 @@ export function manifestRows(
     ...loose.sort((a, b) => a.buyer.localeCompare(b.buyer, undefined, { sensitivity: "base" })),
   ];
 }
+
+// Order sheet: the Letter-size packing checklist — every order on the
+// packing table with each record still to go into a mailer, in the same
+// buyer A→Z order as the Pack page cards. Loose records first (shelf
+// order), then records already in a box that has no label yet, tagged
+// with the Box # so a sealed box reads as done at a glance. Records in a
+// labeled box are finished and left off; an order with none left drops.
+export type OrderSheetRecord = Pick<DbRecord, "artist" | "title" | "media" | "sleeve"> & {
+  boxId: number | null;
+};
+
+export type OrderSheetOrder = {
+  key: string;
+  buyer: string;
+  shipToName: string | null;
+  records: OrderSheetRecord[];
+};
+
+export function orderSheet(
+  list: PackOrder[],
+  byId: Map<number, DbRecord>
+): OrderSheetOrder[] {
+  const line = (r: DbRecord, boxId: number | null): OrderSheetRecord => ({
+    artist: r.artist,
+    title: r.title,
+    media: r.media,
+    sleeve: r.sleeve,
+    boxId,
+  });
+  return list
+    .map((o) => ({
+      key: o.key,
+      buyer: o.buyer,
+      shipToName: o.shipTo?.name ?? null,
+      records: [
+        ...o.loose.map((r) => line(r, null)),
+        ...o.parcels
+          .filter((s) => !s.tracking_code)
+          .flatMap((s) =>
+            (s.record_ids ?? [])
+              .map((id) => byId.get(id))
+              .filter((r): r is DbRecord => !!r)
+              .sort(shelfCompare)
+              .map((r) => line(r, s.id))
+          ),
+      ],
+    }))
+    .filter((o) => o.records.length > 0);
+}
