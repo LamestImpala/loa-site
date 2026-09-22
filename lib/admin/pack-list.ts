@@ -279,9 +279,31 @@ export function orderSheet(
   );
 }
 
-// Labeled boxes still in the house — what "Mark dropped off" stamps.
-export function awaitingDropOff(shipments: Shipment[]): Shipment[] {
+// Labeled boxes still in the house — what "Mark dropped off" stamps. A
+// refunded order's boxes aren't going anywhere, so they don't count.
+export function awaitingDropOff(shipments: Shipment[], orders: Order[] = []): Shipment[] {
+  const refunded = new Set(orders.filter((o) => o.status === "refunded").map((o) => o.id));
   return sortByPackOrder(
-    shipments.filter((s) => !!s.tracking_code && !s.sent_at && s.status !== "refunded")
+    shipments.filter(
+      (s) =>
+        !!s.tracking_code &&
+        !s.sent_at &&
+        s.status !== "refunded" &&
+        !(s.order_id != null && refunded.has(s.order_id))
+    )
   );
+}
+
+// Where an order's boxes are, for its fulfillment card: none labeled yet,
+// some still in the house, or all dropped off (with the latest drop date).
+export function dropOffState(
+  shipments: Pick<Shipment, "tracking_code" | "sent_at">[]
+): { state: "none" | "waiting" | "sent"; sentAt: string | null } {
+  const labeled = shipments.filter((s) => !!s.tracking_code);
+  if (labeled.length === 0) return { state: "none", sentAt: null };
+  if (labeled.some((s) => !s.sent_at)) return { state: "waiting", sentAt: null };
+  const sentAt = labeled
+    .map((s) => s.sent_at as string)
+    .reduce((a, b) => (a > b ? a : b));
+  return { state: "sent", sentAt };
 }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   awaitingDropOff,
+  dropOffState,
   manifestRows,
   openParcels,
   orderSheet,
@@ -185,4 +186,23 @@ test("awaiting drop-off: labeled, not sent, not refunded, in pack order", () => 
     shipment({ id: 5, tracking_code: "4", packed_at: "2026-09-15T01:00:00Z" }),
   ]);
   assert.deepEqual(list.map((s) => s.id), [5, 3]);
+});
+
+test("drop-off state: nothing labeled, a box still in the house, or all sent", () => {
+  assert.deepEqual(dropOffState([shipment({ tracking_code: null })]), { state: "none", sentAt: null });
+  assert.deepEqual(
+    dropOffState([
+      shipment({ tracking_code: "1", sent_at: "2026-09-16T00:00:00Z" }),
+      shipment({ tracking_code: "2" }),
+    ]),
+    { state: "waiting", sentAt: null }
+  );
+  assert.deepEqual(
+    dropOffState([
+      shipment({ tracking_code: "1", sent_at: "2026-09-16T00:00:00Z" }),
+      shipment({ tracking_code: "2", sent_at: "2026-09-18T00:00:00Z" }),
+      shipment({ tracking_code: null }), // an unlabeled box doesn't hold it up
+    ]),
+    { state: "sent", sentAt: "2026-09-18T00:00:00Z" }
+  );
 });

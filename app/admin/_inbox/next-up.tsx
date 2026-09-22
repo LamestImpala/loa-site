@@ -55,6 +55,12 @@ export function NextUp() {
       text: `${plural(w.needLabels, "box needs", "boxes need")} a label →`,
     },
     {
+      key: "send",
+      n: w.toSend,
+      href: "/admin/pack",
+      text: `${plural(w.toSend, "box", "boxes")} to drop off →`,
+    },
+    {
       key: "sync",
       n: w.toSync,
       href: "#fulfillment",
@@ -64,7 +70,7 @@ export function NextUp() {
       key: "discogs",
       n: w.toUnlist,
       href: "/admin/catalog",
-      text: `${w.toUnlist} shipped to remove from Discogs →`,
+      text: `${w.toUnlist} labeled to remove from Discogs →`,
     },
   ].filter((c) => c.n > 0);
 

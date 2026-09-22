@@ -34,6 +34,7 @@ test("nothing to do is all zeros", () => {
     toPull: 0,
     toPack: 0,
     needLabels: 0,
+    toSend: 0,
     toSync: 0,
     toUnlist: 0,
   });
@@ -112,6 +113,38 @@ test("pull, pack and label counts follow a paid order through the table", () => 
   assert.equal(shipped.toPull, 0);
   assert.equal(shipped.toPack, 0);
   assert.equal(shipped.needLabels, 0);
+  assert.equal(shipped.toSend, 1, "labeled but still in the house");
+
+  const sent = worklist(
+    {
+      ...empty,
+      orders,
+      records,
+      shipments: [
+        shipment({
+          order_id: 1,
+          record_ids: [1, 2, 3],
+          status: "shipped",
+          tracking_code: "9400",
+          sent_at: "2026-09-13T10:00:00Z",
+        }),
+      ],
+    },
+    NOW
+  );
+  assert.equal(sent.toSend, 0);
+});
+
+test("a refunded order's labeled boxes aren't waiting to be dropped off", () => {
+  const w = worklist(
+    {
+      ...empty,
+      orders: [order({ id: 1, status: "refunded" })],
+      shipments: [shipment({ order_id: 1, status: "shipped", tracking_code: "9400" })],
+    },
+    NOW
+  );
+  assert.equal(w.toSend, 0);
 });
 
 test("a paid invoiced order asks for a sync until its fee is recorded", () => {

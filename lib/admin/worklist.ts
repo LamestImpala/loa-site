@@ -7,7 +7,7 @@ import type {
 } from "../supabase.ts";
 import { discogsReady, groupOrders } from "./fulfillment.ts";
 import { openOrders } from "./orders.ts";
-import { openParcels, packList } from "./pack-list.ts";
+import { awaitingDropOff, openParcels, packList } from "./pack-list.ts";
 import { pickList } from "./pick-list.ts";
 
 // What's waiting on the seller right now, one count per job, from the
@@ -26,6 +26,7 @@ export type Worklist = {
   toPull: number; // records on the pick list not marked pulled
   toPack: number; // records in paid orders not in any box yet
   needLabels: number; // boxes with no tracking number
+  toSend: number; // labeled boxes not dropped off yet
   toSync: number; // paid orders whose invoice has no PayPal fee recorded
   toUnlist: number; // shipped records still in the owner's Discogs collection
 };
@@ -65,6 +66,7 @@ export function worklist(
       0
     ),
     needLabels: openParcels(shipments).length,
+    toSend: awaitingDropOff(shipments, orders).length,
     toSync,
     toUnlist: discogsReady(records, shipments, orders).length,
   };
