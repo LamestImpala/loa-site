@@ -2,7 +2,11 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { PendingPriceChange } from "@/lib/supabase";
-import { forSaleById as forSaleFromRuns, isActionable as actionable } from "@/lib/admin/pricing";
+import {
+  approvalBlock,
+  forSaleById as forSaleFromRuns,
+  isActionable as actionable,
+} from "@/lib/admin/pricing";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { buttonClass, pct } from "../_shell/ui";
 
@@ -14,6 +18,7 @@ export function PricingPage() {
     pending,
     setPending,
     runs,
+    byId,
     setRecords,
     updateRecord,
     pushToast,
@@ -53,6 +58,20 @@ export function PricingPage() {
     approve: boolean
   ) {
     if (list.length === 0 || bulkPendingBusy) return;
+    // Approving skips changes whose record is sold, held, invoiced or
+    // repriced since — they stay pending. Rejecting takes everything.
+    const blocked = approve
+      ? list.filter((p) => approvalBlock(p, byId.get(p.record_id)))
+      : [];
+    if (blocked.length > 0) {
+      const skip = new Set(blocked);
+      list = list.filter((p) => !skip.has(p));
+      pushToast(
+        "info",
+        `Skipping ${blocked.length} change${blocked.length === 1 ? "" : "s"} on records that are sold, held, invoiced or repriced since — they stay pending.`
+      );
+      if (list.length === 0) return;
+    }
     const ok = (await confirm(
       `${approve ? "Approve" : "Reject"} ${list.length} pending price change${
         list.length > 1 ? "s" : ""
@@ -130,6 +149,11 @@ export function PricingPage() {
   }
 
   async function resolvePending(p: PendingPriceChange, approve: boolean) {
+    const block = approve ? approvalBlock(p, byId.get(p.record_id)) : null;
+    if (block) {
+      pushToast("info", `Can't approve yet — the record is ${block}. Reject it, or wait for the sale to close.`);
+      return;
+    }
     if (approve) {
       const ok = await updateRecord(p.record_id, {
         price: p.suggested_price,

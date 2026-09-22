@@ -74,7 +74,7 @@ const request = (id: number, status: OrderRequest["status"], record_ids: number[
   updated_at: "",
 });
 
-test("a loaded request finishes once every record is sold, now or earlier", () => {
+test("an open request finishes once this sale sells its last record", () => {
   const byId = new Map([
     [1, rec({ id: 1 })],
     [2, rec({ id: 2, sold: true })],
@@ -83,9 +83,11 @@ test("a loaded request finishes once every record is sold, now or earlier", () =
   const requests = [
     request(1, "loaded", [1, 2]),
     request(2, "loaded", [1, 3]),
-    request(3, "new", [1]),
+    request(3, "new", [1]), // never loaded, still closes
     request(4, "loaded", [4]), // record not loaded at all
+    request(5, "new", [2]), // already sold before — this sale didn't touch it
+    request(6, "dismissed", [1]),
   ];
   const done = finishedRequests(requests, new Set([1]), byId);
-  assert.deepEqual(done.map((r) => r.id), [1]);
+  assert.deepEqual(done.map((r) => r.id), [1, 3]);
 });

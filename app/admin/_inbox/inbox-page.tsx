@@ -19,9 +19,11 @@ import {
   HOLD_HOURS,
   STALE_INVOICE_HOURS,
   holdExpiry,
+  liveInvoiceOn,
   openOrders,
   type OpenOrder,
 } from "@/lib/admin/orders";
+import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
 import { parseMoney, saleItem } from "@/lib/admin/sales";
 import { salesStats } from "@/lib/admin/stats";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
@@ -152,6 +154,13 @@ export function InboxPage() {
         : creditTooBig
           ? `A $${deskCredit} credit is more than the $${saleTotals.subtotal} subtotal.`
           : "";
+  // A desk record already on a live PayPal invoice: holding would cut its
+  // until-paid hold to 48h, and a second invoice would orphan the first.
+  // Mark sold stays open (paid some other way).
+  const deskInvoice = useMemo(
+    () => liveInvoiceOn(saleRecords, new Map(orders.map((o) => [o.id, o]))),
+    [saleRecords, orders]
+  );
   // What the desk hands to the writes: every record's agreed price and the
   // credit with its reason.
   const saleTerms = useMemo(
@@ -190,7 +199,7 @@ export function InboxPage() {
   async function holdSelected() {
     const buyer = saleBuyer.trim().replace(/^u\//, "");
     const ids = saleRecords.map((r) => r.id);
-    if (!buyer || ids.length === 0 || saleBusy || termsError) return;
+    if (!buyer || ids.length === 0 || saleBusy || termsError || deskInvoice) return;
     setSaleBusy("hold");
     // The order is the durable home for the hold (and the credit); the
     // records point at it and carry their negotiated prices.
@@ -262,7 +271,7 @@ export function InboxPage() {
   async function createInvoice() {
     const buyer = saleBuyer.trim().replace(/^u\//, "");
     const targets = saleRecords;
-    if (!buyer || targets.length === 0 || saleBusy || termsError) return;
+    if (!buyer || targets.length === 0 || saleBusy || termsError || deskInvoice) return;
     setSaleBusy("invoice");
     setSaleStatus("");
     setSaleInvoice(null);
@@ -286,6 +295,10 @@ export function InboxPage() {
         }),
       });
       const body = await res.json();
+      if (res.status === 409 && body.invoiceId) {
+        setSaleStatus(body.error);
+        return;
+      }
       if (res.status === 409) {
         setSaleStatus(
           `Already sold: ${(body.soldIds ?? []).join(", ")} — refreshing records…`
@@ -303,7 +316,7 @@ export function InboxPage() {
         status: body.status,
         warning: body.warning,
       });
-      // The route stamps paypal_invoice_id + a 48h hold on the records —
+      // The route stamps paypal_invoice_id + an until-resolved hold on the records —
       // mirror it locally so the pending card and fulfillment panel link
       // up without a reload, but only when the stamp actually landed
       // (otherwise the panel would show a link that vanishes on reload).
@@ -525,6 +538,15 @@ export function InboxPage() {
     try {
       const body = await pendingInvoiceFetch(id, "GET");
       if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
+      // Still payable: the route re-held any records whose hold had lapsed.
+      if (Array.isArray(body.heldIds) && body.heldIds.length > 0) {
+        const held = new Set<number>(body.heldIds);
+        setRecords((prev) =>
+          prev.map((r) =>
+            held.has(r.id) ? { ...r, hold_until: INVOICE_HOLD_UNTIL } : r
+          )
+        );
+      }
       // The route stamps the buyer's ship-to on the order once paid.
       if (body.order) upsertOrderLocal(body.order as Order);
       if (body.paid) {
@@ -539,8 +561,8 @@ export function InboxPage() {
           "success",
           `Invoice ${id} is ${body.status} ✓ — marking ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} sold to u/${o.buyer || "?"}`
         );
-        await markRecordsSold(o.recs, o.buyer);
-        return "paid";
+        // A failed mark-sold keeps the order open so the next check retries.
+        return (await markRecordsSold(o.recs, o.buyer)) ? "paid" : "error";
       }
       if (!quiet) {
         pushToast(
@@ -936,6 +958,13 @@ export function InboxPage() {
             {termsError ? (
               <p className="mt-2 text-xs text-red-400">{termsError}</p>
             ) : null}
+            {deskInvoice ? (
+              <p className="mt-2 text-xs text-amber-300">
+                On PayPal invoice {deskInvoice} — held until it&apos;s paid or
+                cancelled. To change the deal, cancel it under Open orders
+                first, then hold or invoice again.
+              </p>
+            ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="text-sm text-neutral-500">u/</span>
               <input
@@ -965,7 +994,7 @@ export function InboxPage() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError}
+                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError || !!deskInvoice}
                 onClick={holdSelected}
               >
                 {saleBusy === "hold" ? "Holding…" : `Hold all ${HOLD_HOURS}h`}
@@ -981,7 +1010,7 @@ export function InboxPage() {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError}
+                disabled={!saleBuyer.trim() || saleRecords.length === 0 || saleBusy !== null || !!termsError || !!deskInvoice}
                 onClick={createInvoice}
               >
                 {saleBusy === "invoice" ? "Creating…" : "PayPal invoice"}
@@ -1256,7 +1285,9 @@ export function InboxPage() {
                           <span className="ml-auto text-xs text-neutral-500">
                             {timeAgo(order.created_at)}
                             {" · "}
-                            {o.holdUntil > Date.now() ? (
+                            {invoiced ? (
+                              "held until paid"
+                            ) : o.holdUntil > Date.now() ? (
                               `~${hoursLeft}h hold left`
                             ) : (
                               <span className="text-amber-400">

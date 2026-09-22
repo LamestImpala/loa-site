@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
-import { holdActive } from "@/lib/admin/records";
+import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { unsoldPatch } from "@/lib/admin/sales";
 import { bucketEventsByDay } from "@/lib/admin/interest";
@@ -1416,16 +1416,24 @@ export function CatalogPage() {
                       ) : holdActive(r) ? (
                         <div className="flex flex-col gap-1 text-xs">
                           <span className="text-amber-300">
-                            Held for u/{r.hold_buyer} until{" "}
-                            {new Date(r.hold_until as string).toLocaleString()}
+                            Held for u/{r.hold_buyer} {holdUntilText(r)}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => releaseHold(r)}
-                            className="self-start text-neutral-500 underline underline-offset-2 transition hover:text-white"
-                          >
-                            Release hold
-                          </button>
+                          {invoiceHold(r) ? (
+                            <Link
+                              href="/admin#open-orders"
+                              className="self-start text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                            >
+                              On invoice {r.paypal_invoice_id} — cancel it under Open orders
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => releaseHold(r)}
+                              className="self-start text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                            >
+                              Release hold
+                            </button>
+                          )}
                         </div>
                       ) : holdEditId === r.id ? (
                         <div className="flex items-center gap-1.5 text-xs">

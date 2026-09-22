@@ -58,8 +58,10 @@ export function soldPatch(
   };
 }
 
-// Loaded order requests whose records are now all sold — the ones a sale
-// closes automatically.
+// Open order requests whose records are now all sold — the ones a sale
+// closes automatically. A request never loaded into the desk counts too
+// (the sale often starts from a DM), as long as this sale touched it;
+// otherwise it would sit in the inbox as "new" forever.
 export function finishedRequests(
   requests: OrderRequest[],
   justSold: Set<number>,
@@ -67,7 +69,8 @@ export function finishedRequests(
 ): OrderRequest[] {
   return requests.filter(
     (req) =>
-      req.status === "loaded" &&
+      (req.status === "loaded" || req.status === "new") &&
+      req.record_ids.some((id) => justSold.has(id)) &&
       req.record_ids.every((id) => justSold.has(id) || byId.get(id)?.sold)
   );
 }

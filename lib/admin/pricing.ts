@@ -1,4 +1,5 @@
-import type { PendingPriceChange, PriceRun } from "../supabase.ts";
+import type { DbRecord, PendingPriceChange, PriceRun } from "../supabase.ts";
+import { holdActive, invoiceHold } from "./records.ts";
 
 // Copies-for-sale per record, from the most recent run summaries (runs are
 // newest first, so the first summary seen per record wins). Used to split
@@ -33,4 +34,21 @@ export function isActionable(
     copies >= STOCKED_COPIES ||
     (Math.abs(p.pct_change) <= ACTIONABLE_MAX_CUT && copies >= ACTIONABLE_MIN_COPIES)
   );
+}
+
+// Why a flagged change can't be approved right now, or null when it can.
+// A sold record's price is history; a held or invoiced one was quoted at
+// its current price (the sale would land at the new one); and a price
+// that moved since the run flagged it makes the suggestion stale.
+export function approvalBlock(
+  p: Pick<PendingPriceChange, "old_price">,
+  r: DbRecord | undefined,
+  now: number = Date.now()
+): string | null {
+  if (!r) return "record not found";
+  if (r.sold) return "sold";
+  if (invoiceHold(r)) return "on an invoice";
+  if (holdActive(r, now)) return "on hold";
+  if (Number(r.price) !== Number(p.old_price)) return `price is now $${r.price}`;
+  return null;
 }

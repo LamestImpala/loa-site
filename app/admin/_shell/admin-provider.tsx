@@ -148,7 +148,7 @@ type AdminContextValue = {
     targets: DbRecord[],
     buyer: string,
     terms?: SaleTerms
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 
   // Orders. placeOrder puts records in an order (continuing the open one
   // they share, else a new one) and mirrors the result locally; null
@@ -863,12 +863,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // writes sold/price/buyer, clears holds and closes finished order
   // requests. No confirm — callers decide whether one is needed. The
   // Discogs removal isn't offered here: it waits for tracking (above).
+  // Resolves true once every record landed sold.
   async function markRecordsSold(
     targets: DbRecord[],
     buyer: string,
     terms?: SaleTerms
-  ) {
-    if (targets.length === 0) return;
+  ): Promise<boolean> {
+    if (targets.length === 0) return false;
     try {
       // The order first: it names the buyer when the desk left it blank
       // (a hold's buyer, or the order the records were invoiced on). The
@@ -878,14 +879,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           ? { credit: terms.credit, credit_note: (terms.creditNote ?? "").trim() }
           : undefined;
       const placed = await placeOrder(targets, buyer, "paid", extra);
-      const buyerName = buyer.trim() || placed?.order.buyer_username || "";
+      // No order, no sale: records sold outside a paid order never reach
+      // the pick or pack lists. placeOrder already said why.
+      if (!placed) return false;
+      const buyerName = buyer.trim() || placed.order.buyer_username || "";
       const now = new Date();
       const patches = new Map(
         targets.map((r) => [
           r.id,
           {
             ...soldPatch(r, buyerName, now, terms?.prices?.get(r.id)),
-            order_id: placed?.order.id ?? r.order_id ?? null,
+            order_id: placed.order.id,
           },
         ])
       );
@@ -925,10 +929,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           "error",
           `Marked ${done.length} of ${targets.length} sold before an error: ${failure}`
         );
-        return;
+        return false;
       }
       pushToast("success", `Marked ${done.length} sold ✓`);
-      // Best-effort: close loaded order requests whose records are now all
+      // Best-effort: close open order requests whose records are now all
       // sold. Failures are non-fatal — the card keeps its manual buttons.
       const finished = finishedRequests(orderRequests, doneSet, byId);
       if (finished.length > 0) {
@@ -948,8 +952,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             setOrderRequests((prev) => prev.filter((r) => !finishedIds.has(r.id)));
           });
       }
+      return true;
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Bulk mark-sold failed");
+      return false;
     }
   }
 

@@ -369,7 +369,7 @@ async function main() {
 
   let query = supabase
     .from("records")
-    .select("id, artist, title, media, price, discogs_release_id, created_at")
+    .select("id, artist, title, media, price, discogs_release_id, created_at, hold_until")
     .eq("listed", true)
     .eq("sold", false)
     .not("discogs_release_id", "is", null);
@@ -434,6 +434,7 @@ async function main() {
   let decays = 0;
   let implausible = 0;
   let errors = 0;
+  let reservedSkips = 0;
 
   let run = { id: null };
   if (!DRY_RUN) {
@@ -565,6 +566,13 @@ async function main() {
       }
 
       if (!plan) continue; // pricing logic needs a suggestion
+      // Held for a buyer or on a live invoice: the deal was quoted at this
+      // price, so leave it until the sale closes or the hold lets go (the
+      // market snapshot above still lands).
+      if (r.hold_until && new Date(r.hold_until).getTime() > Date.now()) {
+        reservedSkips++;
+        continue;
+      }
 
       let price = Number(r.price); // tracks changes made within this iteration
       const { target, reason, competitive, lowestPlausible } = plan;
@@ -656,7 +664,7 @@ async function main() {
   }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied (${decays} decay steps), ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied (${decays} decay steps), ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
