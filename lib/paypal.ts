@@ -618,3 +618,54 @@ export async function createAndSendInvoice(args: {
     };
   }
 }
+
+// The PayPal-Transmission headers a webhook delivery carries, which PayPal
+// checks against the webhook's id to prove the event came from it.
+export const WEBHOOK_HEADERS = [
+  "paypal-auth-algo",
+  "paypal-cert-url",
+  "paypal-transmission-id",
+  "paypal-transmission-sig",
+  "paypal-transmission-time",
+] as const;
+
+// Asks PayPal whether a webhook delivery is genuine. `rawBody` is the
+// request body exactly as received: PayPal signs those bytes, so the
+// event goes back unparsed (re-serializing JSON can change them).
+export async function verifyWebhookSignature(
+  headers: Record<(typeof WEBHOOK_HEADERS)[number], string | null>,
+  rawBody: string,
+  webhookId: string
+): Promise<boolean> {
+  if (WEBHOOK_HEADERS.some((h) => !headers[h])) return false;
+  const token = await getPayPalAccessToken();
+  const envelope = JSON.stringify({
+    auth_algo: headers["paypal-auth-algo"],
+    cert_url: headers["paypal-cert-url"],
+    transmission_id: headers["paypal-transmission-id"],
+    transmission_sig: headers["paypal-transmission-sig"],
+    transmission_time: headers["paypal-transmission-time"],
+    webhook_id: webhookId,
+    webhook_event: "__EVENT__",
+  }).replace('"__EVENT__"', () => rawBody); // a function: $ in the body stays literal
+  const res = await fetch(`${paypalBase()}/v1/notifications/verify-webhook-signature`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: envelope,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`PayPal webhook verification failed (${res.status}) ${detail.slice(0, 300)}`);
+  }
+  const body = await res.json().catch(() => ({}));
+  return body?.verification_status === "SUCCESS";
+}
+
+// The invoice an Invoicing webhook event is about. v2 events carry it as
+// resource.invoice; older payloads put the invoice itself in resource.
+export function invoiceIdFromEvent(event: unknown): string | null {
+  const resource = ((event ?? {}) as { resource?: { id?: unknown; invoice?: { id?: unknown } } })
+    .resource;
+  const id = resource?.invoice?.id ?? resource?.id;
+  return typeof id === "string" && /^INV2?-[A-Z0-9-]{4,60}$/i.test(id) ? id : null;
+}

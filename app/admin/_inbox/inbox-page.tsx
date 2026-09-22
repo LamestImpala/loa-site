@@ -520,8 +520,9 @@ export function InboxPage() {
     return body;
   }
 
-  // Ask PayPal where the invoice stands. Paid → the records are marked
-  // sold to the buyer right away and the order moves to Pick → Pack → Send.
+  // Ask PayPal where the invoice stands. Paid → the route marks the
+  // records sold to the buyer on the server (usually the webhook already
+  // has) and the order moves to Pick → Pack → Send.
   // `quiet` (a check-all pass) leaves "not paid yet" and errors to the
   // caller's one summary toast.
   async function checkInvoice(
@@ -547,19 +548,31 @@ export function InboxPage() {
       // The route stamps the buyer's ship-to on the order once paid.
       if (body.order) upsertOrderLocal(body.order as Order);
       if (body.paid) {
-        if (o.recs.length === 0) {
-          // Paid, but every record has since moved or sold elsewhere —
-          // close the order so the invoice stops showing as open.
-          await closeOrderLocal(o.order, "paid");
-          pushToast("success", `Invoice ${id} is ${body.status} ✓ — order closed.`);
-          return "paid";
+        // The route already made the sale on the server (the same write
+        // the PayPal webhook makes); reload to show it. A check-all pass
+        // reloads once at the end instead.
+        const settled = body.settled as
+          | { kind: "sold"; soldIds: number[]; failure: string | null }
+          | { kind: "closed" }
+          | { kind: "none" }
+          | undefined;
+        if (settled?.kind === "sold" && settled.failure) {
+          const message = `Invoice ${id} is paid, but only ${settled.soldIds.length} of its records were marked sold: ${settled.failure}`;
+          if (quiet) onError?.(message);
+          else pushToast("error", message);
+          if (!quiet) await loadData();
+          return "error";
         }
-        pushToast(
-          "success",
-          `Invoice ${id} is ${body.status} ✓ — marking ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} sold to u/${o.buyer || "?"}`
-        );
-        // A failed mark-sold keeps the order open so the next check retries.
-        return (await markRecordsSold(o.recs, o.buyer)) ? "paid" : "error";
+        if (!quiet) {
+          pushToast(
+            "success",
+            settled?.kind === "sold"
+              ? `Invoice ${id} is ${body.status} ✓ — ${settled.soldIds.length} record${settled.soldIds.length === 1 ? "" : "s"} sold to u/${o.buyer || "?"}`
+              : `Invoice ${id} is ${body.status} ✓ — order closed.`
+          );
+          await loadData();
+        }
+        return "paid";
       }
       if (!quiet) {
         pushToast(
@@ -608,6 +621,8 @@ export function InboxPage() {
       else if (result === "error") failed++;
     }
     setCheckingAll(false);
+    // Paid ones were sold on the server; one reload shows them all.
+    if (paid > 0) await loadData();
     // A pass PayPal never answered doesn't count — the next load retries.
     if (failed < targets.length) {
       try {
@@ -651,20 +666,6 @@ export function InboxPage() {
     if (Date.now() - last < AUTO_CHECK_MINUTES * 60 * 1000) return;
     void checkAllRef.current(true);
   }, [loading, hasInvoiced]);
-
-  async function closeOrderLocal(order: Order, status: "paid" | "cancelled") {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", order.id);
-    if (error) {
-      pushToast("error", `Couldn't close the order: ${error.message}`);
-      return;
-    }
-    setOrders((prev) =>
-      prev.map((x) => (x.id === order.id ? { ...x, status } : x))
-    );
-  }
 
   // Cancel on PayPal, end the order, and put the records back on the shelf.
   async function cancelOrderInvoice(o: OpenOrder) {

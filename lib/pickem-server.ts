@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, ADMIN_EMAIL } from "./supabase";
+import { serviceSupabase } from "./supabase-service";
 import {
   ALWAYS_FEATURED,
   LEAGUE_META,
@@ -41,11 +42,7 @@ export async function authorizeJob(req: Request): Promise<boolean> {
   return data.user?.email === ADMIN_EMAIL;
 }
 
-export function serviceSupabase() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-  return createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
-}
+export { serviceSupabase };
 
 // ---------------------------------------------------------------------------
 // The Odds API
