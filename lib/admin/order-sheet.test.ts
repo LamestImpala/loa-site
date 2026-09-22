@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument } from "pdf-lib";
-import { fitOrderSheet, LETTER, orderSheetPdf } from "./order-sheet.ts";
+import { fitOrderSheet, LETTER, orderSheetPdf, THERMAL_SHEET } from "./order-sheet.ts";
 import type { OrderSheetOrder } from "./pack-list.ts";
 
 const order = (i: number, n: number, over: Partial<OrderSheetOrder> = {}): OrderSheetOrder => ({
@@ -67,4 +67,30 @@ test("survives long names, non-Latin text and no ship-to name", async () => {
 
 test("no orders is an error", async () => {
   await assert.rejects(orderSheetPdf([]), /No orders/);
+});
+
+test("4x6: a normal day fits one label, never below the 0.8 floor", async () => {
+  const orders = [3, 2, 3, 2, 1, 3, 5, 2].map((n, i) => order(i, n)); // 8 orders, 21 records
+  const fitted = fitOrderSheet(orders, THERMAL_SHEET);
+  assert.equal(fitted.pages, 1);
+  assert.ok(fitted.scale >= 0.8);
+  const pdf = await PDFDocument.load(await orderSheetPdf(orders, { sheet: THERMAL_SHEET }));
+  assert.equal(pdf.getPageCount(), 1);
+  assert.deepEqual(pdf.getPage(0).getSize(), { width: THERMAL_SHEET.width, height: THERMAL_SHEET.height });
+});
+
+test("4x6: a big day continues onto more labels at the floor, orders kept whole", async () => {
+  const orders = Array.from({ length: 30 }, (_, i) => order(i, 3));
+  const fitted = fitOrderSheet(orders, THERMAL_SHEET);
+  assert.ok(fitted.pages > 1);
+  assert.equal(fitted.scale, 0.8);
+  assert.ok(!fitted.placed.some((p) => p.line.kind === "order" && p.line.cont));
+  const pdf = await PDFDocument.load(await orderSheetPdf(orders, { sheet: THERMAL_SHEET }));
+  assert.equal(pdf.getPageCount(), fitted.pages);
+});
+
+test("4x6: an order longer than a whole label splits with (cont.)", () => {
+  const { placed, pages } = fitOrderSheet([order(1, 40)], THERMAL_SHEET);
+  assert.ok(pages > 1);
+  assert.ok(placed.some((p) => p.line.kind === "order" && p.line.cont));
 });
