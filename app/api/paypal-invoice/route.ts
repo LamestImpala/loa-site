@@ -290,7 +290,7 @@ export async function POST(req: NextRequest) {
       [
         result.warning,
         stampError
-          ? "Couldn't save the invoice id on the records — link it by hand in Fulfillment."
+          ? "Couldn't save the invoice id on the records — link it by hand on the Send page."
           : null,
         orderError
           ? `Couldn't save the order (${orderError}) — the invoice is out, but it won't be listed under Open orders.`
@@ -458,7 +458,7 @@ export async function DELETE(req: NextRequest) {
     if (REFUNDED_STATUSES.has(payment.status)) {
       return NextResponse.json(
         {
-          error: `Invoice is ${payment.status} — sync it from Fulfillment to close the order.`,
+          error: `Invoice is ${payment.status} — sync it on the Send page to close the order.`,
         },
         { status: 409 }
       );

@@ -5,7 +5,7 @@ import type {
   OrderRequest,
   Shipment,
 } from "../supabase.ts";
-import { discogsReady, groupOrders } from "./fulfillment.ts";
+import { discogsReady, groupOrders, pushable } from "./fulfillment.ts";
 import { openOrders } from "./orders.ts";
 import { awaitingDropOff, openParcels, packList } from "./pack-list.ts";
 import { pickList } from "./pick-list.ts";
@@ -27,6 +27,7 @@ export type Worklist = {
   toPack: number; // records in paid orders not in any box yet
   needLabels: number; // boxes with no tracking number
   toSend: number; // labeled boxes not dropped off yet
+  toPush: number; // orders with tracking PayPal hasn't been told
   toSync: number; // paid orders whose invoice has no PayPal fee recorded
   toUnlist: number; // shipped records still in the owner's Discogs collection
 };
@@ -45,11 +46,12 @@ export function worklist(
   const open = openOrders(orders, records, invoices, now);
   const invoiceById = new Map(invoices.map((i) => [i.paypal_invoice_id, i]));
   const syncAfter = now - SYNC_WINDOW_DAYS * 24 * 3600 * 1000;
-  const toSync = groupOrders(
+  const groups = groupOrders(
     records.filter((r) => r.sold),
     shipments,
     orders
-  ).filter((g) => {
+  );
+  const toSync = groups.filter((g) => {
     if (!g.invoiceId) return false;
     if (g.order && g.order.status !== "paid") return false;
     if (g.done && g.lastActivity < syncAfter) return false;
@@ -67,6 +69,7 @@ export function worklist(
     ),
     needLabels: openParcels(shipments).length,
     toSend: awaitingDropOff(shipments, orders).length,
+    toPush: groups.filter((g) => g.shipments.some(pushable)).length,
     toSync,
     toUnlist: discogsReady(records, shipments, orders).length,
   };
@@ -75,4 +78,10 @@ export function worklist(
 // What the Inbox badge counts: the things only the Inbox can clear.
 export function inboxCount(w: Worklist) {
   return w.newRequests + w.expiredHolds + w.staleInvoices;
+}
+
+// What the Send badge counts: every job after the label — drop off, push
+// tracking, sync the fee.
+export function sendCount(w: Worklist) {
+  return w.toSend + w.toPush + w.toSync;
 }

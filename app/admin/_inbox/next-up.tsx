@@ -57,14 +57,14 @@ export function NextUp() {
     {
       key: "send",
       n: w.toSend,
-      href: "/admin/pack",
+      href: "/admin/ship#drop-off",
       text: `${plural(w.toSend, "box", "boxes")} to drop off →`,
     },
     {
       key: "sync",
       n: w.toSync,
-      href: "#fulfillment",
-      text: plural(w.toSync, "order to sync from PayPal", "orders to sync from PayPal"),
+      href: "/admin/ship#fulfillment",
+      text: `${plural(w.toSync, "order to sync from PayPal", "orders to sync from PayPal")} →`,
     },
     {
       key: "discogs",

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSelectedLayoutSegment } from "next/navigation";
-import { inboxCount, type Worklist } from "@/lib/admin/worklist";
+import { inboxCount, sendCount, type Worklist } from "@/lib/admin/worklist";
 import { useWorklist } from "./use-worklist";
 
 // Top-level admin pages, grouped by job. `segment` is the path piece under
@@ -53,6 +53,13 @@ const GROUPS: { label: string; pages: Page[] }[] = [
         label: "Labels",
         count: (w) => w.needLabels,
         countLabel: "boxes without a label",
+      },
+      {
+        segment: "ship",
+        href: "/admin/ship",
+        label: "Send",
+        count: sendCount,
+        countLabel: "to drop off, push or sync",
       },
     ],
   },
