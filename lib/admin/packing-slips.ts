@@ -58,7 +58,7 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
 
 // One line, cut with an ellipsis rather than wrapped, for rows that
 // must stay one line tall.
-function fit(text: string, font: PDFFont, size: number, width: number): string {
+export function fit(text: string, font: PDFFont, size: number, width: number): string {
   let s = pdfSafe(text);
   if (font.widthOfTextAtSize(s, size) <= width) return s;
   while (s.length > 1 && font.widthOfTextAtSize(`${s}…`, size) > width) s = s.slice(0, -1);

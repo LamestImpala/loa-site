@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   manifestRows,
   openParcels,
+  orderSheet,
   packList,
   packProgress,
   slipsForParcels,
@@ -140,4 +141,29 @@ test("manifest: open orders' boxes in pack order, labeled or not, then unboxed o
     ]
   );
   assert.equal(rows[0].shipTo?.name, "Jane Buyer");
+});
+
+test("order sheet: loose records, then unlabeled boxes tagged with Box #; labeled boxes and empty orders drop", () => {
+  const orders = [
+    order({ id: 1, status: "paid", buyer_username: "amy", ship_to: shipTo }),
+    order({ id: 2, status: "paid", buyer_username: "bob" }),
+  ];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1, artist: "Zappa" }),
+    rec({ id: 2, sold: true, order_id: 1, artist: "Beatles" }),
+    rec({ id: 3, sold: true, order_id: 1, artist: "Abba" }),
+    rec({ id: 4, sold: true, order_id: 1, artist: "Cream" }),
+    rec({ id: 5, sold: true, order_id: 2 }),
+  ];
+  const shipments = [
+    shipment({ id: 7, order_id: 1, record_ids: [3], packed_at: "2026-09-15T00:00:00Z", status: "draft" }),
+    shipment({ id: 8, order_id: 1, record_ids: [4], tracking_code: "9400" }),
+    shipment({ id: 9, order_id: 2, record_ids: [5], packed_at: "2026-09-15T00:00:00Z", tracking_code: "9401" }),
+  ];
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const sheet = orderSheet(packList(records, shipments, orders), byId);
+  assert.deepEqual(
+    sheet.map((o) => [o.buyer, o.shipToName, o.records.map((r) => [r.artist, r.boxId])]),
+    [["amy", "Jane Buyer", [["Beatles", null], ["Zappa", null], ["Abba", 7]]]]
+  );
 });
