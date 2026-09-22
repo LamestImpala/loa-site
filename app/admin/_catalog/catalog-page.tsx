@@ -8,7 +8,6 @@ import type { DbRecord } from "@/lib/supabase";
 import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
 import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
 import { discogsReady } from "@/lib/admin/fulfillment";
-import { unsoldPatch } from "@/lib/admin/sales";
 import { bucketEventsByDay } from "@/lib/admin/interest";
 import { detectCollection } from "@/lib/admin/collection";
 import {
@@ -74,6 +73,7 @@ export function CatalogPage() {
     ordersById,
     renameBuyer,
     releaseHold: releaseRecordHold,
+    unsellRecords,
     selectedIds,
     setSelectedIds,
     selectionMode,
@@ -444,28 +444,50 @@ export function CatalogPage() {
   }
 
   async function markSold(r: DbRecord, sold: boolean) {
-    // Un-selling erases the sale date — make sure it's deliberate.
+    const name = `"${r.artist} — ${r.title}"`;
+    if (!sold) {
+      // Un-selling erases the sale — make sure it's deliberate.
+      if (
+        !(await confirm(
+          `Un-sell ${name}? It goes back on the shop, and its sale is cleared: buyer, sold price and date, invoice link, and its place in any parcel.${
+            r.discogs_removed ? " It already came out of your Discogs collection — re-add it there." : ""
+          }`
+        ))
+      )
+        return;
+      setSaving(r.id, true);
+      try {
+        await unsellRecords([r]);
+      } finally {
+        setSaving(r.id, false);
+      }
+      return;
+    }
+    // Selling goes through the same path as the sale desk, so this also
+    // puts the record in a paid order, carries a hold's buyer over, and
+    // closes the matching order request. A deal or a different buyer is a
+    // job for the sale desk.
+    const buyer = (r.hold_buyer ?? "").trim();
     if (
-      !sold &&
       !(await confirm(
-        `Un-mark "${r.artist} — ${r.title}" as sold? This clears its sold date.`
+        `Mark ${name} sold${buyer ? ` to u/${buyer}` : " with no buyer"} for $${r.negotiated_price ?? r.price}? For a different buyer or price, use "Sell on the desk" instead.`
       ))
     )
       return;
-    // Un-selling takes the record out of its order too.
-    if (!sold) {
-      await updateRecord(r.id, unsoldPatch());
-      return;
-    }
-    // Selling goes through the same path as the sale desk, so the row
-    // checkbox also records the sold price, carries a hold's buyer over,
-    // and closes the matching order request.
     setSaving(r.id, true);
     try {
       await markRecordsSold([r], "");
     } finally {
       setSaving(r.id, false);
     }
+  }
+
+  // Start a sale for this record on the inbox sale desk, where the buyer,
+  // a negotiated price and the invoice are set.
+  function sellOnDesk(r: DbRecord) {
+    setSelectionMode("sale");
+    setSelectedIds((prev) => new Set(prev).add(r.id));
+    router.push("/admin");
   }
 
   // Daily history for the record open in the drawer.
@@ -654,39 +676,25 @@ export function CatalogPage() {
     setNewRelInput("");
   }
 
-  // Toggle listed/sold for every record currently shown by the search filter.
-  async function toggleAllFiltered(field: "listed" | "sold", value: boolean) {
-    // Skip records already in the target state — bulk "Sold ON" must not
-    // re-stamp sold_at on historical sales.
+  // Show or hide every record currently shown by the search filter. There
+  // is deliberately no bulk sell or un-sell: a sale belongs to one buyer's
+  // order, so it goes through the sale desk or the drawer, one order at a
+  // time.
+  async function toggleAllFiltered(field: "listed", value: boolean) {
     const ids = filteredRecords
       .filter((r) => r[field] !== value)
       .map((r) => r.id);
     if (ids.length === 0) return;
-    const label = field === "listed" ? "Shown" : "Sold";
+    const label = "Shown";
     const plural = ids.length === 1 ? "" : "s";
     if (
       !(await confirm(
-        field === "sold" && value
-          ? `Mark all ${ids.length} unsold record${plural} in the current filter as sold? Each keeps its hold buyer (if any), and records its current price as the sold price. The Discogs removal is offered once they've shipped.`
-          : `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`
+        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`
       ))
     )
       return;
-    if (field === "sold" && value) {
-      setBulkSaving(true);
-      try {
-        await markRecordsSold(
-          filteredRecords.filter((r) => !r.sold),
-          ""
-        );
-      } finally {
-        setBulkSaving(false);
-      }
-      return;
-    }
     setBulkSaving(true);
     const patch: Partial<DbRecord> = { [field]: value };
-    if (field === "sold") patch.sold_at = value ? new Date().toISOString() : null;
     const { error } = await supabase
       .from("records")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -1292,16 +1300,40 @@ export function CatalogPage() {
                   <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
                     Sale
                   </h3>
-                  <label className="mt-2 flex items-center gap-2 text-sm text-neutral-300">
-                    <input
-                      type="checkbox"
-                      checked={r.sold}
-                      disabled={savingIds.has(r.id)}
-                      onChange={(e) => markSold(r, e.target.checked)}
-                      className="admin-checkbox"
-                    />
-                    Sold
-                  </label>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm text-neutral-300">
+                      <input
+                        type="checkbox"
+                        checked={r.sold}
+                        disabled={savingIds.has(r.id) || (!r.sold && invoiceHold(r))}
+                        onChange={(e) => markSold(r, e.target.checked)}
+                        className="admin-checkbox"
+                      />
+                      Sold
+                    </label>
+                    {!r.sold && !holdActive(r) ? (
+                      <button
+                        type="button"
+                        onClick={() => sellOnDesk(r)}
+                        className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                      >
+                        Sell on the desk →
+                      </button>
+                    ) : null}
+                  </div>
+                  {!r.sold && r.discogs_removed ? (
+                    <p className="mt-2 text-xs text-amber-300">
+                      For sale again, but it came out of your Discogs
+                      collection.{" "}
+                      <button
+                        type="button"
+                        onClick={() => updateRecord(r.id, { discogs_removed: false })}
+                        className="text-neutral-400 underline underline-offset-2 transition hover:text-white"
+                      >
+                        I re-added it ✓
+                      </button>
+                    </p>
+                  ) : null}
                   <div className="mt-2">
                       {r.sold ? (
                         <div className="flex flex-col gap-2">

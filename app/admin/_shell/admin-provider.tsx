@@ -25,7 +25,7 @@ import type {
   Shipment,
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
-import { holdActive } from "@/lib/admin/records";
+import { holdActive, invoiceHold } from "@/lib/admin/records";
 import {
   placeOrder as placeOrderDb,
   releaseOrder as releaseOrderDb,
@@ -33,7 +33,12 @@ import {
   type PlacedOrder,
 } from "@/lib/admin/orders-db";
 import { discogsReady } from "@/lib/admin/fulfillment";
-import { finishedRequests, soldPatch } from "@/lib/admin/sales";
+import {
+  finishedRequests,
+  soldPatch,
+  unsellPlan,
+  unsoldPatch,
+} from "@/lib/admin/sales";
 import { useAdminSession } from "../admin-gate";
 import type { ConfirmRequest, Toast } from "./ui";
 
@@ -140,7 +145,7 @@ type AdminContextValue = {
   ) => Promise<{ outcome: "removed" | "gone" | "failed"; error?: string }>;
   flagDiscogsRemoved: (id: number) => Promise<void>;
   removeFromDiscogs: (r: DbRecord) => Promise<void>;
-  // The one mark-sold path: sale desk, paid invoice, row and bulk checkboxes.
+  // The one mark-sold path: sale desk, paid invoice, held order, catalog drawer.
   // `terms` carries what the desk negotiated: per-record prices and the
   // order credit; without it the records' own negotiated prices apply and
   // the order keeps whatever credit it has.
@@ -167,6 +172,9 @@ type AdminContextValue = {
   releaseOrder: (order: Order) => Promise<boolean>;
   // Release one record's hold; a held order it leaves empty is cancelled.
   releaseHold: (r: DbRecord) => Promise<boolean>;
+  // The one un-sell path: records back on the shop, out of their parcels,
+  // an order left empty cancelled. No confirm — callers ask first.
+  unsellRecords: (targets: DbRecord[]) => Promise<boolean>;
 
   // Sale-desk selection. `selectionMode` says why records are selected:
   // the sale desk (default) or the weekly Reddit post.
@@ -834,6 +842,15 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // cancelled once empty); an invoiced order keeps it, since the invoice
   // still covers it.
   async function releaseHold(r: DbRecord) {
+    // A live invoice's hold ends with the invoice — cancel it instead, or
+    // the buyer can still pay for a record that's back on the shop.
+    if (invoiceHold(r)) {
+      pushToast(
+        "error",
+        `On invoice ${r.paypal_invoice_id ?? ""} — cancel it under Open orders to release the record.`
+      );
+      return false;
+    }
     const order = r.order_id != null ? ordersById.get(r.order_id) : null;
     const leaving = order?.status === "held";
     const ok = await updateRecord(r.id, {
@@ -855,6 +872,66 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         prev.map((o) => (o.id === order.id ? { ...o, status: "cancelled" } : o))
       );
     }
+    return true;
+  }
+
+  async function unsellRecords(targets: DbRecord[]) {
+    const sold = targets.filter((r) => r.sold);
+    if (sold.length === 0) return false;
+    const plan = unsellPlan(sold, recordsRef.current, shipments, orders);
+    const now = new Date().toISOString();
+    const patch = unsoldPatch();
+    const { error } = await supabase
+      .from("records")
+      .update({ ...patch, updated_at: now })
+      .in(
+        "id",
+        sold.map((r) => r.id)
+      );
+    if (error) {
+      pushToast("error", `Un-sell failed: ${error.message}`);
+      return false;
+    }
+    const ids = new Set(sold.map((r) => r.id));
+    setRecords((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, ...patch } : r)));
+    // The tidy-up is best-effort: the records are already back on the
+    // shop; a parcel or order that didn't update is named in the toast.
+    const problems: string[] = [];
+    for (const p of plan.parcels) {
+      const { error: parcelError } = p.remove
+        ? await supabase.from("shipments").delete().eq("id", p.id)
+        : await supabase
+            .from("shipments")
+            .update({ record_ids: p.record_ids, updated_at: now })
+            .eq("id", p.id);
+      if (parcelError) problems.push(`parcel #${p.id}`);
+      else if (p.remove) setShipments((prev) => prev.filter((s) => s.id !== p.id));
+      else patchShipmentLocal(p.id, { record_ids: p.record_ids });
+    }
+    if (plan.cancelOrderIds.length > 0) {
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({ status: "cancelled", updated_at: now })
+        .in("id", plan.cancelOrderIds);
+      if (orderError) problems.push("its order");
+      else {
+        const cancelled = new Set(plan.cancelOrderIds);
+        setOrders((prev) =>
+          prev.map((o) => (cancelled.has(o.id) ? { ...o, status: "cancelled" } : o))
+        );
+      }
+    }
+    const n = sold.length;
+    const message = [
+      `${n} record${n === 1 ? "" : "s"} un-sold — back on the shop.`,
+      plan.offDiscogs.length > 0
+        ? `${plan.offDiscogs.length} already came out of your Discogs collection — re-add ${plan.offDiscogs.length === 1 ? "it" : "them"} there.`
+        : "",
+      problems.length > 0 ? `Couldn't update ${problems.join(", ")} — Refresh and check.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    pushToast(problems.length > 0 ? "error" : plan.offDiscogs.length > 0 ? "info" : "success", message);
     return true;
   }
 
@@ -1030,6 +1107,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     renameBuyer,
     releaseOrder,
     releaseHold,
+    unsellRecords,
     saveOrderCredit,
     selectedIds,
     setSelectedIds,
