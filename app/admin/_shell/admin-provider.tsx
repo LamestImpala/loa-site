@@ -138,9 +138,13 @@ type AdminContextValue = {
   setDiscogsStatus: Setter<Record<number, string>>;
   discogsRemoveRequest: (
     releaseId: number
-  ) => Promise<{ outcome: DiscogsOutcome; error?: string }>;
-  flagDiscogsRemoved: (id: number) => Promise<void>;
+  ) => Promise<{ outcome: DiscogsOutcome; error?: string; folderId?: number }>;
+  flagDiscogsRemoved: (id: number, folderId?: number) => Promise<void>;
   removeFromDiscogs: (r: DbRecord) => Promise<void>;
+  // Puts a for-sale-again record back in the Discogs collection and
+  // clears its flag. Busy ids are in discogsReadding.
+  readdToDiscogs: (r: DbRecord) => Promise<void>;
+  discogsReadding: Set<number>;
   // The one mark-sold path: sale desk, paid invoice, held order, catalog drawer.
   // `terms` carries what the desk negotiated: per-record prices and the
   // order credit; without it the records' own negotiated prices apply and
@@ -732,7 +736,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // "gone" means Discogs already doesn't have it — success for our purposes.
   async function discogsRemoveRequest(
     releaseId: number
-  ): Promise<{ outcome: DiscogsOutcome; error?: string }> {
+  ): Promise<{ outcome: DiscogsOutcome; error?: string; folderId?: number }> {
     try {
       const {
         data: { session: current },
@@ -745,8 +749,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         },
         body: JSON.stringify({ releaseId }),
       });
-      if (res.ok) return { outcome: "removed" };
       const body = await res.json();
+      if (res.ok) return { outcome: "removed", folderId: body.folderId };
       if (res.status === 404) return { outcome: "gone", error: body.error };
       if (res.status === 409 && body.ambiguous) {
         return { outcome: "ambiguous", error: body.error };
@@ -760,24 +764,101 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // Persists that the copy is out of the Discogs collection so the bulk
   // button can skip it on later runs. Deliberately quiet — no toast, and a
   // failure just means the record gets retried (and 404s) next time.
-  async function flagDiscogsRemoved(id: number) {
+  // The folder, when the removal knew it, is where a re-add puts it back.
+  async function flagDiscogsRemoved(id: number, folderId?: number) {
+    const patch = {
+      discogs_removed: true,
+      discogs_folder_id: folderId ?? null,
+    };
     const { error } = await supabase
       .from("records")
-      .update({ discogs_removed: true, updated_at: new Date().toISOString() })
+      .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (!error) {
       setRecords((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, discogs_removed: true } : r))
+        prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
       );
+    }
+  }
+
+  const [discogsReadding, setDiscogsReadding] = useState<Set<number>>(new Set());
+
+  async function readdToDiscogs(r: DbRecord) {
+    if (!r.discogs_release_id || discogsReadding.has(r.id)) return;
+    setDiscogsReadding((prev) => new Set(prev).add(r.id));
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const send = (force: boolean) =>
+        fetch("/api/discogs-readd", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${current?.access_token ?? ""}`,
+          },
+          body: JSON.stringify({
+            releaseId: r.discogs_release_id,
+            folderId: r.discogs_folder_id ?? null,
+            force,
+          }),
+        });
+      let res = await send(false);
+      let body = await res.json();
+      // Already in the collection: re-added by hand, or a keeper copy.
+      let added = res.ok;
+      if (res.status === 409 && body.already) {
+        const addAnother = await confirm(
+          `${body.error}\n\nIf you already re-added ${r.artist} — ${r.title}, just clear the flag. If that's a different copy you're keeping, add this one too.`,
+          "Add another copy"
+        );
+        if (!addAnother) {
+          if (
+            await confirm(
+              `Clear the "re-add to Discogs" flag on ${r.artist} — ${r.title} without adding anything?`,
+              "Clear flag"
+            )
+          ) {
+            await updateRecord(r.id, { discogs_removed: false, discogs_folder_id: null });
+          }
+          return;
+        }
+        res = await send(true);
+        body = await res.json();
+        added = res.ok;
+      }
+      if (!added) {
+        pushToast("error", body.error || "Re-add to Discogs failed");
+        return;
+      }
+      // Added on Discogs even if clearing the flag fails — updateRecord
+      // toasts that, and the manual "I re-added it ✓" clears it later.
+      await updateRecord(
+        r.id,
+        { discogs_removed: false, discogs_folder_id: null },
+        { quiet: true }
+      );
+      pushToast(
+        "success",
+        `${r.artist} — ${r.title} is back in your Discogs collection${body.folderId === 1 ? " (Uncategorized)" : ""}.`
+      );
+    } catch {
+      pushToast("error", "Re-add to Discogs failed");
+    } finally {
+      setDiscogsReadding((prev) => {
+        const next = new Set(prev);
+        next.delete(r.id);
+        return next;
+      });
     }
   }
 
   async function removeFromDiscogs(r: DbRecord) {
     if (!r.discogs_release_id) return;
     setDiscogsStatus((prev) => ({ ...prev, [r.id]: "Removing…" }));
-    const { outcome, error } = await discogsRemoveRequest(r.discogs_release_id);
+    const { outcome, error, folderId } = await discogsRemoveRequest(r.discogs_release_id);
     setDiscogsStatus((prev) => ({ ...prev, [r.id]: discogsStatusText(outcome, error) }));
-    if (outcome === "removed" || outcome === "gone") await flagDiscogsRemoved(r.id);
+    if (outcome === "removed" || outcome === "gone") await flagDiscogsRemoved(r.id, folderId);
   }
 
   // The Discogs removal is offered once a sale can't come back — every
@@ -1047,6 +1128,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     discogsRemoveRequest,
     flagDiscogsRemoved,
     removeFromDiscogs,
+    readdToDiscogs,
+    discogsReadding,
     markRecordsSold,
     placeOrder,
     applyPlacedOrder,

@@ -13,6 +13,7 @@ export type Issue = {
   key: string;
   text: string;
   href: string; // where it gets fixed
+  readdRecordId?: number; // fixable in place: re-add this record to Discogs
 };
 
 const record = (r: DbRecord) => `${r.artist} — ${r.title}`;
@@ -92,6 +93,7 @@ export function integrityIssues(
       key: `off-discogs-${r.id}`,
       text: `${record(r)} is for sale again but came out of your Discogs collection — re-add it there`,
       href: `/admin/catalog?record=${r.id}`,
+      readdRecordId: r.discogs_release_id ? r.id : undefined,
     });
   }
 

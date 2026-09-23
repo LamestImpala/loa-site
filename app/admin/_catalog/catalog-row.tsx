@@ -176,10 +176,10 @@ export const CatalogRow = memo(function CatalogRow({
         )}
         {r.discogs_removed && !r.sold ? (
           // Back for sale (un-sold, or a refund relisted it) but already
-          // out of the Discogs collection — nothing re-adds it for you.
+          // out of the Discogs collection — the drawer re-adds it.
           <span
             className="ml-2 rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
-            title="This record is for sale again but was removed from your Discogs collection — add it back on Discogs, then clear the flag in the drawer"
+            title="This record is for sale again but was removed from your Discogs collection — open the drawer to re-add it"
           >
             Re-add to Discogs
           </span>

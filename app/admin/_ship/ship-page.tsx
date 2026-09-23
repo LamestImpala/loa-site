@@ -31,6 +31,8 @@ export function ShipPage() {
     copyText,
     pushToast,
     confirm,
+    readdToDiscogs,
+    discogsReadding,
   } = useAdmin();
 
   const issues = useMemo(
@@ -109,6 +111,16 @@ export function ShipPage() {
             {issues.map((i) => (
               <li key={i.key} className="flex flex-wrap items-baseline gap-x-2">
                 <span>{i.text}</span>
+                {i.readdRecordId && byId.get(i.readdRecordId) ? (
+                  <button
+                    type="button"
+                    disabled={discogsReadding.has(i.readdRecordId)}
+                    onClick={() => readdToDiscogs(byId.get(i.readdRecordId!)!)}
+                    className="text-xs text-red-200 underline underline-offset-2 transition hover:text-white disabled:opacity-50"
+                  >
+                    {discogsReadding.has(i.readdRecordId) ? "Re-adding…" : "Re-add →"}
+                  </button>
+                ) : null}
                 <Link
                   href={i.href}
                   className="text-xs text-red-300 underline underline-offset-2 transition hover:text-white"
