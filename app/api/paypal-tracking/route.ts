@@ -326,9 +326,9 @@ async function pull(supabase: SupabaseClient, invoiceId: string) {
   try {
     txn = await getTransactionDetails(transactionId, paymentDate);
     if (!txn.found) {
-      feeNote = "PayPal hasn't published the transaction yet (fee and address come with it) — sync again later.";
+      feeNote = "PayPal hasn't published the transaction yet (fee and address come with it) — picked up automatically within a few hours.";
     } else if (txn.fee == null) {
-      feeNote = "PayPal hasn't published the fee yet — sync again later.";
+      feeNote = "PayPal hasn't published the fee yet — picked up automatically within a few hours.";
     }
   } catch (e) {
     feeNote = e instanceof Error ? e.message : "Transaction lookup failed.";
