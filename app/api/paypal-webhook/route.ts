@@ -21,7 +21,8 @@ import { serviceSupabase } from "@/lib/supabase-service";
 // same mirror + settle the inbox's Check PayPal runs. Both are safe to
 // repeat, so PayPal's retries (anything but a 2xx is retried for days)
 // and the inbox check can't double a sale. Only invoices the admin
-// created are touched. A refund still closes through Sync on the Send
+// created are touched. The fee and ship-to arrive later, via the
+// /api/paypal-costs cron. A refund still closes through Sync on the Send
 // page.
 export async function POST(req: NextRequest) {
   const webhookId = process.env.PAYPAL_WEBHOOK_ID;

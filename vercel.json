@@ -9,6 +9,7 @@
     { "path": "/api/pickem/nfl/sync", "schedule": "30 14 * * *" },
     { "path": "/api/pickem/nfl/sync", "schedule": "0 20,23 * * 0" },
     { "path": "/api/pickem/nfl/house", "schedule": "0 15 * * 4" },
-    { "path": "/api/pickem/nfl/house", "schedule": "30 15 * * 4" }
+    { "path": "/api/pickem/nfl/house", "schedule": "30 15 * * 4" },
+    { "path": "/api/paypal-costs", "schedule": "*/30 * * * *" }
   ]
 }

@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // A tiny in-memory stand-in for the Supabase query builder, for node tests
 // of the *-db.ts writes. Only what those files call: select / insert /
-// update / delete with eq, neq, in, or (is.null / lt), order, limit,
+// update / delete with eq, neq, in, is, gte, or (is.null / lt), order, limit,
 // single, maybeSingle, and head counts. Rows are plain objects; `fail`
 // makes the next matching write error, to test partial failures.
 
@@ -104,6 +104,14 @@ export function fakeSupabase(tables: Record<string, Row[]>): {
       },
       neq(col: string, v: unknown) {
         filters.push((r) => r[col] !== v);
+        return q;
+      },
+      is(col: string, v: null | boolean) {
+        filters.push((r) => (v === null ? r[col] == null : r[col] === v));
+        return q;
+      },
+      gte(col: string, v: unknown) {
+        filters.push((r) => r[col] != null && String(r[col]) >= String(v));
         return q;
       },
       in(col: string, vs: unknown[]) {
