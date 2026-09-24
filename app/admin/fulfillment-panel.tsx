@@ -35,11 +35,15 @@ import { BuyerField } from "./_shell/buyer-field";
  * lives on the order and is edited on the card; sales that predate the
  * orders table still group by buyer name.
  *
- * The usual flow is labels bought inside PayPal from the paid invoice —
- * "Sync from PayPal" pulls those tracking numbers down. Labels bought
- * elsewhere are typed into a manual parcel and pushed up instead, which
- * also emails the buyer through PayPal. Sales paid off-PayPal just store
- * tracking with no sync in either direction.
+ * Tracking comes in through the Labels page (the label PDF is read for
+ * its number) or is typed into a manual parcel. "Sync from PayPal" reads
+ * the invoice's money facts and the buyer's address; it also asks the
+ * Shipment Tracking API for trackers, but labels PayPal sells (Shipping
+ * Center or the invoice page) never appear there — only numbers pushed
+ * through the API do. A manual parcel can be pushed up, which emails the
+ * buyer through PayPal; a PayPal-bought label is marked "PayPal label"
+ * instead, since the buyer was already emailed. Sales paid off-PayPal
+ * just store tracking with no sync in either direction.
  *
  * shipments is the source of truth; records.tracking_number is mirrored
  * per member record so the listings table's quick input stays accurate.
@@ -732,14 +736,17 @@ export function FulfillmentPanel({
         </summary>
         <p className="mt-2 max-w-3xl">
           One card per order. Split each order into parcels, one
-          tracking number per parcel. &ldquo;Sync from PayPal&rdquo; pulls the
-          numbers from labels bought inside PayPal; a manual parcel&rsquo;s
-          number can be pushed the other way (PayPal emails the buyer). PayPal
-          Shipping labels never show up in the sync — click a parcel&rsquo;s
+          tracking number per parcel. Tracking comes from dropping the label
+          PDF on the Labels page or typing it into a manual parcel; a manual
+          parcel&rsquo;s number can be pushed to PayPal (PayPal emails the
+          buyer). &ldquo;Sync from PayPal&rdquo; records the PayPal fee, the
+          shipping charged, and the buyer&rsquo;s address. It cannot bring
+          back tracking for labels bought from PayPal — PayPal never exposes
+          those through its API — so click such a parcel&rsquo;s
           &ldquo;manual&rdquo; chip to mark it &ldquo;PayPal label&rdquo; instead
-          of pushing, since its tracking is already on the transaction. Each
-          parcel takes its postage cost, and each invoice the PayPal fee and
-          shipping charged — those feed the Net stat and the tax records.
+          of pushing. Each parcel takes its postage cost, and each invoice
+          the PayPal fee and shipping charged — those feed the Net stat and
+          the tax records.
         </p>
       </details>
       {notes["panel"] ? (
@@ -751,7 +758,7 @@ export function FulfillmentPanel({
             type="button"
             onClick={() => syncAll(syncTargets)}
             disabled={!!busy || syncingAll}
-            title="Sync from PayPal on every order still missing its PayPal fee — also reads tracking and the buyer's address. PayPal publishes a transaction's fee a few hours after payment."
+            title="Sync from PayPal on every order still missing its PayPal fee — also reads the buyer's address. PayPal publishes a transaction's fee a few hours after payment. Tracking for labels bought from PayPal never comes back this way; drop the label PDF on the Labels page instead."
             className={smallButtonClass}
           >
             {syncingAll
@@ -998,7 +1005,7 @@ export function FulfillmentPanel({
                       type="button"
                       onClick={() => syncFromPayPal(g)}
                       disabled={groupBusy || syncingAll}
-                      title="Record the invoice's PayPal fee and shipping charge, read the buyer's address, and read tracking from labels bought via the transaction page (PayPal Shipping labels don't appear — mark those parcels 'PayPal label')"
+                      title="Record the invoice's PayPal fee and shipping charge and read the buyer's address. Tracking for labels bought from PayPal never comes back this way — drop the label PDF on the Labels page, or type it in and mark the parcel 'PayPal label'"
                       className={
                         stage === "sync" || needsAddress ? primaryButtonClass : buttonClass
                       }
