@@ -15,7 +15,7 @@ import PickemClient from "./pickem-client";
 export const metadata: Metadata = {
   title: "Football Pick'em — Late Onset Audiophile",
   description:
-    "Weekly NFL and college football pick'em with live lines, line movement, house picks with confidence scores on every game, and house parlays ranked by expected value. Free to play.",
+    "Weekly NFL and college football pick'em with live lines, line movement, house leans, likes and best bets on every game, and house parlays ranked by expected value. Free to play.",
 };
 
 // Lines and scores change all day Saturday; never serve a cached page.
