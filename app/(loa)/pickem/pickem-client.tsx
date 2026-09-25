@@ -4,7 +4,7 @@
 // everything else is a section component fed by props.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { LEAGUES, LEAGUE_META, type League, type LeaderboardRow, type PickemGame, type PickemParlay } from "@/lib/pickem";
+import { LEAGUES, LEAGUE_META, type HouseRecordRow, type League, type LeaderboardRow, type PickemGame, type PickemParlay } from "@/lib/pickem";
 import { bucketGames, conferencesOnSlate, defaultView, fmtKickLong, tzLabel, type View } from "@/lib/pickem-board";
 import { applyLive } from "@/lib/pickem-live";
 import { PickemActionsContext } from "./pickem-context";
@@ -24,12 +24,13 @@ type Props = {
   games: PickemGame[];
   parlays: PickemParlay[];
   leaderboard: LeaderboardRow[];
+  houseRecord: HouseRecordRow[];
   /** Server clock at render, so the first client render matches the HTML. */
   initialNow: number;
   linesAsOf: string | null;
 };
 
-export default function PickemClient({ league, week, games, parlays, leaderboard, initialNow, linesAsOf }: Props) {
+export default function PickemClient({ league, week, games, parlays, leaderboard, houseRecord, initialNow, linesAsOf }: Props) {
   const auth = usePickemSession();
   const tz = useViewerTimeZone();
 
@@ -133,7 +134,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
         )}
 
         <Parlays parlays={parlays} games={liveGames} tails={auth.tails} now={now} />
-        <Standings leaderboard={leaderboard} league={league} week={week} userId={auth.userId} />
+        <Standings leaderboard={leaderboard} houseRecord={houseRecord} league={league} week={week} userId={auth.userId} />
         <HowItWorks />
       </section>
     </PickemActionsContext.Provider>

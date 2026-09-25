@@ -44,7 +44,15 @@ export type BestLines = Partial<{
   ml_away: BestLine;
 }>;
 
-export type HouseCall = { pick: Selection; confidence: number; why: string };
+export type HouseCall = {
+  pick: Selection;
+  confidence: number;
+  why: string;
+  /** The number the house took, locked when the call was made. Absent on rows written before locking; null for a moneyline. */
+  line?: number | null;
+  /** The price the house took, locked with the line. Absent on rows written before locking. */
+  price?: number;
+};
 export type HousePicks = { spread: HouseCall; total: HouseCall; ml: HouseCall };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is
@@ -152,6 +160,17 @@ export type PickemPick = {
   selection: Selection;
   line: number | null;
   price: number;
+};
+
+/** One row of pickem_house_record: the house's graded calls for a league-week. */
+export type HouseRecordRow = {
+  league: League;
+  season: number;
+  week: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  units: number;
 };
 
 export type LeaderboardRow = {

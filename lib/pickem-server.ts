@@ -12,10 +12,13 @@ import {
   PICKEM_SEASON,
   seasonWeek,
   weekWindow,
+  legLineAndPrice,
   type BestLine,
   type BestLines,
+  type HouseCall,
   type HousePicks,
   type League,
+  type Market,
   type PickemGame,
 } from "./pickem";
 import { isPower, unmappedTeams } from "./pickem-conferences";
@@ -358,11 +361,10 @@ export async function liveScores(league: League, now = new Date()): Promise<Live
 // computed from those picks afterwards (lib/pickem-parlays.ts); the model no
 // longer writes them.
 
-const HouseCallSchema = z.object({
-  pick: z.enum(["home", "away", "over", "under"]),
-  confidence: z.number().int().min(1).max(10),
-  why: z.string().max(400),
-});
+// Sides are per market so the model cannot hand back "over" on a spread.
+const callFields = { confidence: z.number().int().min(1).max(10), why: z.string().max(400) };
+const SpreadCallSchema = z.object({ pick: z.enum(["home", "away"]), ...callFields });
+const TotalCallSchema = z.object({ pick: z.enum(["over", "under"]), ...callFields });
 
 // One batch of games. Array length cannot be enforced by the API's grammar,
 // so completeness is checked in code after the call.
@@ -370,9 +372,9 @@ const HouseBatchSchema = z.object({
   games: z.array(
     z.object({
       game_id: z.string(),
-      spread: HouseCallSchema,
-      total: HouseCallSchema,
-      moneyline: HouseCallSchema,
+      spread: SpreadCallSchema,
+      total: TotalCallSchema,
+      moneyline: SpreadCallSchema,
     })
   ),
 });
@@ -445,6 +447,18 @@ function batchInput(g: PickemGame) {
   };
 }
 
+/**
+ * The number and price the house took, written into the call so its record
+ * is graded against what it actually saw, not the closing line. Same rule as
+ * a player's pick (legLineAndPrice). A `force` re-pick re-locks upcoming
+ * games at the current number, which is what a re-pick means; started games
+ * are never re-picked, so a locked call never moves after kickoff.
+ */
+function lockLines(g: PickemGame, h: HousePicks): HousePicks {
+  const lock = (m: Market, c: HouseCall): HouseCall => ({ ...c, ...legLineAndPrice(g, m, c.pick) });
+  return { spread: lock("spread", h.spread), total: lock("total", h.total), ml: lock("ml", h.ml) };
+}
+
 async function pickBatch(
   client: Anthropic,
   league: League,
@@ -479,9 +493,10 @@ async function pickBatch(
     if (message.stop_reason === "max_tokens") return fail("max_tokens");
     const parsed = message.parsed_output;
     if (!parsed) return fail("unparseable");
-    const ids = new Set(batch.map((g) => g.id));
+    const byId = new Map(batch.map((g) => [g.id, g]));
     for (const g of parsed.games) {
-      if (ids.has(g.game_id)) picks.set(g.game_id, { spread: g.spread, total: g.total, ml: g.moneyline });
+      const game = byId.get(g.game_id);
+      if (game) picks.set(g.game_id, lockLines(game, { spread: g.spread, total: g.total, ml: g.moneyline }));
     }
     return { picks, outcome: { size: batch.length, ok: true, ms: Date.now() - started, usage: message.usage } };
   } catch (e) {
