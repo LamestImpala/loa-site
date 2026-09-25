@@ -47,6 +47,17 @@ export type BestLines = Partial<{
 export type HouseCall = { pick: Selection; confidence: number; why: string };
 export type HousePicks = { spread: HouseCall; total: HouseCall; ml: HouseCall };
 
+/** What ESPN's scoreboard says about a game that is on or just ended. */
+export type LiveScore = {
+  state: "in" | "post";
+  home: number;
+  away: number;
+  /** The clock column: "2nd 4:48", "Half", "End 3rd", "OT 2:10", "Final", "Final/OT". */
+  status: string;
+  /** ESPN has called the game: the score is final and grades picks. */
+  completed: boolean;
+};
+
 export type PickemGame = {
   id: string;
   league: League;
@@ -69,6 +80,8 @@ export type PickemGame = {
   away_score: number | null;
   completed: boolean;
   lines_updated_at: string | null;
+  /** Client only: laid over the row by applyLive() once the live feed has the game. */
+  live?: LiveScore;
 };
 
 export type ParlayLeg = {

@@ -49,11 +49,15 @@ test("buckets are ascending and soon is a one-hour window inclusive", () => {
   assert.deepEqual(b.soon.map((g) => g.id), ["soon1", "soon2", "edge"]);
   assert.deepEqual(b.upcoming.map((g) => g.id), ["soon1", "soon2", "edge", "hour+", "late"]);
   assert.deepEqual(b.started.map((g) => g.id), ["final", "live"]);
+  assert.deepEqual(b.inProgress.map((g) => g.id), ["live"]);
+  assert.deepEqual(b.final.map((g) => g.id), ["final"]);
 });
 
 test("a completed game is started even if its clock says otherwise", () => {
   const b = bucketGames([game("odd", 30, "Ohio Bobcats", "Buffalo Bulls", true)], NOW);
   assert.equal(b.started.length, 1);
+  assert.equal(b.final.length, 1);
+  assert.equal(b.inProgress.length, 0);
   assert.equal(b.upcoming.length, 0);
 });
 

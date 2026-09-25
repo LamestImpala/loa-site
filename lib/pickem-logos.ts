@@ -52,13 +52,20 @@ const COLLEGE_ALIASES: Record<string, string> = {
   "San Jose State": "San José State",
 };
 
-/** URL of the team's logo, or null when we do not know one. */
-export function logoUrl(league: League, teamName: string): string | null {
-  if (league === "nfl") {
-    const code = NFL_CODES[teamName];
-    return code ? `${CDN}/nfl/500-dark/${code}.png` : null;
-  }
+/**
+ * ESPN's id for a team: the NFL abbreviation in lower case ("gb") or the
+ * college team id ("333"). Names the logo file and matches the team in
+ * ESPN's scoreboard. Null when we do not know the team.
+ */
+export function espnTeamId(league: League, teamName: string): string | null {
+  if (league === "nfl") return NFL_CODES[teamName] ?? null;
   const school = shortTeam(teamName);
   const id = ESPN_COLLEGE_IDS[COLLEGE_ALIASES[school] ?? school];
-  return id == null ? null : `${CDN}/ncaa/500-dark/${id}.png`;
+  return id == null ? null : String(id);
+}
+
+/** URL of the team's logo, or null when we do not know one. */
+export function logoUrl(league: League, teamName: string): string | null {
+  const id = espnTeamId(league, teamName);
+  return id == null ? null : `${CDN}/${league === "nfl" ? "nfl" : "ncaa"}/500-dark/${id}.png`;
 }
