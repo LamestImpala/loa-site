@@ -12,6 +12,7 @@ import {
   legLineAndPrice,
   winUnits,
   type HouseCall,
+  type HousePicks,
   type HouseTier,
   type Market,
   type PickemGame,
@@ -119,4 +120,119 @@ export function houseWeekRecord(games: PickemGame[]): HouseRecord {
 
 export function fmtRecord(r: HouseRecord): string {
   return `${r.wins}-${r.losses}${r.pushes ? `-${r.pushes}` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// Projected scores
+
+/**
+ * A projection has to back the calls it comes with: graded as if the
+ * projection were the final, the spread call and the total call must not
+ * lose. Landing on the number is fine (that is a 5, no lean). The moneyline
+ * may disagree, since a dog's price can be worth it at a projected loss.
+ * Calls are graded at their locked line, so lock before checking.
+ */
+export function projectionAgrees(h: Pick<HousePicks, "spread" | "total">, proj: { home: number; away: number }): boolean {
+  const spread = gradePick("spread", h.spread.pick, h.spread.line ?? null, proj.home, proj.away);
+  const total = gradePick("total", h.total.pick, h.total.line ?? null, proj.home, proj.away);
+  return spread !== "loss" && total !== "loss";
+}
+
+/** "Alabama 31, Kentucky 17", home first. */
+export function fmtProjection(g: PickemGame, proj: { home: number; away: number }): string {
+  return `${displayTeam(g.league, g.home_team)} ${proj.home}, ${displayTeam(g.league, g.away_team)} ${proj.away}`;
+}
+
+// ---------------------------------------------------------------------------
+// The weekly House Card: the house's strongest plays, ranked. Computed at
+// render from the slate (the calls carry their locked numbers, so the card
+// does not move once posted) and graded live like everything else.
+
+import { americanToDecimal, opposingPrice, type League } from "./pickem.ts";
+import { estimatedProbability, fairProbability } from "./pickem-parlays.ts";
+
+/** How many plays make the card: enough to be a card, few enough to be a stance. */
+export const HOUSE_CARD_SIZE: Record<League, number> = { ncaaf: 5, nfl: 3 };
+
+export type HouseCardTag = "lock" | "upset";
+export type HouseCardPlay = HousePlay & { edge: number; tags: HouseCardTag[] };
+
+/** A game the house passes on all three ways, the closest one on the slate. */
+export type StayAway = { game_id: string; home: string; away: string; spread_home: number | null; why: string; kickoff: string };
+
+export type HouseCard = {
+  /** Ranked. The top HOUSE_CARD_SIZE plays, plus the upset when it ranks lower. */
+  plays: HouseCardPlay[];
+  stayAway: StayAway | null;
+  record: HouseRecord;
+  /** Whether any game on the slate has house calls at all (else the card is not posted yet). */
+  posted: boolean;
+};
+
+/**
+ * Probability times payout, the parlay module's edge score, as a tie-break
+ * within a tier. opposingPrice reads the other side's current price, not the
+ * one at lock time; for a tie-break that is close enough.
+ */
+function edgeOf(g: PickemGame, p: HousePlay): number {
+  const fair = fairProbability(p.price, opposingPrice(g, p.market, p.selection));
+  return estimatedProbability(fair, p.confidence) * americanToDecimal(p.price);
+}
+
+const MARKET_ORDER: Record<Market, number> = { spread: 0, total: 1, ml: 2 };
+
+/** One play per game, the house's strongest, ranked across the slate: tier first, then edge, then kickoff. */
+export function rankHousePlays(games: PickemGame[]): HouseCardPlay[] {
+  const byGame = new Map(games.map((g) => [g.id, g]));
+  const best = new Map<string, HouseCardPlay>();
+  for (const p of housePlays(games)) {
+    const g = byGame.get(p.game_id)!;
+    const play: HouseCardPlay = { ...p, edge: edgeOf(g, p), tags: [] };
+    const cur = best.get(p.game_id);
+    if (!cur || play.confidence > cur.confidence || (play.confidence === cur.confidence && (play.edge > cur.edge || (play.edge === cur.edge && MARKET_ORDER[play.market] < MARKET_ORDER[cur.market])))) {
+      best.set(p.game_id, play);
+    }
+  }
+  return [...best.values()].sort(
+    (a, b) => b.confidence - a.confidence || b.edge - a.edge || a.kickoff.localeCompare(b.kickoff) || a.game_id.localeCompare(b.game_id)
+  );
+}
+
+function stayAwayOf(games: PickemGame[]): StayAway | null {
+  let pick: StayAway | null = null;
+  let best = Infinity;
+  for (const g of games) {
+    const h = g.house;
+    if (!h || g.spread_home == null) continue;
+    if (MARKETS.some((m) => h[m] && houseTier(h[m].confidence) !== "pass")) continue;
+    const dist = Math.abs(g.spread_home);
+    if (!pick || dist < best || (dist === best && g.commence_time < pick.kickoff)) {
+      best = dist;
+      pick = {
+        game_id: g.id,
+        home: displayTeam(g.league, g.home_team),
+        away: displayTeam(g.league, g.away_team),
+        spread_home: g.spread_home,
+        why: h.spread.why,
+        kickoff: g.commence_time,
+      };
+    }
+  }
+  return pick;
+}
+
+export function buildHouseCard(games: PickemGame[]): HouseCard {
+  const posted = games.some((g) => g.house);
+  const ranked = rankHousePlays(games);
+  const league = games[0]?.league ?? "ncaaf";
+  const plays = ranked.slice(0, HOUSE_CARD_SIZE[league]);
+  // A 6 is a lean, not a lock: the top play only earns the tag at like or better.
+  if (plays[0] && plays[0].confidence >= 7) plays[0].tags.push("lock");
+  // The strongest plus-money play is the upset alert, unless it is already the lock.
+  const upset = ranked.find((p) => p.price > 0 && !p.tags.includes("lock"));
+  if (upset) {
+    upset.tags.push("upset");
+    if (!plays.includes(upset)) plays.push(upset);
+  }
+  return { plays, stayAway: stayAwayOf(games), record: houseWeekRecord(games), posted };
 }

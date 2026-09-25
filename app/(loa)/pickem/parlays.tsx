@@ -2,25 +2,13 @@
 
 // The house's parlays for the week: one per leg count, two through seven,
 // computed from the house picks. Tailable until the first leg kicks off.
-import { fmtPrice, gradePick, winUnits, type PickemGame, type PickemParlay, type PickResult } from "@/lib/pickem";
+import { fmtPrice, gradePick, winUnits, type PickemGame, type PickemParlay } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
 import HouseBadge from "./house-badge";
+import ResultTag from "./result-tag";
 import TeamLogo from "./team-logo";
 
 type Props = { parlays: PickemParlay[]; games: PickemGame[]; tails: Set<number>; now: number };
-
-const LIVE_TITLES = { win: "on track", loss: "behind", push: "on the number" } as const;
-
-/** The leg's grade, or where it stands while its game is still on (dimmed). */
-function Result({ result, provisional }: { result: PickResult; provisional: boolean }) {
-  if (!result) return null;
-  const cls = result === "win" ? "text-emerald-300" : result === "loss" ? "text-red-300" : "text-neutral-400";
-  return (
-    <span className={`text-[10px] font-semibold uppercase ${cls} ${provisional ? "opacity-60" : ""}`} title={provisional ? LIVE_TITLES[result] : undefined}>
-      {result}
-    </span>
-  );
-}
 
 export default function Parlays({ parlays, games, tails, now }: Props) {
   const { canPick, toggleTail } = usePickemActions();
@@ -58,7 +46,7 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
                           {l.confidence != null ? <HouseBadge value={l.confidence} why={g?.house?.[l.market]?.why} label={l.label} /> : null}
                         </span>
                         <span className="flex items-center gap-2 tabular-nums text-neutral-400">
-                          {fmtPrice(l.price)} <Result result={res} provisional={!!g && !g.completed} />
+                          {fmtPrice(l.price)} <ResultTag result={res} provisional={!!g && !g.completed} />
                         </span>
                       </li>
                     );

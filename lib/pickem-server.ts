@@ -24,6 +24,7 @@ import {
 import { isPower, unmappedTeams } from "./pickem-conferences";
 import { espnDate, matchEvents, type EspnEvent, type LivePayload } from "./pickem-live";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
+import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
 
 const oddsBase = (league: League) => `https://api.the-odds-api.com/v4/sports/${LEAGUE_META[league].oddsSport}`;
 const SLATE_SIZE = 40; // college only; every NFL game of the week is on the board
@@ -375,6 +376,8 @@ const HouseBatchSchema = z.object({
       spread: SpreadCallSchema,
       total: TotalCallSchema,
       moneyline: SpreadCallSchema,
+      projected_home: z.number().int().min(0).max(120),
+      projected_away: z.number().int().min(0).max(120),
     })
   ),
 });
@@ -384,6 +387,8 @@ const houseSystem = (league: League) => `You are the house handicapper for a fri
 You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence and a rationale of at most two sentences. Use line movement as a signal: money that moves a number is information. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads.
 
 Confidence is a calibrated probability that your pick wins on its own side of the number. 5 means the line is fair and you have no real lean (about 50% for spreads and totals; for a moneyline, the market's implied probability). 6 is about 55% to cover, 7 about 58%, 8 about 62%, 9 about 66%, and 10 is near-certain and almost never used. Never go below 5: if you would rather have the other side, pick the other side instead. Most games are a 5 or a 6; 8 and above should be rare.
+
+Also give a projected final score for each game as whole points (projected_home, projected_away). Your spread call and total call must agree with the projection: the projected margin must cover the side you picked against the number you were given, and the projected total must fall on the side of the total you picked. If your projection lands right on the number, that is a 5. Only the moneyline may disagree with the projection, when a dog's price is worth the risk.
 
 Selections use "home"/"away" for spread and moneyline and "over"/"under" for totals. Return only the JSON.`;
 
@@ -395,7 +400,15 @@ const ROUTE_BUDGET_MS = 250_000; // leaves room for the writes and the response
 const LAUNCH_FLOOR_MS = 60_000; // do not start a batch with less than this left
 const RETRY_FLOOR_MS = 90_000; // and do not start the retry pass with less than this
 
-type BatchOutcome = { size: number; ok: boolean; ms: number; reason?: string; usage?: Anthropic.Messages.Usage };
+type BatchOutcome = {
+  size: number;
+  ok: boolean;
+  ms: number;
+  reason?: string;
+  usage?: Anthropic.Messages.Usage;
+  /** Projections that contradicted the model's own spread or total call and were not kept. */
+  projections_dropped?: number;
+};
 
 export type HouseRunOptions = { force?: boolean; dry?: boolean; onlyParlays?: boolean };
 
@@ -406,7 +419,7 @@ export type HouseRunResult = {
   missing: { id: string; game: string }[];
   batches: BatchOutcome[];
   parlays: { inserted: number; removed: number; kept: number; skipped_duplicates: number };
-  preview?: { picks: Record<string, HousePicks>; parlays: ParlayDraft[] };
+  preview?: { picks: Record<string, HousePicks>; parlays: ParlayDraft[]; card: HouseCard };
 };
 
 /** Deal items round-robin into ceil(n / size) batches so the interesting games spread out. */
@@ -494,11 +507,18 @@ async function pickBatch(
     const parsed = message.parsed_output;
     if (!parsed) return fail("unparseable");
     const byId = new Map(batch.map((g) => [g.id, g]));
+    let projections_dropped = 0;
     for (const g of parsed.games) {
       const game = byId.get(g.game_id);
-      if (game) picks.set(g.game_id, lockLines(game, { spread: g.spread, total: g.total, ml: g.moneyline }));
+      if (!game) continue;
+      const house = lockLines(game, { spread: g.spread, total: g.total, ml: g.moneyline });
+      // The calls are the product; a projection that contradicts them is noise and is not kept.
+      const projection = { home: g.projected_home, away: g.projected_away };
+      if (projectionAgrees(house, projection)) house.projection = projection;
+      else projections_dropped++;
+      picks.set(g.game_id, house);
     }
-    return { picks, outcome: { size: batch.length, ok: true, ms: Date.now() - started, usage: message.usage } };
+    return { picks, outcome: { size: batch.length, ok: true, ms: Date.now() - started, usage: message.usage, projections_dropped } };
   } catch (e) {
     const err = e as Error & { name?: string };
     const reason = e instanceof Anthropic.APIUserAbortError || err.name === "TimeoutError" ? "timeout" : err.message;
@@ -613,6 +633,6 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry));
 
   const result: HouseRunResult = { league, week, picked, missing, batches, parlays };
-  if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts };
+  if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts, card: buildHouseCard(withPicks) };
   return result;
 }

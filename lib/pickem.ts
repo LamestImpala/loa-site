@@ -53,7 +53,13 @@ export type HouseCall = {
   /** The price the house took, locked with the line. Absent on rows written before locking. */
   price?: number;
 };
-export type HousePicks = { spread: HouseCall; total: HouseCall; ml: HouseCall };
+export type HousePicks = {
+  spread: HouseCall;
+  total: HouseCall;
+  ml: HouseCall;
+  /** The house's projected final score. Absent on older rows, and dropped when it disagreed with the spread or total call. */
+  projection?: { home: number; away: number };
+};
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is
 // about 55% to cover, 7 about 58%, 8 and up 62% or better). Readers see a
