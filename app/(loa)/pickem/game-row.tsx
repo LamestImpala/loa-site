@@ -7,6 +7,7 @@ import { memo } from "react";
 import { displayTeam, fmtPrice, fmtSpread, gradePick, HOUSE_TIER_META, houseStake, houseTier, type League, type PickemGame, type PickemPick } from "@/lib/pickem";
 import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
 import { bookCode, fmtKick } from "@/lib/pickem-board";
+import { fmtProjection } from "@/lib/pickem-house";
 import PickButton from "./pick-button";
 import ConfidenceBadge from "./confidence-badge";
 import TeamLogo from "./team-logo";
@@ -171,6 +172,19 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
             ]}
             house={h?.ml} sideName={(s) => (s === "home" ? home : away)}
           />
+          {h?.projection ? (
+            <div className="grid gap-0.5 lg:grid-cols-[6rem_minmax(0,1fr)]">
+              <div className="text-neutral-500">Projection</div>
+              <div className="tabular-nums">
+                <span className="text-orange-300">House projects {fmtProjection(g, h.projection)}</span>
+                {hasScore ? (
+                  <span className="text-neutral-400">
+                    {" "}· {g.completed ? "final" : "now"} {home} {g.home_score}, {away} {g.away_score}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </li>

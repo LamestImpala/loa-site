@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOUSE_TIER_META, houseStake, houseTier, type HousePicks, type PickemGame } from "./pickem.ts";
-import { buildHouseCard, callLineAndPrice, fmtRecord, HOUSE_CARD_SIZE, housePlays, houseWeekRecord, playLabel, playUnits } from "./pickem-house.ts";
+import { buildHouseCard, callLineAndPrice, fmtProjection, fmtRecord, HOUSE_CARD_SIZE, housePlays, houseWeekRecord, playLabel, playUnits, projectionAgrees } from "./pickem-house.ts";
 
 test("houseTier: 5 and below pass, 6 leans, 7 likes, 8 and up are best bets", () => {
   assert.equal(houseTier(1), "pass");
@@ -234,4 +234,34 @@ test("buildHouseCard: the record in the header is the week record", () => {
   assert.deepEqual(card.record, houseWeekRecord([done]));
   assert.equal(card.record.pushes, 1);
   assert.equal(card.record.losses, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Projected scores
+
+test("projectionAgrees: the projection must not lose the spread or total call it comes with", () => {
+  const h = {
+    spread: { pick: "home" as const, confidence: 6, why: "", line: -9, price: -110 },
+    total: { pick: "over" as const, confidence: 6, why: "", line: 47, price: -110 },
+  };
+  assert.equal(projectionAgrees(h, { home: 31, away: 17 }), true); // covers by 14, 48 over 47
+  assert.equal(projectionAgrees(h, { home: 24, away: 20 }), false); // covers? 4 < 9: spread loses
+  assert.equal(projectionAgrees(h, { home: 28, away: 19 }), true); // margin exactly 9 is a push, 47 total is a push
+  assert.equal(projectionAgrees(h, { home: 30, away: 14 }), false); // spread fine, 44 under 47: total loses
+  const under = { ...h, total: { ...h.total, pick: "under" as const } };
+  assert.equal(projectionAgrees(under, { home: 30, away: 14 }), true);
+});
+
+test("projectionAgrees: a legacy call without a locked line grades against no number", () => {
+  const h = {
+    spread: { pick: "away" as const, confidence: 6, why: "" },
+    total: { pick: "under" as const, confidence: 5, why: "" },
+  };
+  // No line: the spread is graded straight up, the total against 0 (never under). Only the spread can object.
+  assert.equal(projectionAgrees(h, { home: 20, away: 24 }), false); // 44 is not under 0
+  assert.equal(projectionAgrees({ ...h, total: { ...h.total, pick: "over" as const } }, { home: 20, away: 24 }), true);
+});
+
+test("fmtProjection reads home first with display names", () => {
+  assert.equal(fmtProjection(game("g"), { home: 31, away: 17 }), "Alabama 31, Kentucky 17");
 });

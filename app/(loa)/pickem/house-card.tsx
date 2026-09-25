@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import { fmtPrice, fmtSpread, type League, type PickemGame } from "@/lib/pickem";
 import { fmtKickLong, tzLabel } from "@/lib/pickem-board";
-import { buildHouseCard, fmtRecord, HOUSE_CARD_SIZE, type HouseCardTag } from "@/lib/pickem-house";
+import { buildHouseCard, fmtProjection, fmtRecord, HOUSE_CARD_SIZE, type HouseCardTag } from "@/lib/pickem-house";
 import ConfidenceBadge from "./confidence-badge";
 import ResultTag from "./result-tag";
 import TeamLogo from "./team-logo";
@@ -77,7 +77,15 @@ export default function HouseCard({ games, league, week, now, tz }: Props) {
                       <ResultTag result={p.result} provisional={!p.completed} />
                     </span>
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-neutral-400">{p.why}</p>
+                  <p className="mt-1 text-sm leading-6 text-neutral-400">
+                    {p.why}
+                    {g?.house?.projection ? (
+                      <span className="tabular-nums text-neutral-500">
+                        {" "}Projected {fmtProjection(g, g.house.projection)}
+                        {g.home_score != null && g.away_score != null ? `; ${g.completed ? "final" : "now"} ${g.home_score}-${g.away_score}.` : "."}
+                      </span>
+                    ) : null}
+                  </p>
                 </div>
               </li>
             );

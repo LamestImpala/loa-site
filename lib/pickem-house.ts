@@ -12,6 +12,7 @@ import {
   legLineAndPrice,
   winUnits,
   type HouseCall,
+  type HousePicks,
   type HouseTier,
   type Market,
   type PickemGame,
@@ -119,6 +120,27 @@ export function houseWeekRecord(games: PickemGame[]): HouseRecord {
 
 export function fmtRecord(r: HouseRecord): string {
   return `${r.wins}-${r.losses}${r.pushes ? `-${r.pushes}` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// Projected scores
+
+/**
+ * A projection has to back the calls it comes with: graded as if the
+ * projection were the final, the spread call and the total call must not
+ * lose. Landing on the number is fine (that is a 5, no lean). The moneyline
+ * may disagree, since a dog's price can be worth it at a projected loss.
+ * Calls are graded at their locked line, so lock before checking.
+ */
+export function projectionAgrees(h: Pick<HousePicks, "spread" | "total">, proj: { home: number; away: number }): boolean {
+  const spread = gradePick("spread", h.spread.pick, h.spread.line ?? null, proj.home, proj.away);
+  const total = gradePick("total", h.total.pick, h.total.line ?? null, proj.home, proj.away);
+  return spread !== "loss" && total !== "loss";
+}
+
+/** "Alabama 31, Kentucky 17", home first. */
+export function fmtProjection(g: PickemGame, proj: { home: number; away: number }): string {
+  return `${displayTeam(g.league, g.home_team)} ${proj.home}, ${displayTeam(g.league, g.away_team)} ${proj.away}`;
 }
 
 // ---------------------------------------------------------------------------
