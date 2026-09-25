@@ -3,7 +3,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { serviceSupabase } from "./supabase-service";
 import { createServerSupabase } from "./supabase";
 import {
@@ -392,6 +392,9 @@ Also give a projected final score for each game as whole points (projected_home,
 
 Selections use "home"/"away" for spread and moneyline and "over"/"under" for totals. Return only the JSON.`;
 
+export const HOUSE_MODEL = "claude-opus-5-5";
+export const HOUSE_EFFORT = "medium";
+
 // Batches run in one wave so a 41-game slate fits the route's 300 s limit.
 const BATCH_SIZE = 7;
 const BATCH_CONCURRENCY = 6;
@@ -405,7 +408,7 @@ type BatchOutcome = {
   ok: boolean;
   ms: number;
   reason?: string;
-  usage?: Anthropic.Messages.Usage;
+  usage?: Anthropic.Beta.Messages.BetaUsage;
   /** Projections that contradicted the model's own spread or total call and were not kept. */
   projections_dropped?: number;
 };
@@ -484,12 +487,17 @@ async function pickBatch(
   const picks = new Map<string, HousePicks>();
   const fail = (reason: string) => ({ picks, outcome: { size: batch.length, ok: false, ms: Date.now() - started, reason } });
   try {
-    const stream = client.messages.stream(
+    // Opus 5.5 defaults to medium effort and thinks more per level than Opus 5,
+    // so effort is set explicitly. A safety refusal re-runs the batch on the
+    // fallback model inside the same call instead of losing the batch.
+    const stream = client.beta.messages.stream(
       {
-        model: "claude-opus-5",
+        model: HOUSE_MODEL,
         max_tokens: 16000,
         thinking: { type: "adaptive" },
-        output_config: { effort: "high", format: zodOutputFormat(HouseBatchSchema) },
+        output_config: { effort: HOUSE_EFFORT, format: betaZodOutputFormat(HouseBatchSchema) },
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
         system: houseSystem(league),
         messages: [

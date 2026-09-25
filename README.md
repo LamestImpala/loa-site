@@ -108,7 +108,7 @@ Environment variables (Vercel project + `.env.local`):
 |---|---|
 | `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3, plus 2 when there are finals to grade. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Writing games, lines and house picks from the jobs (bypasses RLS). |
-| `ANTHROPIC_API_KEY` | House picks (`claude-opus-5`); parlays are computed from them, no model call. |
+| `ANTHROPIC_API_KEY` | House picks (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from them, no model call. |
 | `CRON_SECRET` | Vercel sends it as a bearer token to the cron routes; any random string. |
 
 Jobs (schedules in `vercel.json`; the admin page can run either on demand):
