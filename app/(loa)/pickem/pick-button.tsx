@@ -3,7 +3,7 @@
 // One side of one market. The only place pick-button styling lives. The
 // corner (result letter or house badge) sits beside the button, not inside
 // it, so the badge stays clickable on a locked button.
-import type { Market, PickemGame, PickResult, Selection } from "@/lib/pickem";
+import { houseTier, type Market, type PickemGame, type PickResult, type Selection } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
 import HouseBadge from "./house-badge";
 
@@ -48,7 +48,7 @@ export default function PickButton({ game, market, selection, main, sub, book, b
       >
         {result === "win" ? "W" : result === "loss" ? "L" : "P"}
       </span>
-    ) : house != null ? (
+    ) : house != null && houseTier(house) !== "pass" ? (
       <span className="absolute right-0.5 top-0.5">
         <HouseBadge value={house} why={why} label={label} onShowHouse={onShowHouse} />
       </span>

@@ -44,8 +44,49 @@ export type BestLines = Partial<{
   ml_away: BestLine;
 }>;
 
-export type HouseCall = { pick: Selection; confidence: number; why: string };
+export type HouseCall = {
+  pick: Selection;
+  confidence: number;
+  why: string;
+  /** The number the house took, locked when the call was made. Absent on rows written before locking; null for a moneyline. */
+  line?: number | null;
+  /** The price the house took, locked with the line. Absent on rows written before locking. */
+  price?: number;
+};
 export type HousePicks = { spread: HouseCall; total: HouseCall; ml: HouseCall };
+
+// The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is
+// about 55% to cover, 7 about 58%, 8 and up 62% or better). Readers see a
+// tier, not the digit: a 5 is a pass and shows nothing, and the house stakes
+// 1, 2 or 3 units on a lean, a like and a best bet.
+export type HouseTier = "pass" | "lean" | "like" | "best";
+
+export function houseTier(confidence: number): HouseTier {
+  if (confidence >= 8) return "best";
+  if (confidence === 7) return "like";
+  if (confidence === 6) return "lean";
+  return "pass";
+}
+
+/** Units the house risks on a call. */
+export function houseStake(confidence: number): 0 | 1 | 2 | 3 {
+  switch (houseTier(confidence)) {
+    case "best":
+      return 3;
+    case "like":
+      return 2;
+    case "lean":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+export const HOUSE_TIER_META: Record<Exclude<HouseTier, "pass">, { pill: string; verb: string; pct: string }> = {
+  lean: { pill: "Lean", verb: "leans", pct: "about 55%" },
+  like: { pill: "Like", verb: "likes", pct: "about 58%" },
+  best: { pill: "Best", verb: "best bet", pct: "62% or better" },
+};
 
 /** What ESPN's scoreboard says about a game that is on or just ended. */
 export type LiveScore = {
@@ -119,6 +160,17 @@ export type PickemPick = {
   selection: Selection;
   line: number | null;
   price: number;
+};
+
+/** One row of pickem_house_record: the house's graded calls for a league-week. */
+export type HouseRecordRow = {
+  league: League;
+  season: number;
+  week: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  units: number;
 };
 
 export type LeaderboardRow = {

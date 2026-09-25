@@ -6,6 +6,7 @@ import {
   parseLeague,
   seasonWeek,
   type League,
+  type HouseRecordRow,
   type LeaderboardRow,
   type PickemGame,
   type PickemParlay,
@@ -15,7 +16,7 @@ import PickemClient from "./pickem-client";
 export const metadata: Metadata = {
   title: "Football Pick'em — Late Onset Audiophile",
   description:
-    "Weekly NFL and college football pick'em with live lines, line movement, house picks with confidence scores on every game, and house parlays ranked by expected value. Free to play.",
+    "Weekly NFL and college football pick'em with live lines, line movement, house leans, likes and best bets on every game, and house parlays ranked by expected value. Free to play.",
 };
 
 // Lines and scores change all day Saturday; never serve a cached page.
@@ -74,7 +75,7 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
     }
   }
 
-  const [{ data: parlays }, { data: leaderboard }] = await Promise.all([
+  const [{ data: parlays }, { data: leaderboard }, { data: houseRecord }] = await Promise.all([
     supabase
       .from("pickem_parlays")
       .select("*")
@@ -84,6 +85,8 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
       .order("leg_count")
       .order("created_at", { ascending: false }),
     supabase.from("pickem_leaderboard").select("*").eq("season", PICKEM_SEASON),
+    // Null until the 20260924_pickem_house migration is applied; the page renders without it.
+    supabase.from("pickem_house_record").select("*").eq("season", PICKEM_SEASON),
   ]);
 
   const slate = (games ?? []) as PickemGame[];
@@ -102,6 +105,7 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
         games={slate}
         parlays={(parlays ?? []) as PickemParlay[]}
         leaderboard={(leaderboard ?? []) as LeaderboardRow[]}
+        houseRecord={(houseRecord ?? []) as HouseRecordRow[]}
         initialNow={now.getTime()}
         linesAsOf={linesAsOf}
       />

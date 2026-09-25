@@ -4,7 +4,7 @@
 // Memoised so the 30-second clock only re-renders rows whose lock flips
 // (and the live poll only the rows whose score moved).
 import { memo } from "react";
-import { displayTeam, fmtPrice, fmtSpread, gradePick, type League, type PickemGame, type PickemPick } from "@/lib/pickem";
+import { displayTeam, fmtPrice, fmtSpread, gradePick, HOUSE_TIER_META, houseStake, houseTier, type League, type PickemGame, type PickemPick } from "@/lib/pickem";
 import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
 import { bookCode, fmtKick } from "@/lib/pickem-board";
 import PickButton from "./pick-button";
@@ -215,15 +215,32 @@ function Detail({
             </span>
           ))}
         </div>
-        {house ? (
-          <div>
-            <span className="inline-flex items-center gap-1.5 text-orange-300">
-              House likes {sideName(house.pick)} <ConfidenceBadge value={house.confidence} size="md" />
-            </span>{" "}
-            <span className="text-neutral-300">{house.why}</span>
-          </div>
-        ) : null}
+        {house ? <HouseNote label={label} house={house} sideName={sideName} /> : null}
       </div>
+    </div>
+  );
+}
+
+// "House passes on the total" for a 5; otherwise the side, the tier pill and
+// the stake ("House likes Alabama LIKE · 2u"), then the reasoning.
+function HouseNote({ label, house, sideName }: { label: string; house: { pick: string; confidence: number; why: string }; sideName: (s: string) => string }) {
+  const tier = houseTier(house.confidence);
+  if (tier === "pass") {
+    return (
+      <div>
+        <span className="text-neutral-400">House passes on the {label.toLowerCase()}.</span>{" "}
+        <span className="text-neutral-300">{house.why}</span>
+      </div>
+    );
+  }
+  const stake = houseStake(house.confidence);
+  return (
+    <div>
+      <span className="inline-flex items-center gap-1.5 text-orange-300">
+        House {HOUSE_TIER_META[tier].verb} {sideName(house.pick)} <ConfidenceBadge value={house.confidence} size="md" />
+        <span className="tabular-nums text-neutral-400">· {stake}u</span>
+      </span>{" "}
+      <span className="text-neutral-300">{house.why}</span>
     </div>
   );
 }
