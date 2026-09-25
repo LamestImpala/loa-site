@@ -5,6 +5,33 @@ import { LEAGUES, LEAGUE_META, type League } from "@/lib/pickem";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass as btn } from "../_shell/ui";
 
+type Call = { confidence: number };
+type PreviewBody = { preview?: { picks?: Record<string, { spread: Call; total: Call; ml: Call }> }; batches?: { projections_dropped?: number }[] };
+
+// One line on how a preview's confidences fell, so a dry run can be read
+// without scrolling the JSON: "12 games · 5:14 6:18 7:4 · spread 5:2 6:8 7:2 …".
+function confidenceSpread(body: PreviewBody): string {
+  const picks = body.preview?.picks;
+  if (!picks) return "";
+  const games = Object.values(picks);
+  if (!games.length) return "0 games previewed";
+  const tally = (calls: Call[]) => {
+    const by = new Map<number, number>();
+    for (const c of calls) by.set(c.confidence, (by.get(c.confidence) ?? 0) + 1);
+    return [...by.entries()].sort((a, b) => a[0] - b[0]).map(([k, n]) => `${k}:${n}`).join(" ");
+  };
+  const all = games.flatMap((g) => [g.spread, g.total, g.ml]);
+  const dropped = (body.batches ?? []).reduce((n, b) => n + (b.projections_dropped ?? 0), 0);
+  return [
+    `${games.length} games`,
+    `all ${tally(all)}`,
+    `spread ${tally(games.map((g) => g.spread))}`,
+    `total ${tally(games.map((g) => g.total))}`,
+    `ml ${tally(games.map((g) => g.ml))}`,
+    `projections dropped ${dropped}`,
+  ].join(" · ");
+}
+
 // Buttons that run the pick'em jobs for one league on demand with the admin's
 // session token (the cron runs the same routes with CRON_SECRET).
 export function PickemPanel() {
@@ -25,7 +52,8 @@ export function PickemPanel() {
         headers: { Authorization: `Bearer ${token ?? ""}` },
       });
       const body = await res.json();
-      setLog(`${res.ok ? "OK" : `HTTP ${res.status}`} · ${JSON.stringify(body)}`);
+      const summary = res.ok ? confidenceSpread(body) : "";
+      setLog(`${res.ok ? "OK" : `HTTP ${res.status}`}${summary ? ` · ${summary}\n` : " · "}${JSON.stringify(body)}`);
     } catch (e) {
       setLog(`Failed: ${(e as Error).message}`);
     } finally {
@@ -88,6 +116,18 @@ export function PickemPanel() {
           className={btn}
         >
           {busy === "dry" ? "Previewing…" : "Preview picks (dry run)"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            if (confirm("Preview a re-pick of every upcoming game? Nothing is written, but it spends a full run of Claude calls.")) {
+              run("house?force=1&dry=1", "forcedry");
+            }
+          }}
+          className={btn}
+        >
+          {busy === "forcedry" ? "Previewing…" : "Preview full re-pick (dry run)"}
         </button>
         <button type="button" disabled={busy !== null} onClick={() => run("house?only=parlays", "parlays")} className={btn}>
           {busy === "parlays" ? "Rebuilding…" : "Rebuild parlays"}
