@@ -10,6 +10,9 @@
     { "path": "/api/pickem/nfl/sync", "schedule": "0 20,23 * * 0" },
     { "path": "/api/pickem/nfl/house", "schedule": "0 15 * * 4" },
     { "path": "/api/pickem/nfl/house", "schedule": "30 15 * * 4" },
+    { "path": "/api/pickem/ncaaf/live", "schedule": "30 3 * * 6,0" },
+    { "path": "/api/pickem/ncaaf/live", "schedule": "30 6 * * 0" },
+    { "path": "/api/pickem/nfl/live", "schedule": "0 5 * * 1,2,5" },
     { "path": "/api/paypal-costs", "schedule": "*/30 * * * *" }
   ]
 }

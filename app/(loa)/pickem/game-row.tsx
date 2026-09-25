@@ -1,7 +1,8 @@
 "use client";
 
 // One game on the board: two lines (away, home), three markets across.
-// Memoised so the 30-second clock only re-renders rows whose lock flips.
+// Memoised so the 30-second clock only re-renders rows whose lock flips
+// (and the live poll only the rows whose score moved).
 import { memo } from "react";
 import { displayTeam, fmtPrice, fmtSpread, gradePick, type League, type PickemGame, type PickemPick } from "@/lib/pickem";
 import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
@@ -42,7 +43,10 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
   const away = displayTeam(g.league, g.away_team);
   const spreadAway = g.spread_home == null ? null : -g.spread_home;
   const hasScore = g.home_score != null && g.away_score != null;
-  const status = g.completed ? "Final" : locked ? "Live" : fmtKick(g.commence_time, tz);
+  // The clock column: kickoff, then ESPN's clock while the game is on
+  // ("2nd 4:48", "Half"), then Final. "Live" only when the feed has no score.
+  const inPlay = locked && !g.completed;
+  const status = g.completed ? (g.live?.status ?? "Final") : inPlay ? (g.live?.status ?? "Live") : fmtKick(g.commence_time, tz);
   const grade = (p: PickemPick | undefined) => (p ? gradePick(p.market, p.selection, p.line, g.home_score, g.away_score) : null);
   const spreadRes = grade(spreadPick);
   const totalRes = grade(totalPick);
@@ -67,11 +71,11 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
       aria-label={`${away} at ${home}, ${status}`}
     >
       <div className="mb-1 flex items-center justify-between text-[11px] tabular-nums text-neutral-400 lg:hidden">
-        <span className={locked && !g.completed ? "text-orange-200" : undefined}>{status}</span>
+        <span className={inPlay ? "text-orange-200" : undefined}>{status}</span>
         {toggle}
       </div>
       <div className="hidden lg:row-span-2 lg:block lg:self-center">
-        <div className={`text-[13px] tabular-nums ${locked && !g.completed ? "text-orange-200" : "text-neutral-300"}`}>{status}</div>
+        <div className={`text-[13px] tabular-nums ${inPlay ? "text-orange-200" : "text-neutral-300"}`}>{status}</div>
         {toggle}
       </div>
 
@@ -83,7 +87,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           book={bookCode(g.best.spread_away?.book)} bookTitle={g.best.spread_away?.book}
           moved={move(g.open_spread_home == null ? null : -g.open_spread_home, spreadAway, fmtSpread)}
           house={h?.spread.pick === "away" ? h.spread.confidence : undefined} why={h?.spread.why} onShowHouse={showHouse}
-          result={spreadPick?.selection === "away" ? spreadRes : null}
+          result={spreadPick?.selection === "away" ? spreadRes : null} provisional={inPlay}
           on={spreadPick?.selection === "away"} label={`${away} ${fmtSpread(spreadAway)}`}
         />
         <PickButton
@@ -92,7 +96,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           book={bookCode(g.best.over?.book)} bookTitle={g.best.over?.book}
           moved={move(g.open_total, g.total, (v) => `${v}`)}
           house={h?.total.pick === "over" ? h.total.confidence : undefined} why={h?.total.why} onShowHouse={showHouse}
-          result={totalPick?.selection === "over" ? totalRes : null}
+          result={totalPick?.selection === "over" ? totalRes : null} provisional={inPlay}
           on={totalPick?.selection === "over"} label={`Over ${g.total ?? ""}`}
         />
         <PickButton
@@ -101,7 +105,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           book={bookCode(g.best.ml_away?.book)} bookTitle={g.best.ml_away?.book}
           moved={move(g.open_ml_away, g.ml_away, fmtPrice)}
           house={h?.ml.pick === "away" ? h.ml.confidence : undefined} why={h?.ml.why} onShowHouse={showHouse}
-          result={mlPick?.selection === "away" ? mlRes : null}
+          result={mlPick?.selection === "away" ? mlRes : null} provisional={inPlay}
           on={mlPick?.selection === "away"} label={`${away} moneyline ${fmtPrice(g.ml_away)}`}
         />
 
@@ -112,7 +116,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           book={bookCode(g.best.spread_home?.book)} bookTitle={g.best.spread_home?.book}
           moved={move(g.open_spread_home, g.spread_home, fmtSpread)}
           house={h?.spread.pick === "home" ? h.spread.confidence : undefined} why={h?.spread.why} onShowHouse={showHouse}
-          result={spreadPick?.selection === "home" ? spreadRes : null}
+          result={spreadPick?.selection === "home" ? spreadRes : null} provisional={inPlay}
           on={spreadPick?.selection === "home"} label={`${home} ${fmtSpread(g.spread_home)}`}
         />
         <PickButton
@@ -121,7 +125,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           book={bookCode(g.best.under?.book)} bookTitle={g.best.under?.book}
           moved={move(g.open_total, g.total, (v) => `${v}`)}
           house={h?.total.pick === "under" ? h.total.confidence : undefined} why={h?.total.why} onShowHouse={showHouse}
-          result={totalPick?.selection === "under" ? totalRes : null}
+          result={totalPick?.selection === "under" ? totalRes : null} provisional={inPlay}
           on={totalPick?.selection === "under"} label={`Under ${g.total ?? ""}`}
         />
         <PickButton
@@ -130,7 +134,7 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
           book={bookCode(g.best.ml_home?.book)} bookTitle={g.best.ml_home?.book}
           moved={move(g.open_ml_home, g.ml_home, fmtPrice)}
           house={h?.ml.pick === "home" ? h.ml.confidence : undefined} why={h?.ml.why} onShowHouse={showHouse}
-          result={mlPick?.selection === "home" ? mlRes : null}
+          result={mlPick?.selection === "home" ? mlRes : null} provisional={inPlay}
           on={mlPick?.selection === "home"} label={`${home} moneyline ${fmtPrice(g.ml_home)}`}
         />
       </div>

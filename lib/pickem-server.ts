@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { serviceSupabase } from "./supabase-service";
+import { createServerSupabase } from "./supabase";
 import {
   ALWAYS_FEATURED,
   LEAGUE_META,
@@ -18,6 +19,7 @@ import {
   type PickemGame,
 } from "./pickem";
 import { isPower, unmappedTeams } from "./pickem-conferences";
+import { espnDate, matchEvents, type EspnEvent, type LivePayload } from "./pickem-live";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 
 const oddsBase = (league: League) => `https://api.the-odds-api.com/v4/sports/${LEAGUE_META[league].oddsSport}`;
@@ -286,6 +288,68 @@ export async function syncLines(league: League, now = new Date()) {
   // here too; anything FBS in this list is a spelling to add to the map.
   const unmapped = league === "ncaaf" ? unmappedTeams(rows.flatMap((r) => [r.home_team, r.away_team])) : [];
   return { league, week, games: rows.length, graded, unmapped_teams: unmapped, odds_requests_remaining: remaining };
+}
+
+// ---------------------------------------------------------------------------
+// Live scores from ESPN's public scoreboard: no key, no Odds API credits.
+// The board polls this while games are on. Finals it sees are written back,
+// so picks grade within a minute of the game ending instead of at the next
+// sync (which then finds nothing pending and spends no scores request).
+
+const ESPN_SPORT: Record<League, string> = { ncaaf: "college-football", nfl: "nfl" };
+
+/** One Eastern calendar day of games (ESPN rejects date ranges). */
+export async function fetchEspnScoreboard(league: League, ymd: string): Promise<EspnEvent[]> {
+  const q = new URLSearchParams({ dates: ymd, limit: "300" });
+  if (league === "ncaaf") q.set("groups", "80"); // FBS; an FBS-FCS game is here too
+  const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/${ESPN_SPORT[league]}/scoreboard?${q}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`ESPN scoreboard ${res.status}`);
+  const body = (await res.json()) as { events?: EspnEvent[] };
+  return body.events ?? [];
+}
+
+// A game the sync has not graded, from a day and change back (so a night
+// game the feed missed is retried the next day) to an hour ahead (ESPN
+// sometimes has a kickoff a few minutes before the books do).
+const LIVE_LOOKBACK_MS = 30 * 60 * 60 * 1000;
+const LIVE_LOOKAHEAD_MS = 60 * 60 * 1000;
+
+export async function liveScores(league: League, now = new Date()): Promise<LivePayload> {
+  // Reading needs no secret; grading does. Without the service key (local
+  // dev) the scores still flow and the sync grades later.
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY ? serviceSupabase() : null;
+  const db = service ?? createServerSupabase();
+  const { data, error } = await db
+    .from("pickem_games")
+    .select("id, league, home_team, away_team, commence_time")
+    .eq("league", league)
+    .eq("completed", false)
+    .gte("commence_time", new Date(now.getTime() - LIVE_LOOKBACK_MS).toISOString())
+    .lte("commence_time", new Date(now.getTime() + LIVE_LOOKAHEAD_MS).toISOString());
+  if (error) throw new Error(`read games: ${error.message}`);
+  const pending = (data ?? []) as Pick<PickemGame, "id" | "league" | "home_team" | "away_team" | "commence_time">[];
+  const asOf = now.toISOString();
+  if (!pending.length) return { league, asOf, scores: {}, graded: 0, pending: 0 };
+
+  const days = [...new Set(pending.map((g) => espnDate(Date.parse(g.commence_time))))];
+  const events = (await Promise.all(days.map((d) => fetchEspnScoreboard(league, d)))).flat();
+  const scores = matchEvents(league, pending, events);
+
+  let graded = 0;
+  if (service) {
+    for (const [id, s] of Object.entries(scores)) {
+      if (!s.completed) continue;
+      const { error: uErr } = await service
+        .from("pickem_games")
+        .update({ home_score: s.home, away_score: s.away, completed: true, updated_at: asOf })
+        .eq("id", id)
+        .eq("completed", false);
+      if (!uErr) graded++;
+    }
+  }
+  return { league, asOf, scores, graded, pending: pending.length };
 }
 
 // ---------------------------------------------------------------------------

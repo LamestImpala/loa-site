@@ -26,12 +26,16 @@ type Props = {
   /** Opens the row's "lines & house" panel. */
   onShowHouse?: () => void;
   result: PickResult;
+  /** The game is still on: `result` is where the pick stands now, not a grade. */
+  provisional?: boolean;
   on: boolean;
   locked: boolean;
   label: string;
 };
 
-export default function PickButton({ game, market, selection, main, sub, book, bookTitle, moved, house, why, onShowHouse, result, on, locked, label }: Props) {
+const LIVE_TITLES = { win: "on track", loss: "behind", push: "on the number" } as const;
+
+export default function PickButton({ game, market, selection, main, sub, book, bookTitle, moved, house, why, onShowHouse, result, provisional, on, locked, label }: Props) {
   const { canPick, togglePick } = usePickemActions();
   const disabled = locked || !canPick;
   const corner =
@@ -39,8 +43,8 @@ export default function PickButton({ game, market, selection, main, sub, book, b
       <span
         className={`absolute right-1 top-0.5 text-[9px] font-semibold ${
           result === "win" ? "text-emerald-300" : result === "loss" ? "text-red-300" : "text-neutral-400"
-        }`}
-        title={result}
+        } ${provisional ? "opacity-60" : ""}`}
+        title={provisional ? LIVE_TITLES[result] : result}
       >
         {result === "win" ? "W" : result === "loss" ? "L" : "P"}
       </span>

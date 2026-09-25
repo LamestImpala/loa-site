@@ -1,7 +1,8 @@
 "use client";
 
-// The sheet: day dividers, one row per game, and the started games folded
-// away at the bottom. Pure derivation from props; no state of its own.
+// The sheet: games in play first, then day dividers with one row per game,
+// and the finals folded away at the bottom. Pure derivation from props; no
+// state of its own.
 import { useMemo } from "react";
 import type { Conference } from "@/lib/pickem-conferences";
 import { displayTeam, type PickemGame, type PickemPick } from "@/lib/pickem";
@@ -24,16 +25,22 @@ type Props = {
 export default function Board({ games, view, conf, now, tz, picks, openGameId, onToggleExpand, onShowAll }: Props) {
   const buckets = useMemo(() => bucketGames(games, now), [games, now]);
 
-  const { live, started } = useMemo(() => {
-    if (view === "soon") return { live: buckets.soon, started: [] as PickemGame[] };
+  // Games in play stay on the board in every view; finals fold away except
+  // in the "starting soon" view, which is only about what is next.
+  const { inPlay, open, finals } = useMemo(() => {
+    if (view === "soon") return { inPlay: buckets.inProgress, open: buckets.soon, finals: [] as PickemGame[] };
     if (view === "conf" && conf) {
-      return { live: filterByConference(buckets.upcoming, conf), started: filterByConference(buckets.started, conf) };
+      return {
+        inPlay: filterByConference(buckets.inProgress, conf),
+        open: filterByConference(buckets.upcoming, conf),
+        finals: filterByConference(buckets.final, conf),
+      };
     }
-    return { live: buckets.upcoming, started: buckets.started };
+    return { inPlay: buckets.inProgress, open: buckets.upcoming, finals: buckets.final };
   }, [view, conf, buckets]);
 
-  const liveDays = useMemo(() => groupByDay(live, tz), [live, tz]);
-  const startedDays = useMemo(() => groupByDay(started, tz), [started, tz]);
+  const openDays = useMemo(() => groupByDay(open, tz), [open, tz]);
+  const finalDays = useMemo(() => groupByDay(finals, tz), [finals, tz]);
   const zone = tzLabel(tz, now);
 
   const rows = (list: PickemGame[]) =>
@@ -63,7 +70,17 @@ export default function Board({ games, view, conf, now, tz, picks, openGameId, o
         <div>Moneyline</div>
       </div>
 
-      {live.length === 0 ? (
+      {inPlay.length > 0 ? (
+        <section aria-label="In play">
+          <h3 className="flex items-center gap-2 pb-1 pt-5 text-sm font-medium text-orange-200">
+            <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange-400" />
+            Live · {inPlay.length} game{inPlay.length === 1 ? "" : "s"}
+          </h3>
+          <ol>{rows(inPlay)}</ol>
+        </section>
+      ) : null}
+
+      {open.length === 0 ? (
         <p className="py-6 text-sm text-neutral-400">
           {view === "soon" ? (
             <>
@@ -84,7 +101,7 @@ export default function Board({ games, view, conf, now, tz, picks, openGameId, o
           )}
         </p>
       ) : (
-        liveDays.map((d) => (
+        openDays.map((d) => (
           <section key={d.key}>
             <h3 className="pb-1 pt-5 text-sm font-medium text-neutral-300">
               {d.label}
@@ -95,12 +112,12 @@ export default function Board({ games, view, conf, now, tz, picks, openGameId, o
         ))
       )}
 
-      {started.length > 0 ? (
+      {finals.length > 0 ? (
         <details className="mt-8 border-t border-white/15 pt-2">
           <summary className="cursor-pointer select-none py-2 text-sm text-neutral-300 hover:text-white">
-            Started · {started.length} game{started.length === 1 ? "" : "s"}
+            Final · {finals.length} game{finals.length === 1 ? "" : "s"}
           </summary>
-          {startedDays.map((d) => (
+          {finalDays.map((d) => (
             <section key={d.key}>
               <h3 className="pb-1 pt-4 text-sm font-medium text-neutral-300">{d.label}</h3>
               <ol>{rows(d.games)}</ol>

@@ -1,13 +1,15 @@
 "use client";
 
-// Page shell: owns the clock, the open row, and the view; everything else
-// is a section component fed by props.
+// Page shell: owns the clock, the live scores, the open row, and the view;
+// everything else is a section component fed by props.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LEAGUES, LEAGUE_META, type League, type LeaderboardRow, type PickemGame, type PickemParlay } from "@/lib/pickem";
 import { bucketGames, conferencesOnSlate, defaultView, fmtKickLong, tzLabel, type View } from "@/lib/pickem-board";
+import { applyLive } from "@/lib/pickem-live";
 import { PickemActionsContext } from "./pickem-context";
 import { usePickemSession } from "./use-pickem-session";
+import { useLiveScores } from "./use-live-scores";
 import { useViewerTimeZone } from "./use-viewer-timezone";
 import AuthCard from "./auth-card";
 import ViewPicker, { useBoardView } from "./view-picker";
@@ -39,10 +41,15 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
     return () => clearInterval(t);
   }, []);
 
+  // ESPN's scores laid over the rows while games are on. `games` stays the
+  // database's view; everything that shows a score reads `liveGames`.
+  const live = useLiveScores(league, games, now);
+  const liveGames = useMemo(() => applyLive(games, live), [games, live]);
+
   // Conferences only mean something for college; NFL teams would all fall through to FCS.
   const conferences = useMemo(() => (league === "ncaaf" ? conferencesOnSlate(games) : []), [league, games]);
   const { view: urlView, conf, setView } = useBoardView(conferences);
-  const buckets = useMemo(() => bucketGames(games, now), [games, now]);
+  const buckets = useMemo(() => bucketGames(liveGames, now), [liveGames, now]);
 
   // Decide the auto view once so it does not flip under the reader when the
   // last "soon" game kicks off; the picker's live count shows the change.
@@ -112,7 +119,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
               onChange={setView}
             />
             <Board
-              games={games}
+              games={liveGames}
               view={view}
               conf={conf}
               now={now}
@@ -125,7 +132,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
           </>
         )}
 
-        <Parlays parlays={parlays} games={games} tails={auth.tails} now={now} />
+        <Parlays parlays={parlays} games={liveGames} tails={auth.tails} now={now} />
         <Standings leaderboard={leaderboard} league={league} week={week} userId={auth.userId} />
         <HowItWorks />
       </section>

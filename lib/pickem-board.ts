@@ -25,6 +25,10 @@ export type Buckets = {
   upcoming: PickemGame[];
   /** Kicked off or final. */
   started: PickemGame[];
+  /** Kicked off, not yet final. Subset of started. */
+  inProgress: PickemGame[];
+  /** Final. Subset of started. */
+  final: PickemGame[];
 };
 
 export function bucketGames(games: PickemGame[], now: number): Buckets {
@@ -32,15 +36,22 @@ export function bucketGames(games: PickemGame[], now: number): Buckets {
   const soon: PickemGame[] = [];
   const upcoming: PickemGame[] = [];
   const started: PickemGame[] = [];
+  const inProgress: PickemGame[] = [];
+  const final: PickemGame[] = [];
   for (const g of sorted) {
     const k = kickoffMs(g);
-    if (g.completed || k <= now) started.push(g);
-    else {
+    if (g.completed) {
+      started.push(g);
+      final.push(g);
+    } else if (k <= now) {
+      started.push(g);
+      inProgress.push(g);
+    } else {
       upcoming.push(g);
       if (k - now <= SOON_WINDOW_MS) soon.push(g);
     }
   }
-  return { soon, upcoming, started };
+  return { soon, upcoming, started, inProgress, final };
 }
 
 /** Games with at least one team in the conference. */
