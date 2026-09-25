@@ -24,6 +24,7 @@ import {
 import { isPower, unmappedTeams } from "./pickem-conferences";
 import { espnDate, matchEvents, type EspnEvent, type LivePayload } from "./pickem-live";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
+import { buildHouseCard, type HouseCard } from "./pickem-house";
 
 const oddsBase = (league: League) => `https://api.the-odds-api.com/v4/sports/${LEAGUE_META[league].oddsSport}`;
 const SLATE_SIZE = 40; // college only; every NFL game of the week is on the board
@@ -406,7 +407,7 @@ export type HouseRunResult = {
   missing: { id: string; game: string }[];
   batches: BatchOutcome[];
   parlays: { inserted: number; removed: number; kept: number; skipped_duplicates: number };
-  preview?: { picks: Record<string, HousePicks>; parlays: ParlayDraft[] };
+  preview?: { picks: Record<string, HousePicks>; parlays: ParlayDraft[]; card: HouseCard };
 };
 
 /** Deal items round-robin into ceil(n / size) batches so the interesting games spread out. */
@@ -613,6 +614,6 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry));
 
   const result: HouseRunResult = { league, week, picked, missing, batches, parlays };
-  if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts };
+  if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts, card: buildHouseCard(withPicks) };
   return result;
 }

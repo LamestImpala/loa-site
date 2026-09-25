@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOUSE_TIER_META, houseStake, houseTier, type HousePicks, type PickemGame } from "./pickem.ts";
-import { callLineAndPrice, fmtRecord, housePlays, houseWeekRecord, playLabel, playUnits } from "./pickem-house.ts";
+import { buildHouseCard, callLineAndPrice, fmtRecord, HOUSE_CARD_SIZE, housePlays, houseWeekRecord, playLabel, playUnits } from "./pickem-house.ts";
 
 test("houseTier: 5 and below pass, 6 leans, 7 likes, 8 and up are best bets", () => {
   assert.equal(houseTier(1), "pass");
@@ -141,4 +141,97 @@ test("houseWeekRecord counts completed plays only and stakes units by tier", () 
   assert.ok(Math.abs(rec.units - (-3 + 100 / 105)) < 1e-6);
   assert.equal(fmtRecord(rec), "1-1");
   assert.equal(fmtRecord({ wins: 2, losses: 0, pushes: 1, units: 0 }), "2-0-1");
+});
+
+// ---------------------------------------------------------------------------
+// The House Card
+
+function withHouse(id: string, conf: [number, number, number], over: Partial<PickemGame> = {}, kickOffset = 0): PickemGame {
+  const [cs, ct, cm] = conf;
+  return game(id, {
+    commence_time: new Date(Date.parse(KICK) + kickOffset * 3600_000).toISOString(),
+    house: {
+      spread: { pick: "home", confidence: cs, why: `${id} spread`, line: -9, price: -110 },
+      total: { pick: "under", confidence: ct, why: `${id} total`, line: 47, price: -110 },
+      ml: { pick: "away", confidence: cm, why: `${id} ml`, line: null, price: 300 },
+    },
+    ...over,
+  });
+}
+
+test("buildHouseCard: not posted without house calls, and empty when the house passes everywhere", () => {
+  assert.deepEqual(buildHouseCard([game("a"), game("b")]).posted, false);
+  const allPass = buildHouseCard([withHouse("a", [5, 5, 5]), withHouse("b", [5, 5, 5])]);
+  assert.equal(allPass.posted, true);
+  assert.deepEqual(allPass.plays, []);
+  assert.equal(allPass.stayAway?.game_id, "a"); // both -9; earliest kickoff wins the tie
+});
+
+test("buildHouseCard: one play per game, ranked by tier before edge, capped by league", () => {
+  const games = [
+    withHouse("a", [6, 6, 5]), // lean
+    withHouse("b", [7, 5, 5]), // like
+    withHouse("c", [8, 6, 5]), // best, plus a lean on the total
+    withHouse("d", [6, 5, 5]),
+    withHouse("e", [5, 6, 5]),
+    withHouse("f", [6, 5, 5]),
+    withHouse("g", [6, 5, 5]),
+  ];
+  const card = buildHouseCard(games);
+  assert.equal(card.plays.length, HOUSE_CARD_SIZE.ncaaf);
+  assert.deepEqual(card.plays.slice(0, 2).map((p) => [p.game_id, p.market, p.confidence]), [["c", "spread", 8], ["b", "spread", 7]]);
+  assert.deepEqual(card.plays[0].tags, ["lock"]);
+  assert.ok(card.plays.slice(2).every((p) => p.confidence === 6));
+  assert.equal(new Set(card.plays.map((p) => p.game_id)).size, card.plays.length);
+  assert.equal(card.stayAway, null);
+  // NFL card is three deep.
+  assert.equal(buildHouseCard(games.map((g) => ({ ...g, league: "nfl" as const }))).plays.length, HOUSE_CARD_SIZE.nfl);
+});
+
+test("buildHouseCard: a top play at 6 is not a lock; the best plus-money play is the upset and joins the card when it ranks lower", () => {
+  const games = [
+    withHouse("a", [6, 5, 5]),
+    withHouse("b", [6, 5, 5]),
+    withHouse("c", [6, 5, 5]),
+    withHouse("d", [6, 5, 5]),
+    withHouse("e", [6, 5, 5]),
+    // The only plus-money play, a lean at +100 against -130: less edge than a -110 lean, so it ranks sixth.
+    withHouse("f", [5, 5, 6], { ml_home: -130, ml_away: 100 }),
+  ];
+  games[5].house!.ml.price = 100;
+  const card = buildHouseCard(games);
+  assert.ok(card.plays.every((p) => !p.tags.includes("lock")));
+  assert.equal(card.plays.length, HOUSE_CARD_SIZE.ncaaf + 1);
+  const upset = card.plays.at(-1)!;
+  assert.equal(upset.game_id, "f");
+  assert.equal(upset.market, "ml");
+  assert.deepEqual(upset.tags, ["upset"]);
+});
+
+test("buildHouseCard: a plus-money lock stays the lock and the next dog is the upset", () => {
+  const games = [withHouse("a", [5, 5, 8]), withHouse("b", [5, 5, 6])];
+  const card = buildHouseCard(games);
+  assert.deepEqual(card.plays.map((p) => [p.game_id, p.tags]), [["a", ["lock"]], ["b", ["upset"]]]);
+});
+
+test("buildHouseCard: stay-away is the closest game the house passes on all three ways", () => {
+  const games = [
+    withHouse("a", [5, 5, 5], { spread_home: -14 }),
+    withHouse("b", [5, 5, 5], { spread_home: 2.5 }),
+    withHouse("c", [5, 5, 5], { spread_home: -1 , house: undefined as never }), // no house at all: ignored
+    withHouse("d", [6, 5, 5], { spread_home: -1 }), // has a play: not a stay-away
+  ];
+  games[2] = game("c", { spread_home: -1 });
+  const card = buildHouseCard(games);
+  assert.equal(card.stayAway?.game_id, "b");
+  assert.equal(card.stayAway?.spread_home, 2.5);
+  assert.equal(card.stayAway?.why, "b spread");
+});
+
+test("buildHouseCard: the record in the header is the week record", () => {
+  const done = withHouse("a", [8, 6, 5], { home_score: 30, away_score: 21, completed: true }); // spread -9 pushes, under 47 wins (51? no: 51 > 47 loses)
+  const card = buildHouseCard([done]);
+  assert.deepEqual(card.record, houseWeekRecord([done]));
+  assert.equal(card.record.pushes, 1);
+  assert.equal(card.record.losses, 1);
 });

@@ -14,6 +14,7 @@ import { useViewerTimeZone } from "./use-viewer-timezone";
 import AuthCard from "./auth-card";
 import ViewPicker, { useBoardView } from "./view-picker";
 import Board from "./board";
+import HouseCard from "./house-card";
 import Parlays from "./parlays";
 import Standings from "./standings";
 import HowItWorks from "./how-it-works";
@@ -133,6 +134,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
           </>
         )}
 
+        <HouseCard games={liveGames} league={league} week={week} now={now} tz={tz} />
         <Parlays parlays={parlays} games={liveGames} tails={auth.tails} now={now} />
         <Standings leaderboard={leaderboard} houseRecord={houseRecord} league={league} week={week} userId={auth.userId} />
         <HowItWorks />
