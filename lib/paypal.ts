@@ -59,11 +59,17 @@ export type InvoiceItemInput = {
   discount?: string; // "5.00" — taken off this line (a negotiated price)
 };
 
-// Branding shown on every invoice (PayPal caps logos at 250×90px)
+// Branding shown on every invoice. The logo is the 90×90 PNG in
+// public/images/curiouser-invoice-logo.png, uploaded to the PayPal invoice
+// template so PayPal serves it from its own CDN: the payer page proxies
+// logo_url through www.paypal.com/securecontent on every view, and fetching
+// our site each time occasionally showed a broken "Business Logo".
+// (PayPal caps logos at 250×90px.)
 const INVOICER = {
   business_name: "Curiouser Records",
   website: "https://curiouserrecords.com",
-  logo_url: "https://curiouserrecords.com/images/curiouser-invoice-logo.png",
+  logo_url:
+    "https://pics.paypal.com/00/s/NjQ3YjkyYmUtNDJhNS00NjI3LTk4NDYtYmFiYWIzNzBjYmYw/file.PNG",
 };
 
 const TERMS =
