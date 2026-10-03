@@ -23,7 +23,7 @@ import {
   type PickemGame,
 } from "./pickem";
 import { isPower, unmappedTeams } from "./pickem-conferences";
-import { espnDate, matchEvents, type EspnEvent, type LivePayload } from "./pickem-live";
+import { espnDate, fpiForHome, matchEvents, pairEvents, type EspnEvent, type EspnPredictor, type LivePayload } from "./pickem-live";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
 
@@ -362,6 +362,57 @@ export async function liveScores(league: League, now = new Date()): Promise<Live
 }
 
 // ---------------------------------------------------------------------------
+// ESPN's FPI prediction for every upcoming college game, stored each time the
+// lines sync so a week's predictions can later be set against the numbers the
+// books had on the same day. College only: ESPN's NFL predictions are edited
+// after the games. Free, no key.
+
+const FPI_WINDOW_MS = 36 * 60 * 60 * 1000; // an unannounced kickoff sits at midnight Eastern
+const FPI_CONCURRENCY = 8;
+
+export async function captureFpi(now = new Date()): Promise<{ stored: number; unmatched: string[]; failed: number }> {
+  const league: League = "ncaaf";
+  const db = serviceSupabase();
+  const { data, error } = await db
+    .from("pickem_games")
+    .select("id, league, home_team, away_team, commence_time")
+    .eq("league", league)
+    .eq("season", PICKEM_SEASON)
+    .gt("commence_time", now.toISOString());
+  if (error) throw new Error(`read games: ${error.message}`);
+  const games = (data ?? []) as Pick<PickemGame, "id" | "league" | "home_team" | "away_team" | "commence_time">[];
+  if (!games.length) return { stored: 0, unmatched: [], failed: 0 };
+
+  const days = [...new Set(games.map((g) => espnDate(Date.parse(g.commence_time))))];
+  const events = (await Promise.all(days.map((d) => fetchEspnScoreboard(league, d)))).flat();
+  const pairs = pairEvents(league, games, events, FPI_WINDOW_MS);
+  const unmatched = games.filter((g) => !pairs[g.id]).map((g) => `${g.away_team} @ ${g.home_team}`);
+
+  const stamp = now.toISOString();
+  const rows = await pool(Object.entries(pairs), FPI_CONCURRENCY, async ([game_id, { event, swapped }]) => {
+    try {
+      const res = await fetch(
+        `https://sports.core.api.espn.com/v2/sports/football/leagues/college-football/events/${event.id}/competitions/${event.id}/predictor`,
+        { cache: "no-store", signal: AbortSignal.timeout(10_000) }
+      );
+      if (!res.ok) return null;
+      const pred = (await res.json()) as EspnPredictor;
+      const fpi = fpiForHome(pred, swapped);
+      if (fpi.home_margin == null) return null;
+      return { game_id, source: "fpi", taken_at: stamp, ...fpi, source_updated_at: pred.lastModified ?? null };
+    } catch {
+      return null;
+    }
+  });
+  const good = rows.filter((r) => r !== null);
+  if (good.length) {
+    const { error: iErr } = await db.from("pickem_model_lines").insert(good);
+    if (iErr) throw new Error(`insert model lines: ${iErr.message}`);
+  }
+  return { stored: good.length, unmatched, failed: rows.length - good.length };
+}
+
+// ---------------------------------------------------------------------------
 // House picks: Claude reads the slate in small batches and returns a pick,
 // confidence and short rationale for every market of every game. Parlays are
 // computed from those picks afterwards (lib/pickem-parlays.ts); the model no
@@ -637,7 +688,7 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   if (!opts.dry) {
     const stamp = now.toISOString();
     for (const [id, house] of picks) {
-      const { error: uErr } = await db.from("pickem_games").update({ house, updated_at: stamp }).eq("id", id);
+      const { error: uErr } = await db.from("pickem_games").update({ house: { ...house, picked_at: stamp }, updated_at: stamp }).eq("id", id);
       if (!uErr) picked++;
     }
   }

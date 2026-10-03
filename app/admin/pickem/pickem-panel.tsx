@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LEAGUES, LEAGUE_META, type League } from "@/lib/pickem";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass as btn } from "../_shell/ui";
@@ -30,6 +30,77 @@ function confidenceSpread(body: PreviewBody): string {
     `ml ${tally(games.map((g) => g.ml))}`,
     `projections dropped ${dropped}`,
   ].join(" · ");
+}
+
+type ClvRow = {
+  market: string;
+  tier: string;
+  calls: number;
+  beat_close: number;
+  lost_to_close: number;
+  same_as_close: number;
+  avg_clv: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+};
+const TIER_ORDER = ["best", "like", "lean", "pass"];
+
+// The house against the closing line (view pickem_house_clv_summary): did the
+// number move its way after it picked. Positive points are good. It shows a
+// signal in far fewer calls than the win-loss record does.
+function ClosingLineValue({ league }: { league: League }) {
+  const { supabase } = useAdmin();
+  const [rows, setRows] = useState<ClvRow[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    supabase
+      .from("pickem_house_clv_summary")
+      .select("market, tier, calls, beat_close, lost_to_close, same_as_close, avg_clv, wins, losses, pushes")
+      .eq("league", league)
+      .then(({ data }) => {
+        if (live) setRows((data ?? []) as ClvRow[]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [supabase, league]);
+  if (!rows?.length) return null;
+  const sorted = [...rows].sort((a, b) => a.market.localeCompare(b.market) || TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
+  const calls = rows.reduce((n, r) => n + r.calls, 0);
+  const points = rows.reduce((n, r) => n + r.calls * Number(r.avg_clv), 0);
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-semibold text-white">House against the closing line</h3>
+      <p className="mt-1 text-sm text-neutral-400">
+        {calls} spread and total calls, passes included, averaging {(points / calls).toFixed(2)} points better than the
+        close. Above zero means the line tends to move the house&apos;s way after it picks.
+      </p>
+      <table className="mt-2 text-left text-xs text-neutral-300">
+        <thead className="text-neutral-500">
+          <tr>
+            {["Market", "Tier", "Calls", "Beat", "Same", "Lost", "Avg pts", "W-L-P"].map((h) => (
+              <th key={h} className="pr-4 font-normal">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {sorted.map((r) => (
+            <tr key={`${r.market}-${r.tier}`}>
+              <td className="pr-4">{r.market}</td>
+              <td className="pr-4">{r.tier}</td>
+              <td className="pr-4">{r.calls}</td>
+              <td className="pr-4">{r.beat_close}</td>
+              <td className="pr-4">{r.same_as_close}</td>
+              <td className="pr-4">{r.lost_to_close}</td>
+              <td className="pr-4">{Number(r.avg_clv).toFixed(2)}</td>
+              <td className="pr-4">{r.wins}-{r.losses}-{r.pushes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 // Buttons that run the pick'em jobs for one league on demand with the admin's
@@ -66,8 +137,9 @@ export function PickemPanel() {
       <h2 className="text-lg font-semibold text-white">Pick&apos;em</h2>
       <p className="mt-1 text-sm text-neutral-400">
         Lines refresh once a day per league, plus Saturday afternoon for college and Sunday afternoon for the
-        NFL. College house picks post Thursday midday and Saturday morning Central; NFL picks post Thursday
-        morning. Use these to run a job for the selected league now. Refreshing lines spends about 3 of the
+        NFL. House picks post Tuesday morning Central for both leagues, as soon as the week&apos;s lines are in, so its
+        numbers are early ones; college fills in late additions Saturday morning and the NFL on Thursday.
+        College line refreshes also store ESPN&apos;s FPI prediction for each upcoming game. Use these to run a job for the selected league now. Refreshing lines spends about 3 of the
         500 monthly Odds API requests (5 when there are finals to grade); a house run is a handful of Claude
         calls. Parlays are rebuilt from the picks on every house run; tailed and locked tickets are never
         removed.
@@ -134,6 +206,7 @@ export function PickemPanel() {
         </button>
       </div>
       {log ? <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-neutral-300">{log}</pre> : null}
+      <ClosingLineValue league={league} />
     </section>
   );
 }

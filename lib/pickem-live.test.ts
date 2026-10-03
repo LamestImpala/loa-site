@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PickemGame } from "./pickem.ts";
-import { applyLive, espnDate, fmtLiveStatus, hasGamesInPlay, matchEvents, type EspnEvent } from "./pickem-live.ts";
+import { applyLive, espnDate, fmtLiveStatus, fpiForHome, hasGamesInPlay, matchEvents, pairEvents, type EspnEvent } from "./pickem-live.ts";
 
 const KICK = "2026-09-26T23:30:00Z";
 
@@ -120,4 +120,31 @@ test("polling runs while a started game lacks a final", () => {
 test("ESPN dates are Eastern calendar days", () => {
   assert.equal(espnDate(Date.parse("2026-09-26T00:30:00Z")), "20260925"); // Fri 8:30 PM ET
   assert.equal(espnDate(Date.parse("2026-09-26T23:30:00Z")), "20260926");
+});
+
+test("pairEvents pairs a game that has not started, and one with an unannounced kickoff given a wider window", () => {
+  const g = game("g1", "nfl", "Dallas Cowboys", "New York Giants");
+  const pre = { name: "STATUS_SCHEDULED", state: "pre", shortDetail: "TBD" };
+  const tbd = event("401", { id: "6", abbreviation: "DAL", score: "0" }, { id: "19", abbreviation: "NYG", score: "0" }, pre, "2026-09-26T04:00:00Z");
+  assert.deepEqual(pairEvents("nfl", [g], [tbd]), {});
+  const wide = pairEvents("nfl", [g], [tbd], 36 * 60 * 60 * 1000);
+  assert.equal(wide.g1.event.id, "401");
+  assert.equal(wide.g1.swapped, false);
+  assert.deepEqual(matchEvents("nfl", [g], [tbd]), {});
+});
+
+test("pairEvents marks a game ESPN lists the other way round", () => {
+  const g = game("g1", "nfl", "Dallas Cowboys", "New York Giants");
+  const ev = event("401", { id: "19", abbreviation: "NYG", score: "0" }, { id: "6", abbreviation: "DAL", score: "0" });
+  assert.equal(pairEvents("nfl", [g], [ev]).g1.swapped, true);
+});
+
+test("fpiForHome reads our home team's side of the predictor", () => {
+  const pred = {
+    homeTeam: { statistics: [{ name: "gameProjection", value: 80.6 }, { name: "teamPredPtDiff", value: 12.1 }] },
+    awayTeam: { statistics: [{ name: "gameProjection", value: 19.4 }, { name: "teamPredPtDiff", value: -12.1 }] },
+  };
+  assert.deepEqual(fpiForHome(pred, false), { home_margin: 12.1, home_win_prob: 80.6 });
+  assert.deepEqual(fpiForHome(pred, true), { home_margin: -12.1, home_win_prob: 19.4 });
+  assert.deepEqual(fpiForHome({}, false), { home_margin: null, home_win_prob: null });
 });

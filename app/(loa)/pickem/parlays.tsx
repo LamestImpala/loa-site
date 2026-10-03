@@ -20,7 +20,7 @@ export default function Parlays({ parlays, games, tails, now }: Props) {
         one risks a unit at the combined price. A push on any leg pushes the ticket.
       </p>
       {parlays.length === 0 ? (
-        <p className="mt-4 text-sm text-neutral-400">House parlays post Thursday around noon Central, once every game has house picks.</p>
+        <p className="mt-4 text-sm text-neutral-400">House parlays post Tuesday morning Central, once every game has house picks.</p>
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {parlays.map((p) => {
