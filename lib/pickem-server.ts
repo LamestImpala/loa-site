@@ -13,6 +13,7 @@ import {
   seasonWeek,
   weekWindow,
   legLineAndPrice,
+  pregameEvents,
   type BestLine,
   type BestLines,
   type HouseCall,
@@ -60,7 +61,8 @@ function oddsKey(): string {
   return key;
 }
 
-export async function fetchOdds(league: League): Promise<{ events: OddsEvent[]; remaining: string | null }> {
+/** `from` drops events that kicked off before it (the API wants no millis). */
+export async function fetchOdds(league: League, from?: Date): Promise<{ events: OddsEvent[]; remaining: string | null }> {
   const q = new URLSearchParams({
     apiKey: oddsKey(),
     regions: "us",
@@ -68,6 +70,7 @@ export async function fetchOdds(league: League): Promise<{ events: OddsEvent[]; 
     oddsFormat: "american",
     dateFormat: "iso",
   });
+  if (from) q.set("commenceTimeFrom", from.toISOString().replace(/\.\d{3}Z$/, "Z"));
   const res = await fetch(`${oddsBase(league)}/odds?${q}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Odds API ${res.status}: ${await res.text()}`);
   return { events: await res.json(), remaining: res.headers.get("x-requests-remaining") };
@@ -195,7 +198,9 @@ export function selectSlate(league: League, events: OddsEvent[], week: number): 
 export async function syncLines(league: League, now = new Date()) {
   const db = serviceSupabase();
   const week = seasonWeek(league, now);
-  const { events, remaining } = await fetchOdds(league);
+  const fetched = await fetchOdds(league, now);
+  const remaining = fetched.remaining;
+  const events = pregameEvents(fetched.events, now);
   const slate = selectSlate(league, events, week);
 
   // Keep games we already feature this week even if they fell out of the top
