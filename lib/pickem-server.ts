@@ -393,7 +393,7 @@ Also give a projected final score for each game as whole points (projected_home,
 Selections use "home"/"away" for spread and moneyline and "over"/"under" for totals. Return only the JSON.`;
 
 export const HOUSE_MODEL = "claude-opus-5-5";
-export const HOUSE_EFFORT = "medium";
+export const HOUSE_EFFORT = "high";
 
 // Batches run in one wave so a 41-game slate fits the route's 300 s limit.
 const BATCH_SIZE = 7;
