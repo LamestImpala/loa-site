@@ -28,7 +28,7 @@ import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlay
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
 
 const oddsBase = (league: League) => `https://api.the-odds-api.com/v4/sports/${LEAGUE_META[league].oddsSport}`;
-const SLATE_SIZE = 40; // college only; every NFL game of the week is on the board
+const SLATE_SIZE = 60; // college only; every NFL game of the week is on the board
 
 export { authorizeJob } from "./job-auth";
 export { serviceSupabase };
@@ -159,11 +159,12 @@ export function summarizeEvent(ev: OddsEvent): LineSummary {
 
 // ---------------------------------------------------------------------------
 // Slate selection. The NFL is every game of the week in kickoff order. College
-// is capped at 40 and ordered closest spread first within tier:
+// is every game with a Power Four team (or Notre Dame), then filled to 60 with
+// the rest, ordered closest spread first within tier:
 //   0  anything Arkansas plays
 //   1  Power Four vs Power Four
-//   2  any game inside two touchdowns (competitive Group of Five games count)
-//   3  Power Four vs anyone, inside four touchdowns
+//   2  Power Four vs anyone
+//   3  any other game inside two touchdowns (competitive Group of Five games)
 //   4  the rest
 export function selectSlate(league: League, events: OddsEvent[], week: number): OddsEvent[] {
   const { start, end } = weekWindow(league, week);
@@ -178,8 +179,8 @@ export function selectSlate(league: League, events: OddsEvent[], week: number): 
     if (ALWAYS_FEATURED.includes(e.home_team) || ALWAYS_FEATURED.includes(e.away_team)) return 0;
     const p = Number(isPower(e.home_team)) + Number(isPower(e.away_team));
     if (p === 2) return 1;
-    if (spread <= 14) return 2;
-    if (p === 1 && spread <= 28) return 3;
+    if (p === 1) return 2;
+    if (spread <= 14) return 3;
     return 4;
   };
   return inWeek
@@ -188,7 +189,7 @@ export function selectSlate(league: League, events: OddsEvent[], week: number): 
       return { e, t: tier(e, c), c };
     })
     .sort((a, b) => a.t - b.t || a.c - b.c || a.e.commence_time.localeCompare(b.e.commence_time))
-    .slice(0, SLATE_SIZE)
+    .filter((x, i) => i < SLATE_SIZE || x.t <= 2)
     .map((x) => x.e);
 }
 
@@ -204,7 +205,7 @@ export async function syncLines(league: League, now = new Date()) {
   const slate = selectSlate(league, events, week);
 
   // Keep games we already feature this week even if they fell out of the top
-  // 40 (a line moved), so nobody's picks vanish.
+  // 60 (a line moved), so nobody's picks vanish.
   const { data: existing } = await db
     .from("pickem_games")
     .select("id, open_spread_home, open_total, open_ml_home, open_ml_away")
@@ -451,9 +452,9 @@ Selections use "home"/"away" for spread and moneyline and "over"/"under" for tot
 export const HOUSE_MODEL = "claude-opus-5-5";
 export const HOUSE_EFFORT = "high";
 
-// Batches run in one wave so a 41-game slate fits the route's 300 s limit.
+// Batches run in one wave so a 60-game slate fits the route's 300 s limit.
 const BATCH_SIZE = 7;
-const BATCH_CONCURRENCY = 6;
+const BATCH_CONCURRENCY = 9;
 const PER_CALL_MS = 200_000;
 const ROUTE_BUDGET_MS = 250_000; // leaves room for the writes and the response
 const LAUNCH_FLOOR_MS = 60_000; // do not start a batch with less than this left
