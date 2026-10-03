@@ -319,3 +319,12 @@ export function opposingPrice(g: PickemGame, market: Market, selection: Selectio
   if (market === "total") return (selection === "over" ? g.best.under : g.best.over)?.price ?? null;
   return (selection === "home" ? g.best.spread_away : g.best.spread_home)?.price ?? null;
 }
+
+/**
+ * Events that have not kicked off. Once a game starts the odds feed carries
+ * live in-game numbers (and a restated kickoff time), so the sync must leave
+ * that game's row and line history at the last pre-game line.
+ */
+export function pregameEvents<T extends { commence_time: string }>(events: T[], now: Date): T[] {
+  return events.filter((e) => new Date(e.commence_time) > now);
+}
