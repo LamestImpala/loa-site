@@ -59,6 +59,8 @@ export type HousePicks = {
   ml: HouseCall;
   /** The house's projected final score. Absent on older rows, and dropped when it disagreed with the spread or total call. */
   projection?: { home: number; away: number };
+  /** When the calls were made and their lines locked. Absent on rows written before 2026-10-03. */
+  picked_at?: string;
 };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is

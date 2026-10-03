@@ -48,7 +48,7 @@ export default function HouseCard({ games, league, week, now, tz }: Props) {
       </p>
 
       {!card.posted ? (
-        <p className="mt-4 text-sm text-neutral-400">The card posts Thursday around noon Central, once the house has made its calls.</p>
+        <p className="mt-4 text-sm text-neutral-400">The card posts Tuesday morning Central, once the house has made its calls.</p>
       ) : card.plays.length === 0 ? (
         <p className="mt-4 text-sm text-neutral-400">The house passes on every game this week. Rare, but it happens.</p>
       ) : (

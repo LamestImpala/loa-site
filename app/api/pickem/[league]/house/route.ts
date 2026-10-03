@@ -6,9 +6,10 @@ import { authorizeJob, generateHousePicks } from "@/lib/pickem-server";
 // every upcoming game in one league that doesn't have them yet, then rebuilds
 // that league's parlays for the week. `?force=1` re-picks the whole week,
 // `?dry=1` returns what would be written without writing it, `?only=parlays`
-// skips Claude and only rebuilds parlays. College runs Thursday midday and
-// Saturday morning Central; the NFL runs Thursday morning, before the
-// Thursday night game.
+// skips Claude and only rebuilds parlays. Both leagues run Tuesday morning
+// Central, right after the week's first line sync, so the house locks early
+// numbers. College runs again Saturday morning and the NFL on Thursday for
+// games that reached the board late.
 export const maxDuration = 300;
 
 async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/house">) {

@@ -68,13 +68,16 @@ function sides(ev: EspnEvent) {
   return home && away ? { home, away } : null;
 }
 
+/** A game's ESPN event. `swapped` when ESPN has home and away the other way round (a neutral site). */
+export type EventPair = { event: EspnEvent; swapped: boolean };
+
 /**
  * Pair our games with ESPN's events by both teams' ids and a kickoff within
- * the window. A neutral-site game may have home and away the other way
- * round at ESPN; the scores are swapped back. Games ESPN lists as not yet
- * started, or that we cannot pair, are left out.
+ * the window, by our game id. Games we cannot pair are left out. Days ahead
+ * ESPN lists a kickoff still to be announced at midnight Eastern, so a
+ * caller pairing upcoming games wants a wider window than the live one.
  */
-export function matchEvents(league: League, games: GameRef[], events: EspnEvent[]): LiveMap {
+export function pairEvents(league: League, games: GameRef[], events: EspnEvent[], windowMs = MATCH_WINDOW_MS): Record<string, EventPair> {
   const byKey = new Map<string, EspnEvent[]>();
   for (const ev of events) {
     const s = sides(ev);
@@ -83,27 +86,34 @@ export function matchEvents(league: League, games: GameRef[], events: EspnEvent[
     byKey.set(key, [...(byKey.get(key) ?? []), ev]);
   }
 
-  const out: LiveMap = {};
+  const out: Record<string, EventPair> = {};
   for (const g of games) {
     const h = espnTeamId(g.league, g.home_team);
     const a = espnTeamId(g.league, g.away_team);
     if (!h || !a) continue;
     const kick = Date.parse(g.commence_time);
-    const near = (ev: EspnEvent) => Math.abs(Date.parse(ev.date) - kick) <= MATCH_WINDOW_MS;
-    let swapped = false;
-    let ev = byKey.get(`${h}|${a}`)?.find(near);
-    if (!ev) {
-      ev = byKey.get(`${a}|${h}`)?.find(near);
-      swapped = true;
-    }
-    if (!ev) continue;
+    const near = (ev: EspnEvent) => Math.abs(Date.parse(ev.date) - kick) <= windowMs;
+    const straight = byKey.get(`${h}|${a}`)?.find(near);
+    const event = straight ?? byKey.get(`${a}|${h}`)?.find(near);
+    if (event) out[g.id] = { event, swapped: !straight };
+  }
+  return out;
+}
+
+/**
+ * Live scores for our games. A swapped game's scores are swapped back. Games
+ * ESPN lists as not yet started, or that we cannot pair, are left out.
+ */
+export function matchEvents(league: League, games: GameRef[], events: EspnEvent[]): LiveMap {
+  const out: LiveMap = {};
+  for (const [id, { event: ev, swapped }] of Object.entries(pairEvents(league, games, events))) {
     const state = ev.status.type.state;
     if (state !== "in" && state !== "post") continue;
     const s = sides(ev)!;
     const espnHome = Number(s.home.score);
     const espnAway = Number(s.away.score);
     if (!Number.isFinite(espnHome) || !Number.isFinite(espnAway)) continue;
-    out[g.id] = {
+    out[id] = {
       state,
       home: swapped ? espnAway : espnHome,
       away: swapped ? espnHome : espnAway,
@@ -112,6 +122,23 @@ export function matchEvents(league: League, games: GameRef[], events: EspnEvent[
     };
   }
   return out;
+}
+
+/** The slice of ESPN's per-game predictor (FPI) we read. */
+export type EspnPredictor = {
+  lastModified?: string;
+  homeTeam?: { statistics?: { name: string; value?: number }[] };
+  awayTeam?: { statistics?: { name: string; value?: number }[] };
+};
+
+/** Our home team's predicted margin and win chance from ESPN's predictor, whichever side ESPN has it on. */
+export function fpiForHome(pred: EspnPredictor, swapped: boolean): { home_margin: number | null; home_win_prob: number | null } {
+  const stats = (swapped ? pred.awayTeam : pred.homeTeam)?.statistics ?? [];
+  const stat = (name: string) => {
+    const v = stats.find((s) => s.name === name)?.value;
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
+  return { home_margin: stat("teamPredPtDiff"), home_win_prob: stat("gameProjection") };
 }
 
 /**
