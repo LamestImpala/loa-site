@@ -12,6 +12,8 @@ import { usePickemSession } from "./use-pickem-session";
 import { useLiveScores } from "./use-live-scores";
 import { useViewerTimeZone } from "./use-viewer-timezone";
 import AuthCard from "./auth-card";
+import SlipImport from "./slip-import";
+import MyBets from "./my-bets";
 import ViewPicker, { useBoardView } from "./view-picker";
 import Board from "./board";
 import HouseCard from "./house-card";
@@ -105,6 +107,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
         </header>
 
         <AuthCard auth={auth} myPickCount={myPickCount} openCount={buckets.upcoming.length} />
+        {auth.canPick ? <SlipImport auth={auth} /> : null}
 
         <h2 className="sr-only">Games</h2>
         {games.length === 0 ? (
@@ -136,6 +139,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
 
         <HouseCard games={liveGames} league={league} week={week} now={now} tz={tz} />
         <Parlays parlays={parlays} games={liveGames} tails={auth.tails} now={now} />
+        <MyBets auth={auth} games={liveGames} league={league} week={week} now={now} />
         <Standings leaderboard={leaderboard} houseRecord={houseRecord} league={league} week={week} userId={auth.userId} />
         <HowItWorks />
       </section>

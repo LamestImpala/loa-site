@@ -182,6 +182,28 @@ export type PickemPick = {
   price: number;
 };
 
+/** A player's own parlay, read off a bet slip (pickem_user_parlays). */
+export type UserParlay = {
+  id: number;
+  user_id: string;
+  league: League;
+  season: number;
+  week: number;
+  legs: ParlayLeg[];
+  american_odds: number;
+  locks_at: string;
+  leg_count: number;
+};
+
+/** The dollar stake behind a pick or a parlay (pickem_wagers). Only its owner can read it. */
+export type Wager = {
+  id: number;
+  pick_id: number | null;
+  user_parlay_id: number | null;
+  book: string | null;
+  stake: number;
+};
+
 /** One row of pickem_house_record: the house's graded calls for a league-week. */
 export type HouseRecordRow = {
   league: League;
