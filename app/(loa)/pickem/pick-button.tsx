@@ -6,6 +6,7 @@
 import { houseTier, type Market, type PickemGame, type PickResult, type Selection } from "@/lib/pickem";
 import { usePickemActions } from "./pickem-context";
 import HouseBadge from "./house-badge";
+import { LIVE_TITLES, LiveDot, resultColor } from "./result-tag";
 
 type Props = {
   game: PickemGame;
@@ -33,21 +34,24 @@ type Props = {
   label: string;
 };
 
-const LIVE_TITLES = { win: "on track", loss: "behind", push: "on the number" } as const;
-
 export default function PickButton({ game, market, selection, main, sub, book, bookTitle, moved, house, why, onShowHouse, result, provisional, on, locked, label }: Props) {
   const { canPick, togglePick } = usePickemActions();
   const disabled = locked || !canPick;
   const corner =
     result ? (
-      <span
-        className={`absolute right-1 top-0.5 text-[9px] font-semibold ${
-          result === "win" ? "text-emerald-300" : result === "loss" ? "text-red-300" : "text-neutral-400"
-        } ${provisional ? "opacity-60" : ""}`}
-        title={provisional ? LIVE_TITLES[result] : result}
-      >
-        {result === "win" ? "W" : result === "loss" ? "L" : "P"}
-      </span>
+      provisional ? (
+        <span
+          className={`absolute right-1 top-0.5 inline-flex items-center gap-0.5 text-[9px] font-semibold ${resultColor(result)}`}
+          title={LIVE_TITLES[result]}
+        >
+          <LiveDot size="h-1 w-1" />
+          {result === "win" ? "▲" : result === "loss" ? "▼" : "="}
+        </span>
+      ) : (
+        <span className={`absolute right-1 top-0.5 text-[9px] font-semibold ${resultColor(result)}`} title={result}>
+          {result === "win" ? "W" : result === "loss" ? "L" : "P"}
+        </span>
+      )
     ) : house != null && houseTier(house) !== "pass" ? (
       <span className="absolute right-0.5 top-0.5">
         <HouseBadge value={house} why={why} label={label} onShowHouse={onShowHouse} />

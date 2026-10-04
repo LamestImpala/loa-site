@@ -102,13 +102,14 @@ export function pairEvents(league: League, games: GameRef[], events: EspnEvent[]
 
 /**
  * Live scores for our games. A swapped game's scores are swapped back. Games
- * ESPN lists as not yet started, or that we cannot pair, are left out.
+ * ESPN lists as not yet started, as over without a result (postponed,
+ * canceled), or that we cannot pair, are left out.
  */
 export function matchEvents(league: League, games: GameRef[], events: EspnEvent[]): LiveMap {
   const out: LiveMap = {};
   for (const [id, { event: ev, swapped }] of Object.entries(pairEvents(league, games, events))) {
     const state = ev.status.type.state;
-    if (state !== "in" && state !== "post") continue;
+    if (state !== "in" && !(state === "post" && ev.status.type.completed)) continue;
     const s = sides(ev)!;
     const espnHome = Number(s.home.score);
     const espnAway = Number(s.away.score);
