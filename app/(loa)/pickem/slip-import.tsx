@@ -102,7 +102,12 @@ export default function SlipImport({ auth }: { auth: PickemSession }) {
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="font-medium text-white">
                     {betTitle(bet)}
-                    {bet.stake != null ? <span className="font-normal text-neutral-400"> · {fmtMoney(bet.stake)}</span> : null}
+                    {bet.stake != null ? (
+                      <span className="font-normal text-neutral-400">
+                        {" "}· {fmtMoney(bet.stake)}
+                        {bet.payout != null ? ` pays ${fmtMoney(bet.payout)}` : ""}
+                      </span>
+                    ) : null}
                   </h3>
                   {bet.kind === "parlay" && bet.american_odds != null ? (
                     <span className="font-semibold tabular-nums text-orange-200">{fmtPrice(bet.american_odds)}</span>

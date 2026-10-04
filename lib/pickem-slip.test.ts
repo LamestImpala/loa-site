@@ -39,6 +39,7 @@ test("a parlay with every leg on the board is a ticket at the slip's numbers", (
         {
           kind: "parlay",
           stake: 10,
+          payout: 656.61,
           american_odds: 596,
           legs: [
             leg({}),
@@ -55,6 +56,8 @@ test("a parlay with every leg on the board is a ticket at the slip's numbers", (
   const [bet] = bets;
   assert.equal(bet.ticket, true);
   assert.equal(bet.american_odds, 596);
+  assert.equal(bet.payout, 656.61);
+  assert.equal(betPayload(bet, book).payout, 656.61);
   assert.deepEqual(bet.legs.map((l) => l.label), ["Jaguars +2.5", "Eagles +3.5", "Under 42.5 (Titans @ Ravens)"]);
   // The board's number for the same side sits beside the slip's.
   assert.deepEqual(bet.legs.map((l) => l.board), [3, 3, 43]);
@@ -75,7 +78,7 @@ test("a leg that cannot be imported stops the ticket but not the other legs", ()
     [{ price: -50 }, "invalid"],
   ];
   for (const [bad, status] of cases) {
-    const { bets } = reviewSlip({ book: null, bets: [{ kind: "parlay", stake: 5, american_odds: 260, legs: [leg({}), leg(bad)] }] }, GAMES, NOW);
+    const { bets } = reviewSlip({ book: null, bets: [{ kind: "parlay", stake: 5, payout: null, american_odds: 260, legs: [leg({}), leg(bad)] }] }, GAMES, NOW);
     assert.equal(bets[0].legs[1].status, status, JSON.stringify(bad));
     assert.equal(bets[0].ticket, false);
     assert.equal(importable(bets[0]), true);
@@ -88,7 +91,7 @@ test("a moneyline carries no line, and a missing ticket price is computed from t
   const { bets } = reviewSlip(
     {
       book: null,
-      bets: [{ kind: "parlay", stake: null, american_odds: null, legs: [leg({ market: "ml", selection: "home", line: -3, price: -160 }), leg({ game_id: "lar-phi", price: 100 })] }],
+      bets: [{ kind: "parlay", stake: null, payout: 50, american_odds: null, legs: [leg({ market: "ml", selection: "home", line: -3, price: -160 }), leg({ game_id: "lar-phi", price: 100 })] }],
     },
     GAMES,
     NOW
@@ -96,19 +99,24 @@ test("a moneyline carries no line, and a missing ticket price is computed from t
   assert.equal(bets[0].legs[0].line, null);
   assert.equal(bets[0].legs[0].label, "Bengals ML");
   assert.equal(bets[0].american_odds, 225);
+  // A payout with no stake beside it is dropped.
+  assert.equal(bets[0].payout, null);
 });
 
 test("a straight bet with several legs becomes several bets without the stake", () => {
-  const one = reviewSlip({ book: null, bets: [{ kind: "straight", stake: 25, american_odds: null, legs: [leg({})] }] }, GAMES, NOW);
+  const one = reviewSlip({ book: null, bets: [{ kind: "straight", stake: 25, payout: 47.73, american_odds: null, legs: [leg({})] }] }, GAMES, NOW);
   assert.equal(one.bets.length, 1);
   assert.equal(one.bets[0].stake, 25);
-  const two = reviewSlip({ book: null, bets: [{ kind: "straight", stake: 25, american_odds: null, legs: [leg({}), leg({ game_id: "lar-phi" })] }] }, GAMES, NOW);
-  assert.deepEqual(two.bets.map((b) => [b.kind, b.stake, b.legs.length]), [["straight", null, 1], ["straight", null, 1]]);
+  assert.equal(one.bets[0].payout, 47.73);
+  const two = reviewSlip({ book: null, bets: [{ kind: "straight", stake: 25, payout: 47.73, american_odds: null, legs: [leg({}), leg({ game_id: "lar-phi" })] }] }, GAMES, NOW);
+  assert.deepEqual(two.bets.map((b) => [b.kind, b.stake, b.payout, b.legs.length]), [["straight", null, null, 1], ["straight", null, null, 1]]);
 });
 
 test("nothing to save when no leg is on the board", () => {
-  const { bets } = reviewSlip({ book: null, bets: [{ kind: "straight", stake: 5, american_odds: null, legs: [leg({ game_id: "early" })] }] }, GAMES, NOW);
+  const { bets } = reviewSlip({ book: null, bets: [{ kind: "straight", stake: 5, payout: 4, american_odds: null, legs: [leg({ game_id: "early" })] }] }, GAMES, NOW);
   assert.equal(importable(bets[0]), false);
+  // A payout no larger than the stake is a misread.
+  assert.equal(bets[0].payout, null);
 });
 
 test("ticket grade and dollars", () => {
@@ -121,6 +129,10 @@ test("ticket grade and dollars", () => {
   assert.equal(wagerNet(10, -110, "loss"), -10);
   assert.equal(wagerNet(10, -110, "push"), 0);
   assert.equal(wagerNet(10, -110, null), null);
+  // The slip's payout wins over the price: a boosted ticket pays more than its odds.
+  assert.equal(wagerNet(10, 4974, "win", 656.61), 646.61);
+  assert.equal(wagerNet(10, 4974, "loss", 656.61), -10);
+  assert.equal(wagerNet(10, 4974, "push", 656.61), 0);
   assert.equal(fmtMoney(497.4), "$497.40");
   assert.equal(fmtMoney(-10), "-$10");
 });

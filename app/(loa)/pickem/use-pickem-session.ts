@@ -76,7 +76,7 @@ export function usePickemSession() {
         supabase.from("pickem_parlay_tails").select("parlay_id").eq("user_id", userId),
         // Both come back null until the slip-import migration is applied.
         supabase.from("pickem_user_parlays").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        supabase.from("pickem_wagers").select("id, pick_id, user_parlay_id, book, stake").eq("user_id", userId),
+        supabase.from("pickem_wagers").select("id, pick_id, user_parlay_id, book, stake, payout").eq("user_id", userId),
       ]);
       if (cancelled) return;
       setDisplayName(profile?.display_name ?? "");

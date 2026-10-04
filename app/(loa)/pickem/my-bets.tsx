@@ -3,7 +3,7 @@
 // The signed-in player's imported bets for this league and week: their own
 // parlay tickets, and the straight picks that carry a stake. Stakes and
 // dollar results come from pickem_wagers, which only the owner can read.
-import { fmtPrice, gradePick, winUnits, type League, type PickemGame, type PickResult } from "@/lib/pickem";
+import { fmtPrice, gradePick, winUnits, type League, type PickemGame, type PickResult, type Wager } from "@/lib/pickem";
 import { fmtMoney, slipLegLabel, ticketResult, wagerNet } from "@/lib/pickem-slip";
 import type { PickemSession } from "./use-pickem-session";
 import ResultTag from "./result-tag";
@@ -11,12 +11,13 @@ import TeamLogo from "./team-logo";
 
 type Props = { auth: PickemSession; games: PickemGame[]; league: League; week: number; now: number };
 
-function Money({ stake, price, result, book }: { stake: number; price: number; result: PickResult; book: string | null }) {
-  const net = wagerNet(stake, price, result);
+function Money({ wager, price, result }: { wager: Wager; price: number; result: PickResult }) {
+  const { stake, book, payout } = wager;
+  const net = wagerNet(stake, price, result, payout);
   return (
     <p className="mt-2 text-xs tabular-nums text-neutral-500">
       {fmtMoney(stake)}
-      {book ? ` at ${book}` : ""} · {net == null ? `to win ${fmtMoney(wagerNet(stake, price, "win")!)}` : net === 0 ? "stake back" : net > 0 ? `won ${fmtMoney(net)}` : `lost ${fmtMoney(-net)}`} · only you see this
+      {book ? ` at ${book}` : ""} · {net == null ? `to win ${fmtMoney(wagerNet(stake, price, "win", payout)!)}` : net === 0 ? "stake back" : net > 0 ? `won ${fmtMoney(net)}` : `lost ${fmtMoney(-net)}`} · only you see this
     </p>
   );
 }
@@ -72,7 +73,7 @@ export default function MyBets({ auth, games, league, week, now }: Props) {
                 })}
               </ul>
               <p className="mt-3 text-xs tabular-nums text-neutral-500">1 unit returns {(1 + winUnits(p.american_odds)).toFixed(2)}</p>
-              {wager ? <Money stake={wager.stake} price={p.american_odds} result={done || result === "loss" ? result : null} book={wager.book} /> : null}
+              {wager ? <Money wager={wager} price={p.american_odds} result={done || result === "loss" ? result : null} /> : null}
               {!locked ? (
                 <button
                   type="button"
@@ -95,7 +96,7 @@ export default function MyBets({ auth, games, league, week, now }: Props) {
                 </h3>
                 <span className="text-sm font-semibold tabular-nums text-orange-200">{fmtPrice(pick.price)}</span>
               </div>
-              <Money stake={w.stake} price={pick.price} result={g.completed ? result : null} book={w.book} />
+              <Money wager={w} price={pick.price} result={g.completed ? result : null} />
             </div>
           );
         })}

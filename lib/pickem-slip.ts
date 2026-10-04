@@ -32,6 +32,8 @@ export type SlipLeg = {
 export type SlipBet = {
   kind: "straight" | "parlay";
   stake: number | null;
+  /** The total the slip says the bet returns on a win, stake included; null when it is not shown. */
+  payout: number | null;
   /** The ticket's combined price for a parlay; ignored for a straight bet. */
   american_odds: number | null;
   legs: SlipLeg[];
@@ -65,6 +67,7 @@ export type ReviewLeg = {
 export type ReviewBet = {
   kind: "straight" | "parlay";
   stake: number | null;
+  payout: number | null;
   american_odds: number | null;
   legs: ReviewLeg[];
   /** A parlay is saved as a ticket only when every leg can be imported. */
@@ -133,7 +136,8 @@ export function reviewSlip(slip: ParsedSlip, games: SlipGame[], now: number): Sl
     const legs = bet.legs.map((l) => reviewLeg(l, byId, now));
     if (legs.length === 0) continue;
     if (bet.kind === "straight") {
-      for (const leg of legs) bets.push({ kind: "straight", stake: legs.length === 1 ? positive(bet.stake) : null, american_odds: null, legs: [leg], ticket: false });
+      const stake = legs.length === 1 ? positive(bet.stake) : null;
+      for (const leg of legs) bets.push({ kind: "straight", stake, payout: slipPayout(stake, bet.payout), american_odds: null, legs: [leg], ticket: false });
       continue;
     }
     const ticket = legs.length >= 2 && legs.every((l) => l.status === "ok");
@@ -141,6 +145,7 @@ export function reviewSlip(slip: ParsedSlip, games: SlipGame[], now: number): Sl
     bets.push({
       kind: "parlay",
       stake: positive(bet.stake),
+      payout: slipPayout(positive(bet.stake), bet.payout),
       american_odds: odds ?? (ticket ? parlayAmericanOdds(legs.map((l) => l.price)) : null),
       legs,
       ticket,
@@ -151,6 +156,12 @@ export function reviewSlip(slip: ParsedSlip, games: SlipGame[], now: number): Sl
 
 function positive(n: number | null): number | null {
   return n != null && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** A payout only means something beside its stake, and it always exceeds it. */
+function slipPayout(stake: number | null, payout: number | null): number | null {
+  const p = positive(payout);
+  return stake != null && p != null && p > stake ? p : null;
 }
 
 /** Whether saving this bet would write anything. */
@@ -164,6 +175,7 @@ export function betPayload(bet: ReviewBet, book: string | null) {
     kind: bet.kind,
     book,
     stake: bet.stake,
+    payout: bet.payout,
     american_odds: bet.american_odds,
     leg_count: bet.legs.length,
     legs: bet.legs
@@ -179,11 +191,15 @@ export function ticketResult(legs: PickResult[]): PickResult {
   return legs.every((r) => r === "win") ? "win" : "push";
 }
 
-/** Dollars won or lost on a stake at an American price; null until graded. */
-export function wagerNet(stake: number, price: number, result: PickResult): number | null {
+/**
+ * Dollars won or lost on a stake; null until graded. A win pays what the slip
+ * said it would when that was captured, else what the price returns.
+ */
+export function wagerNet(stake: number, price: number, result: PickResult, payout?: number | null): number | null {
   if (result == null) return null;
   if (result === "push") return 0;
-  return result === "win" ? Math.round(stake * winUnits(price) * 100) / 100 : -stake;
+  if (result === "loss") return -stake;
+  return Math.round((payout != null ? payout - stake : stake * winUnits(price)) * 100) / 100;
 }
 
 export function fmtMoney(n: number): string {
