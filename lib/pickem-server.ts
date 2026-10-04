@@ -27,6 +27,23 @@ import { isPower, unmappedTeams } from "./pickem-conferences";
 import { espnDate, fpiForHome, matchEvents, pairEvents, type EspnEvent, type EspnPredictor, type LivePayload } from "./pickem-live";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
+import {
+  cfbdRatings,
+  cfbdSchool,
+  keyInjuries,
+  latestSignals,
+  nflAbbr,
+  parseTeamWeeks,
+  teamEpa,
+  type CfbdAdvanced,
+  type CfbdElo,
+  type CfbdSp,
+  type CfbdTeam,
+  type GameSignals,
+  type SignalRow,
+  type SignalSource,
+  type SleeperPlayer,
+} from "./pickem-signals";
 
 const oddsBase = (league: League) => `https://api.the-odds-api.com/v4/sports/${LEAGUE_META[league].oddsSport}`;
 const SLATE_SIZE = 60; // college only; every NFL game of the week is on the board
@@ -415,6 +432,168 @@ export async function captureFpi(now = new Date()): Promise<{ stored: number; un
 }
 
 // ---------------------------------------------------------------------------
+// Signals: outside data the house is shown beside the lines. Team ratings
+// for college (CollegeFootballData; needs CFBD_API_KEY, 1,000 calls a month
+// free), EPA per play (nflverse) and injured starters (Sleeper) for the NFL.
+// Stored per upcoming game each time the lines sync, at most once a day per
+// source: none of them changes faster, and Sleeper asks for no more.
+
+const SIGNAL_FRESH_MS = 20 * 60 * 60 * 1000;
+const SIGNAL_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000; // older than this is not shown to the house
+
+export type SignalCapture = { stored: number; unmatched: string[]; skipped?: "fresh" };
+type UpcomingGame = Pick<PickemGame, "id" | "home_team" | "away_team">;
+
+/**
+ * Store one row per upcoming game of the league, built by `load` from the
+ * source's data. `load` returns null for a game when it lacks a side, after
+ * adding the team to `unmatched`. Nothing is fetched when the source has a
+ * row from the last 20 hours.
+ */
+async function captureSignals(
+  league: League,
+  source: SignalSource,
+  now: Date,
+  load: (games: UpcomingGame[], unmatched: Set<string>) => Promise<(game: UpcomingGame) => unknown | null>
+): Promise<SignalCapture> {
+  const db = serviceSupabase();
+  const { data: fresh, error: fErr } = await db
+    .from("pickem_game_signals")
+    .select("id")
+    .eq("source", source)
+    .gt("taken_at", new Date(now.getTime() - SIGNAL_FRESH_MS).toISOString())
+    .limit(1);
+  if (fErr) throw new Error(`read signals: ${fErr.message}`);
+  if (fresh?.length) return { stored: 0, unmatched: [], skipped: "fresh" };
+
+  const { data, error } = await db
+    .from("pickem_games")
+    .select("id, home_team, away_team")
+    .eq("league", league)
+    .eq("season", PICKEM_SEASON)
+    .gt("commence_time", now.toISOString());
+  if (error) throw new Error(`read games: ${error.message}`);
+  const games = (data ?? []) as UpcomingGame[];
+  if (!games.length) return { stored: 0, unmatched: [] };
+
+  const unmatched = new Set<string>();
+  const forGame = await load(games, unmatched);
+  const taken_at = now.toISOString();
+  const rows = games.flatMap((g) => {
+    const signal = forGame(g);
+    return signal == null ? [] : [{ game_id: g.id, source, taken_at, data: signal }];
+  });
+  if (rows.length) {
+    const { error: iErr } = await db.from("pickem_game_signals").insert(rows);
+    if (iErr) throw new Error(`insert signals: ${iErr.message}`);
+  }
+  return { stored: rows.length, unmatched: [...unmatched].sort() };
+}
+
+/** Both sides of a game looked up by `find`; null, with the team noted, when either is missing. */
+function bothSides<T>(g: UpcomingGame, find: (team: string) => T | undefined, unmatched: Set<string>): { home: T; away: T } | null {
+  const home = find(g.home_team);
+  const away = find(g.away_team);
+  if (home === undefined) unmatched.add(g.home_team);
+  if (away === undefined) unmatched.add(g.away_team);
+  return home === undefined || away === undefined ? null : { home, away };
+}
+
+async function cfbdGet<T>(path: string): Promise<T> {
+  const key = process.env.CFBD_API_KEY;
+  if (!key) throw new Error("CFBD_API_KEY is not set");
+  const res = await fetch(`https://api.collegefootballdata.com${path}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`CFBD ${path} ${res.status}`);
+  return (await res.json()) as T;
+}
+
+/** College: SP+, Elo and advanced stats for both teams of every upcoming game. Four CFBD calls. */
+export function captureCfbd(now = new Date()): Promise<SignalCapture> {
+  return captureSignals("ncaaf", "cfbd", now, async (_games, unmatched) => {
+    const year = `year=${PICKEM_SEASON}`;
+    const [teams, sp, elo, advanced] = await Promise.all([
+      cfbdGet<CfbdTeam[]>(`/teams/fbs?${year}`),
+      cfbdGet<CfbdSp[]>(`/ratings/sp?${year}`),
+      cfbdGet<CfbdElo[]>(`/ratings/elo?${year}`),
+      cfbdGet<CfbdAdvanced[]>(`/stats/season/advanced?${year}`),
+    ]);
+    const ratings = cfbdRatings(sp, elo, advanced);
+    return (g) => bothSides(g, (team) => ratings.get(cfbdSchool(team, teams) ?? ""), unmatched);
+  });
+}
+
+/** NFL: EPA per play for both teams of every upcoming game, from nflverse's weekly team stats. */
+export function captureNflEpa(now = new Date()): Promise<SignalCapture> {
+  return captureSignals("nfl", "nflverse", now, async (_games, unmatched) => {
+    const res = await fetch(
+      `https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_${PICKEM_SEASON}.csv`,
+      { cache: "no-store", signal: AbortSignal.timeout(15_000) }
+    );
+    if (!res.ok) throw new Error(`nflverse team stats ${res.status}`);
+    const epa = teamEpa(parseTeamWeeks(await res.text()));
+    return (g) => bothSides(g, (team) => epa.get(nflAbbr(team, "nflverse") ?? ""), unmatched);
+  });
+}
+
+/** NFL: injured starters on both teams of every upcoming game, from Sleeper's player list (about 5 MB). */
+export function captureNflInjuries(now = new Date()): Promise<SignalCapture> {
+  return captureSignals("nfl", "sleeper", now, async (_games, unmatched) => {
+    const res = await fetch("https://api.sleeper.app/v1/players/nfl", { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) throw new Error(`Sleeper players ${res.status}`);
+    const injured = keyInjuries(Object.values((await res.json()) as Record<string, SleeperPlayer>));
+    // A team we know with nobody listed is healthy, not unmatched.
+    return (g) =>
+      bothSides(
+        g,
+        (team) => {
+          const abbr = nflAbbr(team, "sleeper");
+          return abbr == null ? undefined : (injured.get(abbr) ?? []);
+        },
+        unmatched
+      );
+  });
+}
+
+/**
+ * What the house is shown for each game: the newest row of each signal and,
+ * for college, the newest FPI margin. Signals are optional, so a read error
+ * (the table not created yet, say) gives an empty map and the run goes on.
+ */
+async function readSignals(db: ReturnType<typeof serviceSupabase>, league: League, ids: string[], now: Date): Promise<Map<string, GameSignals>> {
+  if (!ids.length) return new Map();
+  const since = new Date(now.getTime() - SIGNAL_MAX_AGE_MS).toISOString();
+  const { data, error } = await db
+    .from("pickem_game_signals")
+    .select("game_id, source, taken_at, data")
+    .in("game_id", ids)
+    .gt("taken_at", since)
+    .order("taken_at", { ascending: false })
+    .limit(2000);
+  const signals = error ? new Map<string, GameSignals>() : latestSignals((data ?? []) as SignalRow[]);
+  if (league !== "ncaaf") return signals;
+
+  const { data: fpi } = await db
+    .from("pickem_model_lines")
+    .select("game_id, home_margin")
+    .eq("source", "fpi")
+    .in("game_id", ids)
+    .gt("taken_at", since)
+    .order("taken_at", { ascending: false })
+    .limit(2000);
+  const seen = new Set<string>();
+  for (const r of (fpi ?? []) as { game_id: string; home_margin: number | null }[]) {
+    if (seen.has(r.game_id) || r.home_margin == null) continue;
+    seen.add(r.game_id);
+    signals.set(r.game_id, { ...signals.get(r.game_id), fpi_home_margin: Number(r.home_margin) });
+  }
+  return signals;
+}
+
+// ---------------------------------------------------------------------------
 // House picks: Claude reads the slate in small batches and returns a pick,
 // confidence and short rationale for every market of every game. Parlays are
 // computed from those picks afterwards (lib/pickem-parlays.ts); the model no
@@ -440,15 +619,21 @@ const HouseBatchSchema = z.object({
   ),
 });
 
+const COLLEGE_SIGNALS = `Some games also carry "signals". ratings holds, for each team, SP+ (sp, and its offense and defense parts sp_off and sp_def, in points against an average team; a lower sp_def is a better defense), Elo, and season success rate and explosiveness gained on offense (off_) and allowed on defense (def_; lower is better). fpi_home_margin is ESPN FPI's predicted margin for the home team, which compares with minus spread_home.`;
+
+const NFL_SIGNALS = `Some games also carry "signals". epa holds, for each team, expected points added per play this season: off is the offense (higher is better) and def is what the defense has allowed (lower is better), each split into pass and rush, with off_last3 and def_last3 covering the last three games. It is not adjusted for opponent and is a small sample early in the season. injuries lists each team's starters that Sleeper shows as injured, with their status. That list is a lead, not news: confirm a player's status by search before a call rests on it, and a long-standing absence is already in the line.`;
+
 const houseSystem = (league: League) => `You are the house handicapper for a friendly ${league === "nfl" ? "NFL" : "college football"} pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
 
 You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence, a basis and a rationale of at most two sentences. Line movement is not a reason to take a side: the number you are given already includes the move, so following it means buying at the new price. Movement on its own is a 5, and a move of less than a full point is noise. It supports a call only when the best available number still offers the price from before the move. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads, and search those games before you pass on them for lack of news.
 
-Confidence is a calibrated probability that your pick wins on its own side of the number. 5 means the line is fair and you have no real lean (about 50% for spreads and totals; for a moneyline, the market's implied probability). 6 is about 55% to cover, 7 about 58%, 8 about 62%, 9 about 66%, and 10 is near-certain and almost never used. Never go below 5: if you would rather have the other side, pick the other side instead. Passing is normal and expected: a 5 means the market has it right, and on a typical slate about half of all calls are a 5, rarely more than six in ten. Form your view from the matchup, injuries and recent form. If you can name a concrete reason for a side that the number does not already reflect, that is a 6, not a 5; a 5 is for when you cannot name one, so a rationale that says "lean" or "slight edge" never carries a 5. Do not upgrade a true coin flip to a 6 to seem decisive. A 7 needs something specific your research found that the line has not moved for yet, such as a named injury or a quarterback change with its date; name it in the rationale. Without that, the call is a 6 at most. The house stakes 1 unit on a 6, 2 on a 7 and 3 on an 8 or better, so a 7 is a call you would put two units on. Save 9 and 10 for the few numbers a season that are simply wrong. A full slate that is mostly 5s is under-confident; a full slate with almost no 5s is over-confident.
+${league === "nfl" ? NFL_SIGNALS : COLLEGE_SIGNALS} These numbers are public and the market already has them. A gap between a rating and the line is not a reason and never carries a 6 on its own. When a rating disagrees with the line by 5 points or more, the market usually knows something the rating does not, such as an injury or a quarterback change: search that game before you call it. What the signals are for is the matchup: a specific mismatch between one team's unit and the other's, named with its numbers, is a concrete matchup reason. A game with no signals is judged as before.
 
-Totals: an under needs a reason as specific as an over, such as confirmed weather, a quarterback or offensive line injury, or a pace figure. "The defense should limit them" or "the favorite will run the clock" is already in the total and is a 5. If more than about two thirds of your totals in a batch land on the same side, you are showing a bias, not a read; go back over them.
+Confidence is a calibrated probability that your pick wins on its own side of the number. 5 means the line is fair and you have no real lean (about 50% for spreads and totals; for a moneyline, the market's implied probability). 6 is about 55% to cover, 7 about 58%, 8 about 62%, 9 about 66%, and 10 is near-certain and almost never used. Never go below 5: if you would rather have the other side, pick the other side instead. Passing is normal and expected: a 5 means the market has it right, and on a typical slate about half of all calls are a 5, rarely more than six in ten. Form your view from the matchup, injuries and recent form. There are three ways to a 6. News: an injury, quarterback or weather item from your research. Matchup: a specific football reason about these two teams, such as a unit mismatch, a scheme problem, a rest or travel spot, or a named trend in recent form; state it concretely. Number: the best available line sits on the good side of a key number (3, 7 or 10) or is at least a half point better than the consensus through one. A 6 is only about 55%, so the reason does not have to be proven unpriced. "Already priced in" is why a call stops at 6 instead of 7; it is not a reason to pass when you have a matchup or number reason. A 5 is for when you cannot name any of the three, so a rationale that says "lean" or "slight edge" never carries a 5. Do not upgrade a true coin flip to a 6 to seem decisive. A 7 needs something specific your research found that the line has not moved for yet, such as a named injury or a quarterback change with its date; name it in the rationale. Without that, the call is a 6 at most. The house stakes 1 unit on a 6, 2 on a 7 and 3 on an 8 or better, so a 7 is a call you would put two units on. Save 9 and 10 for the few numbers a season that are simply wrong. A full slate that is mostly 5s is under-confident; a full slate with almost no 5s is over-confident.
 
-Basis says what the call rests on: "news" for injury, quarterback, suspension or weather news from your research; "matchup" for a football reason about these two teams; "number" for value in the price itself, such as a key number or a best line off the consensus; "movement" for line movement; "none" when there is no reason. A call at 5 is normally "none", and a call whose basis is "movement" or "none" is a 5.
+Totals: an under needs a reason as specific as an over, such as confirmed weather, a quarterback or offensive line injury, or a pace figure. A concrete matchup reason also earns a 6 on either side: pace or pass rate, or a named mismatch between one team's line and the other's front. "The defense should limit them" or "the favorite will run the clock" is already in the total and is a 5. If more than about two thirds of your totals in a batch land on the same side, you are showing a bias, not a read; go back over them.
+
+Basis says what the call rests on: "news" for injury, quarterback, suspension or weather news from your research; "matchup" for a football reason about these two teams; "number" for value in the price itself, such as a key number or a best line off the consensus; "movement" for line movement; "none" when there is no reason. A call at 5 is normally "none", and a call whose basis is "movement" or "none" is a 5. "news", "matchup" and "number" can each carry a 6.
 
 Also give a projected final score for each game as whole points (projected_home, projected_away). Your spread call and total call must agree with the projection: the projected margin must cover the side you picked against the number you were given, and the projected total must fall on the side of the total you picked. If your projection lands right on the number, that is a 5. A projection that differs from the number is not itself a reason: the confidence comes from the reason, and the projection follows it. Only the moneyline may disagree with the projection, when a dog's price is worth the risk.
 
@@ -457,7 +642,7 @@ Selections use "home"/"away" for spread and moneyline and "over"/"under" for tot
 export const HOUSE_MODEL = "claude-opus-5-5";
 export const HOUSE_EFFORT = "high";
 // Bump whenever houseSystem changes, so the record can be split by prompt.
-export const HOUSE_PROMPT_VERSION = "2026-10-04";
+export const HOUSE_PROMPT_VERSION = "2026-10-04c";
 
 // Batches run in one wave so a 60-game slate fits the route's 300 s limit.
 const BATCH_SIZE = 7;
@@ -511,7 +696,7 @@ async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>
   return results;
 }
 
-function batchInput(g: PickemGame) {
+function batchInput(g: PickemGame, signals?: GameSignals) {
   return {
     game_id: g.id,
     kickoff_utc: g.commence_time,
@@ -524,6 +709,7 @@ function batchInput(g: PickemGame) {
     ml_home: g.ml_home,
     ml_away: g.ml_away,
     best: g.best,
+    ...(signals ? { signals } : {}),
   };
 }
 
@@ -543,6 +729,7 @@ async function pickBatch(
   client: Anthropic,
   league: League,
   batch: PickemGame[],
+  signals: Map<string, GameSignals>,
   now: Date,
   week: number,
   msLeft: number
@@ -562,12 +749,12 @@ async function pickBatch(
         output_config: { effort: HOUSE_EFFORT, format: betaZodOutputFormat(HouseBatchSchema) },
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: batch.length }],
         system: houseSystem(league),
         messages: [
           {
             role: "user",
-            content: `Today is ${now.toUTCString()}. ${LEAGUE_META[league].label} ${PICKEM_SEASON} season, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map(batchInput))}`,
+            content: `Today is ${now.toUTCString()}. ${LEAGUE_META[league].label} ${PICKEM_SEASON} season, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map((g) => batchInput(g, signals.get(g.id))))}`,
           },
         ],
       },
@@ -658,6 +845,8 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   if (error) throw new Error(error.message);
   const slate = (games ?? []) as PickemGame[];
 
+  const signals = opts.onlyParlays ? new Map<string, GameSignals>() : await readSignals(db, league, slate.map((g) => g.id), now);
+
   const deadline = Date.now() + ROUTE_BUDGET_MS;
   const batches: BatchOutcome[] = [];
   const picks = new Map<string, HousePicks>();
@@ -677,7 +866,7 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
             batches.push({ size: batch.length, ok: false, ms: 0, reason: "deadline" });
             return;
           }
-          const { picks: got, outcome } = await pickBatch(client, league, batch, now, week, msLeft);
+          const { picks: got, outcome } = await pickBatch(client, league, batch, signals, now, week, msLeft);
           for (const [id, house] of got) picks.set(id, house);
           batches.push(outcome);
         });
@@ -703,7 +892,9 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
       if (uErr) continue;
       picked++;
       const g = byId.get(id);
-      log.push({ game_id: id, picked_at: stamp, prompt_version: HOUSE_PROMPT_VERSION, model: HOUSE_MODEL, effort: HOUSE_EFFORT, house: saved, spread_home: g?.spread_home ?? null, total: g?.total ?? null });
+      // signals is left off when the game had none, so this insert works before the column exists.
+      const shown = signals.get(id);
+      log.push({ game_id: id, picked_at: stamp, prompt_version: HOUSE_PROMPT_VERSION, model: HOUSE_MODEL, effort: HOUSE_EFFORT, house: saved, spread_home: g?.spread_home ?? null, total: g?.total ?? null, ...(shown ? { signals: shown } : {}) });
     }
     // Every run is kept, so a re-pick does not erase the earlier call. The
     // board reads pickem_games.house; a failed write here loses only history.

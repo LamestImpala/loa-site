@@ -110,18 +110,23 @@ Environment variables (Vercel project + `.env.local`):
 | `SUPABASE_SERVICE_ROLE_KEY` | Writing games, lines and house picks from the jobs (bypasses RLS). |
 | `ANTHROPIC_API_KEY` | House picks (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from them, no model call. |
 | `CRON_SECRET` | Vercel sends it as a bearer token to the cron routes; any random string. |
+| `CFBD_API_KEY` | College team ratings shown to the house (free key from collegefootballdata.com, 1,000 calls a month). Without it the college sync reports a `cfbd` error and the house runs without ratings. |
 
 Jobs (schedules in `vercel.json`; the admin page can run either on demand):
 
 - `GET /api/pickem/{ncaaf|nfl}/sync` — pull one league's lines, refresh its slate, snapshot movement,
   grade its finals. College: 13:30 UTC daily plus 17:00, 20:00 and 23:00 UTC Saturday. NFL: 14:30 UTC
   daily plus 20:00 and 23:00 UTC Sunday. Monday's NFL sync grades Sunday; Tuesday's grades Monday night.
+  It also stores what the house is shown for each upcoming game (`pickem_game_signals`), at most once a
+  day per source: CollegeFootballData SP+, Elo and advanced stats for college; nflverse EPA per play and
+  Sleeper's injured starters for the NFL. College also stores ESPN's FPI on every run. The JSON result
+  has a count per source (`cfbd`, `epa`, `injuries`, `fpi`) with any `unmatched` teams.
 - `GET /api/pickem/{ncaaf|nfl}/house` — house picks for that league's games that don't have them, then a
   parlay rebuild. `?force=1` re-picks the week; `?dry=1` returns what would be written without writing
   (still spends Claude calls); `?only=parlays` skips Claude and only rebuilds parlays. Tailed and locked
-  parlays are never removed (`pickem_replace_parlays` in the migration). College runs 17:00 UTC Thursday
-  and 14:00 UTC Saturday; the NFL runs 15:00 UTC Thursday, after that day's sync and before the Thursday
-  night game. Each has a gap-filling run 30 minutes later. Times are UTC, so they land an hour earlier in
+  parlays are never removed (`pickem_replace_parlays` in the migration). College runs 14:00 UTC Tuesday
+  and Saturday; the NFL runs 15:00 UTC Tuesday and Thursday, after that day's sync. Each has a
+  gap-filling run 30 minutes later, except the NFL's Thursday run. Times are UTC, so they land an hour earlier in
   Central after the November clock change. The JSON result lists `missing` games and per-batch timing.
 
   ```
