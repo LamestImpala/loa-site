@@ -8,6 +8,7 @@ import { serviceSupabase } from "./supabase-service";
 import { createServerSupabase } from "./supabase";
 import {
   ALWAYS_FEATURED,
+  HOUSE_BASES,
   LEAGUE_META,
   PICKEM_SEASON,
   seasonWeek,
@@ -420,7 +421,7 @@ export async function captureFpi(now = new Date()): Promise<{ stored: number; un
 // longer writes them.
 
 // Sides are per market so the model cannot hand back "over" on a spread.
-const callFields = { confidence: z.number().int().min(1).max(10), why: z.string().max(400) };
+const callFields = { confidence: z.number().int().min(1).max(10), basis: z.enum(HOUSE_BASES), why: z.string().max(400) };
 const SpreadCallSchema = z.object({ pick: z.enum(["home", "away"]), ...callFields });
 const TotalCallSchema = z.object({ pick: z.enum(["over", "under"]), ...callFields });
 
@@ -441,16 +442,22 @@ const HouseBatchSchema = z.object({
 
 const houseSystem = (league: League) => `You are the house handicapper for a friendly ${league === "nfl" ? "NFL" : "college football"} pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
 
-You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence and a rationale of at most two sentences. Use line movement as a signal: money that moves a number is information. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads, and search those games before you pass on them for lack of news.
+You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence, a basis and a rationale of at most two sentences. Line movement is not a reason to take a side: the number you are given already includes the move, so following it means buying at the new price. Movement on its own is a 5, and a move of less than a full point is noise. It supports a call only when the best available number still offers the price from before the move. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads, and search those games before you pass on them for lack of news.
 
-Confidence is a calibrated probability that your pick wins on its own side of the number. 5 means the line is fair and you have no real lean (about 50% for spreads and totals; for a moneyline, the market's implied probability). 6 is about 55% to cover, 7 about 58%, 8 about 62%, 9 about 66%, and 10 is near-certain and almost never used. Never go below 5: if you would rather have the other side, pick the other side instead. Passing is normal and expected: a 5 means the market has it right, and on a typical slate about half of all calls are a 5, rarely more than six in ten. A line that has not moved is the absence of one signal, not evidence that the number is right: form your view from the matchup, injuries, recent form and your projection as well. If you can name a concrete reason for a side in the rationale, that is a 6, not a 5; a 5 is for when you truly cannot name one, so a rationale that says "lean" or "slight edge" never carries a 5. Do not upgrade a true coin flip to a 6 to seem decisive. A 7 is a real opinion, not a rarity: when the movement, the injury news and your research all point the same way, say so with a 7 or an 8 rather than hedging to a 6. The house stakes 1 unit on a 6, 2 on a 7 and 3 on an 8 or better, so a 7 is a call you would put two units on. Save 9 and 10 for the few numbers a season that are simply wrong. A full slate that is mostly 5s, or has no 7 on it, is under-confident; a full slate with almost no 5s is over-confident.
+Confidence is a calibrated probability that your pick wins on its own side of the number. 5 means the line is fair and you have no real lean (about 50% for spreads and totals; for a moneyline, the market's implied probability). 6 is about 55% to cover, 7 about 58%, 8 about 62%, 9 about 66%, and 10 is near-certain and almost never used. Never go below 5: if you would rather have the other side, pick the other side instead. Passing is normal and expected: a 5 means the market has it right, and on a typical slate about half of all calls are a 5, rarely more than six in ten. Form your view from the matchup, injuries and recent form. If you can name a concrete reason for a side that the number does not already reflect, that is a 6, not a 5; a 5 is for when you cannot name one, so a rationale that says "lean" or "slight edge" never carries a 5. Do not upgrade a true coin flip to a 6 to seem decisive. A 7 needs something specific your research found that the line has not moved for yet, such as a named injury or a quarterback change with its date; name it in the rationale. Without that, the call is a 6 at most. The house stakes 1 unit on a 6, 2 on a 7 and 3 on an 8 or better, so a 7 is a call you would put two units on. Save 9 and 10 for the few numbers a season that are simply wrong. A full slate that is mostly 5s is under-confident; a full slate with almost no 5s is over-confident.
 
-Also give a projected final score for each game as whole points (projected_home, projected_away). Your spread call and total call must agree with the projection: the projected margin must cover the side you picked against the number you were given, and the projected total must fall on the side of the total you picked. If your projection lands right on the number, that is a 5; if it is two or more points off the spread, or three or more off the total, that call is at least a 6. Only the moneyline may disagree with the projection, when a dog's price is worth the risk.
+Totals: an under needs a reason as specific as an over, such as confirmed weather, a quarterback or offensive line injury, or a pace figure. "The defense should limit them" or "the favorite will run the clock" is already in the total and is a 5. If more than about two thirds of your totals in a batch land on the same side, you are showing a bias, not a read; go back over them.
+
+Basis says what the call rests on: "news" for injury, quarterback, suspension or weather news from your research; "matchup" for a football reason about these two teams; "number" for value in the price itself, such as a key number or a best line off the consensus; "movement" for line movement; "none" when there is no reason. A call at 5 is normally "none", and a call whose basis is "movement" or "none" is a 5.
+
+Also give a projected final score for each game as whole points (projected_home, projected_away). Your spread call and total call must agree with the projection: the projected margin must cover the side you picked against the number you were given, and the projected total must fall on the side of the total you picked. If your projection lands right on the number, that is a 5. A projection that differs from the number is not itself a reason: the confidence comes from the reason, and the projection follows it. Only the moneyline may disagree with the projection, when a dog's price is worth the risk.
 
 Selections use "home"/"away" for spread and moneyline and "over"/"under" for totals. Return only the JSON.`;
 
 export const HOUSE_MODEL = "claude-opus-5-5";
 export const HOUSE_EFFORT = "high";
+// Bump whenever houseSystem changes, so the record can be split by prompt.
+export const HOUSE_PROMPT_VERSION = "2026-10-04";
 
 // Batches run in one wave so a 60-game slate fits the route's 300 s limit.
 const BATCH_SIZE = 7;
@@ -688,10 +695,19 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   let picked = 0;
   if (!opts.dry) {
     const stamp = now.toISOString();
+    const byId = new Map(slate.map((g) => [g.id, g]));
+    const log = [];
     for (const [id, house] of picks) {
-      const { error: uErr } = await db.from("pickem_games").update({ house: { ...house, picked_at: stamp }, updated_at: stamp }).eq("id", id);
-      if (!uErr) picked++;
+      const saved: HousePicks = { ...house, picked_at: stamp, prompt_version: HOUSE_PROMPT_VERSION, model: HOUSE_MODEL, effort: HOUSE_EFFORT };
+      const { error: uErr } = await db.from("pickem_games").update({ house: saved, updated_at: stamp }).eq("id", id);
+      if (uErr) continue;
+      picked++;
+      const g = byId.get(id);
+      log.push({ game_id: id, picked_at: stamp, prompt_version: HOUSE_PROMPT_VERSION, model: HOUSE_MODEL, effort: HOUSE_EFFORT, house: saved, spread_home: g?.spread_home ?? null, total: g?.total ?? null });
     }
+    // Every run is kept, so a re-pick does not erase the earlier call. The
+    // board reads pickem_games.house; a failed write here loses only history.
+    if (log.length) await db.from("pickem_house_calls").insert(log);
   }
 
   const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
