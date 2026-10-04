@@ -86,6 +86,16 @@ test("unknown teams, far-off dates and unstarted games are left out", () => {
   assert.deepEqual(matchEvents("ncaaf", games, [lastWeek, pre]), {});
 });
 
+test("postponed and canceled games are left out, so their 0-0 never grades", () => {
+  const games = [game("g1", "nfl", "Green Bay Packers", "Atlanta Falcons")];
+  for (const [name, shortDetail] of [["STATUS_POSTPONED", "Postponed"], ["STATUS_CANCELED", "Canceled"]]) {
+    const ev = event("e1", { ...GB, score: "0" }, { ...ATL, score: "0" }, { name, state: "post", completed: false, shortDetail });
+    assert.deepEqual(matchEvents("nfl", games, [ev]), {});
+  }
+  const final = event("e1", { ...GB, score: "24" }, { ...ATL, score: "20" }, { name: "STATUS_FINAL", state: "post", completed: true, shortDetail: "Final" });
+  assert.equal(matchEvents("nfl", games, [final]).g1.completed, true);
+});
+
 test("applyLive overlays scores but never overrides a graded row", () => {
   const games = [
     game("a", "nfl", "Green Bay Packers", "Atlanta Falcons"),
