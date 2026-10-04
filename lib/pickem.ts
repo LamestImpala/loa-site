@@ -44,10 +44,18 @@ export type BestLines = Partial<{
   ml_away: BestLine;
 }>;
 
+// What a house call rests on, so the record can be graded by kind of reason:
+// news the research turned up, a football matchup read, value in the number
+// itself, line movement, or nothing (a pass).
+export const HOUSE_BASES = ["news", "matchup", "number", "movement", "none"] as const;
+export type HouseBasis = (typeof HOUSE_BASES)[number];
+
 export type HouseCall = {
   pick: Selection;
   confidence: number;
   why: string;
+  /** Absent on rows written before 2026-10-04. */
+  basis?: HouseBasis;
   /** The number the house took, locked when the call was made. Absent on rows written before locking; null for a moneyline. */
   line?: number | null;
   /** The price the house took, locked with the line. Absent on rows written before locking. */
@@ -61,6 +69,10 @@ export type HousePicks = {
   projection?: { home: number; away: number };
   /** When the calls were made and their lines locked. Absent on rows written before 2026-10-03. */
   picked_at?: string;
+  /** Which prompt, model and effort made the calls. Absent on rows written before 2026-10-04. */
+  prompt_version?: string;
+  model?: string;
+  effort?: string;
 };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is

@@ -5,7 +5,7 @@ import { LEAGUES, LEAGUE_META, type League } from "@/lib/pickem";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass as btn } from "../_shell/ui";
 
-type Call = { confidence: number };
+type Call = { confidence: number; pick?: string; basis?: string };
 type PreviewBody = { preview?: { picks?: Record<string, { spread: Call; total: Call; ml: Call }> }; batches?: { projections_dropped?: number }[] };
 
 // One line on how a preview's confidences fell, so a dry run can be read
@@ -22,12 +22,18 @@ function confidenceSpread(body: PreviewBody): string {
   };
   const all = games.flatMap((g) => [g.spread, g.total, g.ml]);
   const dropped = (body.batches ?? []).reduce((n, b) => n + (b.projections_dropped ?? 0), 0);
+  // What the plays (6 and up) rest on, and how one-sided the totals are.
+  const bases = new Map<string, number>();
+  for (const c of all) if (c.confidence >= 6) bases.set(c.basis ?? "?", (bases.get(c.basis ?? "?") ?? 0) + 1);
+  const unders = games.filter((g) => g.total.pick === "under").length;
   return [
     `${games.length} games`,
     `all ${tally(all)}`,
     `spread ${tally(games.map((g) => g.spread))}`,
     `total ${tally(games.map((g) => g.total))}`,
     `ml ${tally(games.map((g) => g.ml))}`,
+    `unders ${unders}/${games.length}`,
+    `basis at 6+ ${[...bases.entries()].map(([k, n]) => `${k}:${n}`).join(" ") || "none"}`,
     `projections dropped ${dropped}`,
   ].join(" · ");
 }
