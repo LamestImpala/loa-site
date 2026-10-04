@@ -202,6 +202,8 @@ export type Wager = {
   user_parlay_id: number | null;
   book: string | null;
   stake: number;
+  /** Total returned on a win as the slip showed it, stake included; null when the slip did not say. */
+  payout: number | null;
 };
 
 /** One row of pickem_house_record: the house's graded calls for a league-week. */
