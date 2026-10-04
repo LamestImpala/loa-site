@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { getBrowserSupabase } from "@/lib/supabase";
-import type { Market, PickemGame, PickemParlay, PickemPick, Selection } from "@/lib/pickem";
+import type { Market, PickemGame, PickemParlay, PickemPick, Selection, UserParlay, Wager } from "@/lib/pickem";
+import { betPayload, importable, type SlipReview } from "@/lib/pickem-slip";
 
 export function pickKey(gameId: string, market: Market) {
   return `${gameId}:${market}`;
@@ -37,6 +38,10 @@ export function usePickemSession() {
   const [nameDraft, setNameDraft] = useState("");
   const [picks, setPicks] = useState<Map<string, PickemPick>>(new Map());
   const [tails, setTails] = useState<Set<number>>(new Set());
+  const [myParlays, setMyParlays] = useState<UserParlay[]>([]);
+  const [wagers, setWagers] = useState<Wager[]>([]);
+  // Bumped after a slip import to load what the database now holds.
+  const [reloads, setReloads] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,6 +56,8 @@ export function usePickemSession() {
         setDisplayName(null);
         setPicks(new Map());
         setTails(new Set());
+        setMyParlays([]);
+        setWagers([]);
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -58,15 +65,18 @@ export function usePickemSession() {
 
   const userId = session?.user.id ?? null;
 
-  // Load the signed-in user's profile, picks and tails.
+  // Load the signed-in user's profile, picks, tails, and imported parlays and stakes.
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
     (async () => {
-      const [{ data: profile }, { data: myPicks }, { data: myTails }] = await Promise.all([
+      const [{ data: profile }, { data: myPicks }, { data: myTails }, { data: parlays }, { data: myWagers }] = await Promise.all([
         supabase.from("pickem_profiles").select("display_name").eq("user_id", userId).maybeSingle(),
         supabase.from("pickem_picks").select("*").eq("user_id", userId),
         supabase.from("pickem_parlay_tails").select("parlay_id").eq("user_id", userId),
+        // Both come back null until the slip-import migration is applied.
+        supabase.from("pickem_user_parlays").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        supabase.from("pickem_wagers").select("id, pick_id, user_parlay_id, book, stake").eq("user_id", userId),
       ]);
       if (cancelled) return;
       setDisplayName(profile?.display_name ?? "");
@@ -74,11 +84,13 @@ export function usePickemSession() {
       for (const p of (myPicks ?? []) as PickemPick[]) m.set(pickKey(p.game_id, p.market), p);
       setPicks(m);
       setTails(new Set((myTails ?? []).map((t) => t.parlay_id as number)));
+      setMyParlays((parlays ?? []) as UserParlay[]);
+      setWagers((myWagers ?? []) as Wager[]);
     })();
     return () => {
       cancelled = true;
     };
-  }, [supabase, userId]);
+  }, [supabase, userId, reloads]);
 
   async function sendMagicLink(e: React.FormEvent) {
     e.preventDefault();
@@ -180,6 +192,38 @@ export function usePickemSession() {
     [supabase, userId, canPick, tails]
   );
 
+  /** Save a reviewed slip, one bet per call so a bad bet does not sink the rest. Returns what could not be saved. */
+  const importSlip = useCallback(
+    async (review: SlipReview): Promise<string[]> => {
+      if (!userId || !canPick) return ["Sign in to import a bet slip."];
+      const problems: string[] = [];
+      for (const bet of review.bets.filter(importable)) {
+        const { data, error } = await supabase.rpc("pickem_import_bet", { p_bet: betPayload(bet, review.book) });
+        if (error) {
+          problems.push(error.message);
+          continue;
+        }
+        const saved = data as { legs: { status: string; reason: string | null }[]; parlay: string };
+        if (saved.legs.some((l) => l.reason === "started")) problems.push("A game kicked off before the slip was saved, so that leg is locked.");
+        else if (saved.legs.some((l) => l.status !== "saved")) problems.push("One leg could not be saved.");
+        if (saved.parlay === "duplicate") problems.push("That parlay was already imported.");
+      }
+      setReloads((n) => n + 1);
+      return problems;
+    },
+    [supabase, userId, canPick]
+  );
+
+  const removeParlay = useCallback(
+    async (id: number) => {
+      setError("");
+      const { error } = await supabase.from("pickem_user_parlays").delete().eq("id", id);
+      if (error) setError(error.message);
+      else setMyParlays((prev) => prev.filter((p) => p.id !== id));
+    },
+    [supabase]
+  );
+
   return {
     session,
     authReady,
@@ -192,6 +236,8 @@ export function usePickemSession() {
     setNameDraft,
     picks,
     tails,
+    myParlays,
+    wagers,
     error,
     userId,
     canPick,
@@ -200,6 +246,8 @@ export function usePickemSession() {
     signOut,
     togglePick,
     toggleTail,
+    importSlip,
+    removeParlay,
   };
 }
 

@@ -88,6 +88,14 @@ leaderboard. Players sign in with a Supabase magic link.
 Schema: `supabase/migrations/20260912_pickem.sql` and the later files in that folder.
 Server code: `lib/pickem-server.ts`. League config, week math and team display names: `lib/pickem.ts`.
 
+Players can also import a screenshot of a sportsbook bet slip (`slip-import.tsx`).
+`POST /api/pickem/slip` has Claude read the image against the games on the board
+(`parseSlip` in `lib/pickem-server.ts`, checked by `lib/pickem-slip.ts`) and returns the
+reading for the player to confirm; the image is not stored. Confirming calls
+`pickem_import_bet`, which saves each leg as a pick at the slip's line and price, a
+parlay as a ticket in `pickem_user_parlays`, and the stake in `pickem_wagers`, which
+only its owner can read. A player gets 20 reads a day.
+
 Weeks run Tuesday through Monday and roll over at 10:00 UTC (6 AM Eastern) so a
 Monday night game stays in its week. Each league has its own week numbering:
 NFL week 1 (Sept 10–14, 2026) is the same days as college week 2. The
