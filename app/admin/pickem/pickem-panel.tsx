@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEAGUES, LEAGUE_META, type League } from "@/lib/pickem";
+import { LEAGUES, LEAGUE_META, PICKEM_SEASON, tallyAvgClv, tallyWinPct, type CalibrationRow, type League, type Market } from "@/lib/pickem";
+import { calibrationTable, FEEDBACK_MIN_CALLS, type CalibrationSplit } from "@/lib/pickem-feedback";
+import { stakeTable, STAKE_MIN_CALLS } from "@/lib/pickem-house";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass as btn } from "../_shell/ui";
 
@@ -105,6 +107,109 @@ function ClosingLineValue({ league }: { league: League }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+const MARKET_FILTERS: (Market | "all")[] = ["all", "spread", "total", "ml"];
+const SPLITS: { key: CalibrationSplit; label: string }[] = [
+  { key: "confidence", label: "Confidence" },
+  { key: "basis", label: "Basis" },
+  { key: "prompt_version", label: "Prompt" },
+];
+
+function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { key: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex gap-0.5 rounded-md border border-white/15 p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          aria-pressed={o.key === value}
+          onClick={() => onChange(o.key)}
+          className={`h-7 rounded px-2.5 text-xs transition ${o.key === value ? "bg-white text-neutral-950" : "text-neutral-300 hover:text-white"}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// The house's record on its latest calls (view pickem_house_calibration),
+// split by confidence, basis or prompt: what the house is shown after each
+// slate, and what its stakes and parlay odds are read from. Read-only.
+function Calibration({ league }: { league: League }) {
+  const { supabase } = useAdmin();
+  const [rows, setRows] = useState<CalibrationRow[] | null>(null);
+  const [market, setMarket] = useState<Market | "all">("all");
+  const [by, setBy] = useState<CalibrationSplit>("confidence");
+  useEffect(() => {
+    let live = true;
+    supabase
+      .from("pickem_house_calibration")
+      .select("*")
+      .eq("league", league)
+      .eq("season", PICKEM_SEASON)
+      .then(({ data }) => {
+        if (live) setRows((data ?? []) as CalibrationRow[]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [supabase, league]);
+  if (!rows?.length) return null;
+  const table = calibrationTable(rows, { market, by });
+  const stakes = stakeTable(rows, league, PICKEM_SEASON);
+  const clvClass = (v: number | null) => (v == null || v === 0 ? "" : v > 0 ? "text-emerald-300" : "text-red-300");
+  const fmt = (v: number | null, places: number, sign = false) => (v == null ? "—" : `${sign && v > 0 ? "+" : ""}${v.toFixed(places)}`);
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-semibold text-white">Calibration</h3>
+      <p className="mt-1 text-sm text-neutral-400">
+        The latest call on every completed game. Win% leaves pushes out; CLV is points better than the last line before
+        kickoff (spread and total calls with a locked line). Units are at each tier&apos;s full stake; flat is 1u on every
+        call, passes included. The house is shown this record with anything under {FEEDBACK_MIN_CALLS} calls marked too few to judge.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Segmented label="Market" value={market} options={MARKET_FILTERS.map((m) => ({ key: m, label: m === "ml" ? "moneyline" : m }))} onChange={setMarket} />
+        <Segmented label="Split by" value={by} options={SPLITS} onChange={setBy} />
+      </div>
+      <table className="mt-2 text-left text-xs text-neutral-300">
+        <thead className="text-neutral-500">
+          <tr>
+            {[SPLITS.find((x) => x.key === by)!.label, "Calls", "W-L-P", "Win%", "CLV n", "Avg CLV", "Units", "Flat"].map((h) => (
+              <th key={h} className="pr-4 font-normal">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {table.map(({ key, tally: t }) => {
+            const win = tallyWinPct(t);
+            const clv = tallyAvgClv(t);
+            return (
+              <tr key={key}>
+                <td className="pr-4">{key}</td>
+                <td className="pr-4">{t.calls}</td>
+                <td className="pr-4">{t.wins}-{t.losses}-{t.pushes}</td>
+                <td className="pr-4">{win == null ? "—" : `${(win * 100).toFixed(1)}%`}</td>
+                <td className="pr-4">{t.clv_calls}</td>
+                <td className={`pr-4 ${clvClass(clv)}`}>{fmt(clv, 2, true)}</td>
+                <td className="pr-4">{fmt(t.units, 2, true)}</td>
+                <td className="pr-4">{fmt(t.units_flat, 2, true)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs text-neutral-400">
+        Stakes now (a tier earns its full stake at {STAKE_MIN_CALLS}+ spread and total calls winning 55%):{" "}
+        {stakes.map((s) => (
+          <span key={s.confidence} className="mr-3 tabular-nums">
+            {s.confidence} → {s.stake}u{s.stake !== s.full ? <span className="text-neutral-500"> of {s.full}u</span> : null}
+          </span>
+        ))}
+      </p>
     </div>
   );
 }
@@ -213,6 +318,7 @@ export function PickemPanel() {
       </div>
       {log ? <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-neutral-300">{log}</pre> : null}
       <ClosingLineValue league={league} />
+      <Calibration league={league} />
     </section>
   );
 }

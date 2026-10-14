@@ -6,6 +6,7 @@ import {
   parseLeague,
   seasonWeek,
   type League,
+  type CalibrationRow,
   type HouseRecordRow,
   type LeaderboardRow,
   type PickemGame,
@@ -75,7 +76,7 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
     }
   }
 
-  const [{ data: parlays }, { data: leaderboard }, { data: houseRecord }] = await Promise.all([
+  const [{ data: parlays }, { data: leaderboard }, { data: houseRecord }, { data: calibration }] = await Promise.all([
     supabase
       .from("pickem_parlays")
       .select("*")
@@ -87,6 +88,14 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
     supabase.from("pickem_leaderboard").select("*").eq("season", PICKEM_SEASON),
     // Null until the 20260924_pickem_house migration is applied; the page renders without it.
     supabase.from("pickem_house_record").select("*").eq("season", PICKEM_SEASON),
+    // The House Card's stakes. Null until the 20261014_pickem_house_calibration
+    // migration is applied, and then every play shows 1u.
+    supabase
+      .from("pickem_house_calibration")
+      .select("*")
+      .eq("league", league)
+      .eq("season", PICKEM_SEASON)
+      .neq("market", "ml"),
   ]);
 
   const slate = (games ?? []) as PickemGame[];
@@ -106,6 +115,7 @@ export default async function PickemPage({ searchParams }: { searchParams: Searc
         parlays={(parlays ?? []) as PickemParlay[]}
         leaderboard={(leaderboard ?? []) as LeaderboardRow[]}
         houseRecord={(houseRecord ?? []) as HouseRecordRow[]}
+        calibration={(calibration ?? []) as CalibrationRow[]}
         initialNow={now.getTime()}
         linesAsOf={linesAsOf}
       />

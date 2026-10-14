@@ -1,8 +1,22 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HOUSE_TIER_META, houseStake, houseTier, type HousePicks, type PickemGame } from "./pickem.ts";
-import { buildHouseCard, callLineAndPrice, fmtProjection, fmtRecord, HOUSE_CARD_SIZE, housePlays, houseWeekRecord, playLabel, playUnits, projectionAgrees } from "./pickem-house.ts";
+import { confidenceRecord, HOUSE_TIER_META, houseStake, houseTier, type CalibrationRow, type HousePicks, type PickemGame } from "./pickem.ts";
+import {
+  buildHouseCard,
+  callLineAndPrice,
+  effectiveStake,
+  fmtProjection,
+  fmtRecord,
+  HOUSE_CARD_SIZE,
+  housePlays,
+  houseWeekRecord,
+  playLabel,
+  playUnits,
+  projectionAgrees,
+  stakeEarned,
+  stakeTable,
+} from "./pickem-house.ts";
 
 test("houseTier: 5 and below pass, 6 leans, 7 likes, 8 and up are best bets", () => {
   assert.equal(houseTier(1), "pass");
@@ -101,15 +115,22 @@ test("playLabel uses the play's own number", () => {
   assert.equal(playLabel(g, "ml", "away", null), "Kentucky ML");
 });
 
-test("housePlays: passes are skipped, tiers and stakes come from confidence, results grade against the locked line", () => {
+test("housePlays: passes are skipped, tiers come from confidence, results grade against the locked line", () => {
   // Final 30-21: Alabama wins by 9. Locked spread -9.5 loses, current spread -9 would push.
   const g = game("g", { house: lockedHouse, home_score: 30, away_score: 21, completed: true });
-  const plays = housePlays([g]);
+  const plays = housePlays([g], EARNED_8);
   assert.deepEqual(plays.map((p) => [p.market, p.tier, p.stake, p.result]), [
     ["spread", "best", 3, "loss"],
     ["total", "lean", 1, "win"], // 51 over 46.5
   ]);
   assert.equal(plays[0].label, "Alabama -9.5");
+});
+
+test("housePlays: a best bet stakes 1u until its confidence has earned 3u", () => {
+  const g = game("g", { house: lockedHouse, home_score: 30, away_score: 21, completed: true });
+  assert.deepEqual(housePlays([g]).map((p) => p.stake), [1, 1]);
+  // Earned in college does not carry over to the NFL.
+  assert.deepEqual(housePlays([{ ...g, league: "nfl" }], EARNED_8).map((p) => p.stake), [1, 1]);
 });
 
 test("housePlays: a legacy call grades against the current line and a bad selection is ignored", () => {
@@ -134,13 +155,73 @@ test("houseWeekRecord counts completed plays only and stakes units by tier", () 
   const done = game("a", { house: lockedHouse, home_score: 30, away_score: 21, completed: true }); // best -3, lean +0.952
   const live = game("b", { house: lockedHouse, home_score: 14, away_score: 0, completed: false }); // ignored
   const pending = game("c", { house: legacyHouse });
-  const rec = houseWeekRecord([done, live, pending]);
+  const rec = houseWeekRecord([done, live, pending], EARNED_8);
   assert.equal(rec.wins, 1);
   assert.equal(rec.losses, 1);
   assert.equal(rec.pushes, 0);
   assert.ok(Math.abs(rec.units - (-3 + 100 / 105)) < 1e-6);
+  // Unearned, the best bet loses 1u, not 3.
+  assert.ok(Math.abs(houseWeekRecord([done, live, pending]).units - (-1 + 100 / 105)) < 1e-6);
   assert.equal(fmtRecord(rec), "1-1");
   assert.equal(fmtRecord({ wins: 2, losses: 0, pushes: 1, units: 0 }), "2-0-1");
+});
+
+// ---------------------------------------------------------------------------
+// Earned stakes. The fixture rows are shaped like pickem_house_calibration;
+// the expectations are what pickem_house_record's "earned" CTE gives for the
+// same rows (50+ spread and total calls, 20 * wins >= 11 * decided).
+
+function cal(over: Partial<CalibrationRow>): CalibrationRow {
+  return {
+    league: "ncaaf", season: 2026, market: "spread", confidence: 6, basis: "matchup", prompt_version: "v1",
+    calls: 0, wins: 0, losses: 0, pushes: 0, win_pct: null, clv_calls: 0, clv_points: 0, avg_clv: null, units: 0, units_flat: 0,
+    ...over,
+  };
+}
+
+// 8s: 33-24-3 over 60 calls (57.9%), split across markets, bases and prompts.
+const EARNED_8: CalibrationRow[] = [
+  cal({ confidence: 8, market: "spread", basis: "news", calls: 30, wins: 17, losses: 12, pushes: 1 }),
+  cal({ confidence: 8, market: "total", basis: "matchup", prompt_version: "v2", calls: 30, wins: 16, losses: 12, pushes: 2 }),
+];
+
+test("stakeEarned: 50 calls at 55% of those decided, in integers", () => {
+  const t = (calls: number, wins: number, losses: number) => ({ calls, wins, losses, pushes: calls - wins - losses, clv_calls: 0, clv_points: 0, units: 0, units_flat: 0 });
+  assert.equal(stakeEarned(undefined), false);
+  assert.equal(stakeEarned(t(49, 40, 9)), false); // too few, however good
+  assert.equal(stakeEarned(t(50, 22, 18)), true); // 22/40 = 55.0% exactly
+  assert.equal(stakeEarned(t(50, 21, 19)), false); // 52.5%
+  assert.equal(stakeEarned(t(50, 11, 9)), true); // pushes count toward 50 but not the rate
+});
+
+test("effectiveStake: passes stake nothing, leans 1u, likes and best bets only what they have earned", () => {
+  const record = confidenceRecord(EARNED_8, "ncaaf", 2026);
+  assert.equal(effectiveStake(5, record), 0);
+  assert.equal(effectiveStake(6, record), 1);
+  assert.equal(effectiveStake(7, record), 1); // no 7s on record
+  assert.equal(effectiveStake(8, record), 3);
+  assert.equal(effectiveStake(9, record), 1); // each confidence earns its own
+});
+
+test("confidenceRecord: one league and season, spread and total only, every basis and prompt together", () => {
+  const rows = [
+    ...EARNED_8,
+    cal({ confidence: 8, market: "ml", calls: 100, wins: 0, losses: 100 }), // moneylines never count
+    cal({ confidence: 8, league: "nfl", calls: 100, wins: 0, losses: 100 }),
+    cal({ confidence: 8, season: 2025, calls: 100, wins: 0, losses: 100 }),
+  ];
+  const r = confidenceRecord(rows, "ncaaf", 2026).get(8)!;
+  assert.deepEqual([r.calls, r.wins, r.losses, r.pushes], [60, 33, 24, 3]);
+  // Numeric columns can arrive as strings from PostgREST.
+  const asStrings = EARNED_8.map((x) => ({ ...x, calls: String(x.calls), wins: String(x.wins), losses: String(x.losses) }) as unknown as CalibrationRow);
+  assert.equal(confidenceRecord(asStrings, "ncaaf", 2026).get(8)!.calls, 60);
+});
+
+test("stakeTable lists each confidence's full and effective stake", () => {
+  assert.deepEqual(
+    stakeTable(EARNED_8, "ncaaf", 2026).map((r) => [r.confidence, r.full, r.stake]),
+    [[6, 1, 1], [7, 2, 1], [8, 3, 3], [9, 3, 1], [10, 3, 1]]
+  );
 });
 
 // ---------------------------------------------------------------------------

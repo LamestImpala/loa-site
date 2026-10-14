@@ -85,6 +85,19 @@ house parlays computed from those picks (one per leg count, two through seven,
 ranked by expected value; `lib/pickem-parlays.ts`), and a net-units
 leaderboard. Players sign in with a Supabase magic link.
 
+The house learns from its own record (`supabase/migrations/20261014_pickem_house_calibration.sql`).
+`pickem_house_calibration` counts the latest call on every completed game by league, market,
+confidence, basis and prompt version, with win rate and closing line value (CLV: the locked number
+against the last line before kickoff); `pickem_house_calibration_all` is the same over every call
+including re-picks, for research. Each house run shows the house that record and last week's calls with
+their CLV after the slate (`lib/pickem-feedback.ts`; rows under 25 calls read "too few to judge"), and
+stores what it was shown in `pickem_house_calls.feedback`. Stakes are earned, not asserted: every play is
+1u until its confidence has 50+ completed spread and total calls in the league winning 55%, and only then
+does a 7 stake 2u and an 8+ 3u (`effectiveStake` in `lib/pickem-house.ts`, mirrored by
+`pickem_house_record`; the test reads the current record, so a tier that qualifies restates the
+season's units). Parlay probabilities use a confidence's observed win rate once it has 50 calls
+(`confidenceShift` in `lib/pickem-parlays.ts`). The admin page shows the calibration table.
+
 Schema: `supabase/migrations/20260912_pickem.sql` and the later files in that folder.
 Server code: `lib/pickem-server.ts`. League config, week math and team display names: `lib/pickem.ts`.
 

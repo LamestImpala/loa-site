@@ -5,22 +5,22 @@
 // a ticket: readers follow or fade it on the board. Computed here from the
 // slate (lib/pickem-house.ts) so it needs no job and no table.
 import { useMemo } from "react";
-import { fmtPrice, fmtSpread, type League, type PickemGame } from "@/lib/pickem";
+import { fmtPrice, fmtSpread, type CalibrationRow, type League, type PickemGame } from "@/lib/pickem";
 import { fmtKickLong, tzLabel } from "@/lib/pickem-board";
 import { buildHouseCard, fmtProjection, fmtRecord, HOUSE_CARD_SIZE, type HouseCardTag } from "@/lib/pickem-house";
 import ConfidenceBadge from "./confidence-badge";
 import ResultTag from "./result-tag";
 import TeamLogo from "./team-logo";
 
-type Props = { games: PickemGame[]; league: League; week: number; now: number; tz: string };
+type Props = { games: PickemGame[]; calibration: CalibrationRow[]; league: League; week: number; now: number; tz: string };
 
 const TAG: Record<HouseCardTag, { text: string; cls: string }> = {
   lock: { text: "Lock of the week", cls: "border-emerald-400/70 text-emerald-300" },
   upset: { text: "Upset alert", cls: "border-orange-400/70 text-orange-300" },
 };
 
-export default function HouseCard({ games, league, week, now, tz }: Props) {
-  const card = useMemo(() => buildHouseCard(games), [games]);
+export default function HouseCard({ games, calibration, league, week, now, tz }: Props) {
+  const card = useMemo(() => buildHouseCard(games, calibration), [games, calibration]);
   const byId = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
   const graded = card.record.wins + card.record.losses + card.record.pushes > 0;
   const signed = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}u`;

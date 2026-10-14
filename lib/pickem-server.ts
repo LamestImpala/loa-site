@@ -17,6 +17,7 @@ import {
   pregameEvents,
   type BestLine,
   type BestLines,
+  type CalibrationRow,
   type HouseCall,
   type HousePicks,
   type League,
@@ -27,6 +28,7 @@ import { isPower, unmappedTeams } from "./pickem-conferences";
 import { espnDate, fpiForHome, matchEvents, pairEvents, type EspnEvent, type EspnPredictor, type LivePayload } from "./pickem-live";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
+import { houseFeedback, type LastWeekRow } from "./pickem-feedback";
 import { SLIP_MARKETS, SLIP_SELECTIONS, type ParsedSlip, type SlipGame } from "./pickem-slip";
 import {
   cfbdRatings,
@@ -643,7 +645,8 @@ Selections use "home"/"away" for spread and moneyline and "over"/"under" for tot
 export const HOUSE_MODEL = "claude-opus-5-5";
 export const HOUSE_EFFORT = "high";
 // Bump whenever houseSystem changes, so the record can be split by prompt.
-export const HOUSE_PROMPT_VERSION = "2026-10-04c";
+// 2026-10-14: the house's own record follows the slate (lib/pickem-feedback.ts).
+export const HOUSE_PROMPT_VERSION = "2026-10-14";
 
 // Batches run in one wave so a 60-game slate fits the route's 300 s limit.
 const BATCH_SIZE = 7;
@@ -672,7 +675,16 @@ export type HouseRunResult = {
   missing: { id: string; game: string }[];
   batches: BatchOutcome[];
   parlays: { inserted: number; removed: number; kept: number; skipped_duplicates: number };
-  preview?: { picks: Record<string, HousePicks>; parlays: ParlayDraft[]; card: HouseCard };
+  /** Characters of record shown to the house after the slate; 0 when there was none (or the views are missing). */
+  feedback_chars: number;
+  preview?: {
+    picks: Record<string, HousePicks>;
+    parlays: ParlayDraft[];
+    card: HouseCard;
+    /** The record block every batch was shown, and a batch's user message with one game in it, to show its shape. */
+    feedback: string;
+    sample_user_message: string | null;
+  };
 };
 
 /** Deal items round-robin into ceil(n / size) batches so the interesting games spread out. */
@@ -726,6 +738,12 @@ function lockLines(g: PickemGame, h: HousePicks): HousePicks {
   return { spread: lock("spread", h.spread), total: lock("total", h.total), ml: lock("ml", h.ml) };
 }
 
+/** The user message for one batch: the slate, then the house's record when there is one. */
+function batchMessage(league: League, batch: PickemGame[], signals: Map<string, GameSignals>, now: Date, week: number, feedback: string): string {
+  const slate = `Today is ${now.toUTCString()}. ${LEAGUE_META[league].label} ${PICKEM_SEASON} season, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map((g) => batchInput(g, signals.get(g.id))))}`;
+  return feedback ? `${slate}\n\n${feedback}` : slate;
+}
+
 async function pickBatch(
   client: Anthropic,
   league: League,
@@ -733,7 +751,8 @@ async function pickBatch(
   signals: Map<string, GameSignals>,
   now: Date,
   week: number,
-  msLeft: number
+  msLeft: number,
+  feedback: string
 ): Promise<{ picks: Map<string, HousePicks>; outcome: BatchOutcome }> {
   const started = Date.now();
   const picks = new Map<string, HousePicks>();
@@ -752,12 +771,7 @@ async function pickBatch(
         fallbacks: "default",
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: batch.length }],
         system: houseSystem(league),
-        messages: [
-          {
-            role: "user",
-            content: `Today is ${now.toUTCString()}. ${LEAGUE_META[league].label} ${PICKEM_SEASON} season, week ${week}. Batch of ${batch.length} games:\n${JSON.stringify(batch.map((g) => batchInput(g, signals.get(g.id))))}`,
-          },
-        ],
+        messages: [{ role: "user", content: batchMessage(league, batch, signals, now, week, feedback) }],
       },
       { signal: AbortSignal.timeout(Math.max(1000, Math.min(PER_CALL_MS, msLeft))), maxRetries: 1 }
     );
@@ -786,6 +800,23 @@ async function pickBatch(
   }
 }
 
+/**
+ * The house's record for a league: calibration rows for the season (stakes,
+ * parlay odds, the record block) and last week's calls. Both views are
+ * optional, so a read error (the migration not applied yet) gives empty
+ * lists and the run goes on as before.
+ */
+async function readRecord(db: ReturnType<typeof serviceSupabase>, league: League): Promise<{ calibration: CalibrationRow[]; lastWeek: LastWeekRow[] }> {
+  const [cal, lw] = await Promise.all([
+    db.from("pickem_house_calibration").select("*").eq("league", league).eq("season", PICKEM_SEASON),
+    db.from("pickem_house_last_week").select("*").eq("league", league),
+  ]);
+  return {
+    calibration: cal.error ? [] : ((cal.data ?? []) as CalibrationRow[]),
+    lastWeek: lw.error ? [] : ((lw.data ?? []) as LastWeekRow[]),
+  };
+}
+
 /** Replace the week's open, untailed parlays with the computed set. Tailed and locked tickets stay. */
 async function rebuildParlays(
   db: ReturnType<typeof serviceSupabase>,
@@ -793,9 +824,10 @@ async function rebuildParlays(
   games: PickemGame[],
   now: Date,
   week: number,
-  dry: boolean
+  dry: boolean,
+  calibration: CalibrationRow[]
 ): Promise<HouseRunResult["parlays"] & { drafts: ParlayDraft[] }> {
-  const drafts = buildParlays(games, now.getTime());
+  const drafts = buildParlays(games, now.getTime(), calibration);
   const { data: open, error } = await db
     .from("pickem_parlays")
     .select("id, legs")
@@ -846,7 +878,11 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   if (error) throw new Error(error.message);
   const slate = (games ?? []) as PickemGame[];
 
-  const signals = opts.onlyParlays ? new Map<string, GameSignals>() : await readSignals(db, league, slate.map((g) => g.id), now);
+  const [signals, record] = await Promise.all([
+    opts.onlyParlays ? new Map<string, GameSignals>() : readSignals(db, league, slate.map((g) => g.id), now),
+    readRecord(db, league),
+  ]);
+  const feedback = opts.onlyParlays ? "" : houseFeedback(league, PICKEM_SEASON, record.calibration, record.lastWeek);
 
   const deadline = Date.now() + ROUTE_BUDGET_MS;
   const batches: BatchOutcome[] = [];
@@ -867,7 +903,7 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
             batches.push({ size: batch.length, ok: false, ms: 0, reason: "deadline" });
             return;
           }
-          const { picks: got, outcome } = await pickBatch(client, league, batch, signals, now, week, msLeft);
+          const { picks: got, outcome } = await pickBatch(client, league, batch, signals, now, week, msLeft, feedback);
           for (const [id, house] of got) picks.set(id, house);
           batches.push(outcome);
         });
@@ -893,9 +929,20 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
       if (uErr) continue;
       picked++;
       const g = byId.get(id);
-      // signals is left off when the game had none, so this insert works before the column exists.
+      // signals and feedback are left off when there were none, so this insert works before their columns exist.
       const shown = signals.get(id);
-      log.push({ game_id: id, picked_at: stamp, prompt_version: HOUSE_PROMPT_VERSION, model: HOUSE_MODEL, effort: HOUSE_EFFORT, house: saved, spread_home: g?.spread_home ?? null, total: g?.total ?? null, ...(shown ? { signals: shown } : {}) });
+      log.push({
+        game_id: id,
+        picked_at: stamp,
+        prompt_version: HOUSE_PROMPT_VERSION,
+        model: HOUSE_MODEL,
+        effort: HOUSE_EFFORT,
+        house: saved,
+        spread_home: g?.spread_home ?? null,
+        total: g?.total ?? null,
+        ...(shown ? { signals: shown } : {}),
+        ...(feedback ? { feedback } : {}),
+      });
     }
     // Every run is kept, so a re-pick does not erase the earlier call. The
     // board reads pickem_games.house; a failed write here loses only history.
@@ -903,10 +950,19 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   }
 
   const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
-  const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry));
+  const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry), record.calibration);
 
-  const result: HouseRunResult = { league, week, picked, missing, batches, parlays };
-  if (opts.dry) result.preview = { picks: Object.fromEntries(picks), parlays: drafts, card: buildHouseCard(withPicks) };
+  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length };
+  if (opts.dry) {
+    const sample = slate.find((g) => picks.has(g.id)) ?? slate[0];
+    result.preview = {
+      picks: Object.fromEntries(picks),
+      parlays: drafts,
+      card: buildHouseCard(withPicks, record.calibration),
+      feedback,
+      sample_user_message: sample ? batchMessage(league, [sample], signals, now, week, feedback) : null,
+    };
+  }
   return result;
 }
 
