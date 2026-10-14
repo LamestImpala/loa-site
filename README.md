@@ -89,9 +89,10 @@ The house learns from its own record (`supabase/migrations/20261014_pickem_house
 `pickem_house_calibration` counts the latest call on every completed game by league, market,
 confidence, basis and prompt version, with win rate and closing line value (CLV: the locked number
 against the last line before kickoff); `pickem_house_calibration_all` is the same over every call
-including re-picks, for research. Each house run shows the house that record and last week's calls with
-their CLV after the slate (`lib/pickem-feedback.ts`; rows under 25 calls read "too few to judge"), and
-stores what it was shown in `pickem_house_calls.feedback`. Stakes are earned, not asserted: every play is
+including re-picks, for research. Calls under the `feedback-on` prompt variant (see House prompt
+experiments below) are shown that record and last week's calls with their CLV after the slate
+(`lib/pickem-feedback.ts`; rows under 25 calls read "too few to judge"), and each stores what it was shown
+in `pickem_house_calls.feedback`. Stakes are earned, not asserted: every play is
 1u until its confidence has 50+ completed spread and total calls in the league winning 55%, and only then
 does a 7 stake 2u and an 8+ 3u (`effectiveStake` in `lib/pickem-house.ts`, mirrored by
 `pickem_house_record`; the test reads the current record, so a tier that qualifies restates the
@@ -148,8 +149,41 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   parlays are never removed (`pickem_replace_parlays` in the migration). College runs 14:00 UTC Tuesday
   and Saturday; the NFL runs 15:00 UTC Tuesday and Thursday, after that day's sync. Each has a
   gap-filling run 30 minutes later, except the NFL's Thursday run. Times are UTC, so they land an hour earlier in
-  Central after the November clock change. The JSON result lists `missing` games and per-batch timing.
+  Central after the November clock change. The JSON result lists `missing` games, per-batch timing and
+  variant, `variants` (games asked of each) and `feedback_chars`; a dry run's `preview` adds the record
+  block (`feedback`) and, per variant, a user message with one game in it (`sample_user_messages`).
 
   ```
   curl -H "Authorization: Bearer $CRON_SECRET" "https://lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"
   ```
+
+### House prompt experiments
+
+Every house call is made under one variant of the house prompt, listed in `HOUSE_VARIANTS`
+(`lib/pickem-variants.ts`). Each variant has an `id`, a `prompt_version` stored with every call, a
+`system` diff appended to the control system prompt (`houseSystemControl` in `lib/pickem-server.ts`), and
+a `feedback` flag for whether the house's record follows the slate. Today there are two: `control` (no
+record shown) and `feedback-on` (control plus the record block and last week's calls).
+
+Each run deals the week's games to the variants in turn, in an order seeded by league and week over every
+game of the week (`assignVariants`). A game whose current call was made under a variant still in the map
+keeps that variant, so a forced re-pick, the Saturday/Thursday gap-filling run and a retried batch ask the
+same game of the same variant. Each batch is one variant's games, and the variants' batches alternate so
+both are in the first wave. The variant is stored in `pickem_games.house.variant` and
+`pickem_house_calls.variant`, next to `prompt_version`.
+
+`pickem_house_experiment` (`supabase/migrations/20261015_pickem_house_variants.sql`) compares them on the
+latest call of every completed game made under the experiment, per league and for both: spread and total
+win rate with a 95% Wilson interval, the same for plays at 6+, average CLV and units. The admin page shows it
+under Calibration, variants side by side. Nothing picks a winner automatically.
+
+- **Add a variant:** append `{ id, prompt_version: `${HOUSE_PROMPT_VERSION}+<tag>`, system, feedback, note }`
+  to `HOUSE_VARIANTS`. Games are then dealt three ways; already-picked games keep their variant.
+- **Change a variant's text:** change its `prompt_version` tag too, so the record splits.
+- **Promote a variant to control:** fold its diff into `houseSystemControl` (and set control's `feedback`
+  if it was the record block), bump `HOUSE_PROMPT_VERSION`, and delete the promoted entry. Every remaining
+  variant's version moves with the bump, so old and new calls never pool.
+- **Stop an experiment:** delete the variant. Its calls keep their id in the record, and games it picked
+  are dealt again only if they are re-picked.
+- Two variants split a 60-game college slate into 5 + 5 batches, which is why the house route runs 10
+  batches at once. A third variant would need `BATCH_CONCURRENCY` raised again or a longer wave.

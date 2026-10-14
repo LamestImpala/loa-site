@@ -29,6 +29,7 @@ import { espnDate, fpiForHome, matchEvents, pairEvents, type EspnEvent, type Esp
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
 import { houseFeedback, type LastWeekRow } from "./pickem-feedback";
+import { assignVariants, dealVariantBatches, HOUSE_VARIANTS, type HouseVariant } from "./pickem-variants";
 import { SLIP_MARKETS, SLIP_SELECTIONS, type ParsedSlip, type SlipGame } from "./pickem-slip";
 import {
   cfbdRatings,
@@ -626,7 +627,7 @@ const COLLEGE_SIGNALS = `Some games also carry "signals". ratings holds, for eac
 
 const NFL_SIGNALS = `Some games also carry "signals". epa holds, for each team, expected points added per play this season: off is the offense (higher is better) and def is what the defense has allowed (lower is better), each split into pass and rush, with off_last3 and def_last3 covering the last three games. It is not adjusted for opponent and is a small sample early in the season. injuries lists each team's starters that Sleeper shows as injured, with their status. That list is a lead, not news: confirm a player's status by search before a call rests on it, and a long-standing absence is already in the line.`;
 
-const houseSystem = (league: League) => `You are the house handicapper for a friendly ${league === "nfl" ? "NFL" : "college football"} pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
+const houseSystemControl = (league: League) => `You are the house handicapper for a friendly ${league === "nfl" ? "NFL" : "college football"} pick'em. For every game you get consensus lines (median across US books), the opening numbers we first recorded, and the best available number per side.
 
 You receive a batch of games. Return exactly one entry for every game_id in the batch, in any order, and never omit a game. For each game give a pick for the spread, the total, and the moneyline with a confidence, a basis and a rationale of at most two sentences. Line movement is not a reason to take a side: the number you are given already includes the move, so following it means buying at the new price. Movement on its own is a 5, and a move of less than a full point is noise. It supports a call only when the best available number still offers the price from before the move. You may research recent results, injuries and quarterback news with web search; spend searches on the closest and highest-profile games in the batch, not on 40-point spreads, and search those games before you pass on them for lack of news.
 
@@ -642,15 +643,21 @@ Also give a projected final score for each game as whole points (projected_home,
 
 Selections use "home"/"away" for spread and moneyline and "over"/"under" for totals. Return only the JSON.`;
 
+/** The control prompt plus the variant's diff (lib/pickem-variants.ts). */
+const houseSystem = (league: League, variant: HouseVariant) => {
+  const base = houseSystemControl(league);
+  return variant.system ? `${base}\n\n${variant.system}` : base;
+};
+
 export const HOUSE_MODEL = "claude-opus-5-5";
 export const HOUSE_EFFORT = "high";
-// Bump whenever houseSystem changes, so the record can be split by prompt.
-// 2026-10-14: the house's own record follows the slate (lib/pickem-feedback.ts).
-export const HOUSE_PROMPT_VERSION = "2026-10-14";
+// Bump HOUSE_PROMPT_VERSION (lib/pickem-variants.ts) whenever houseSystemControl changes.
 
 // Batches run in one wave so a 60-game slate fits the route's 300 s limit.
+// Each variant gets its own batches, which can take one more batch than the
+// slate alone would (60 games split 30/30 is 5 + 5), hence 10 at once.
 const BATCH_SIZE = 7;
-const BATCH_CONCURRENCY = 9;
+const BATCH_CONCURRENCY = 10;
 const PER_CALL_MS = 200_000;
 const ROUTE_BUDGET_MS = 250_000; // leaves room for the writes and the response
 const LAUNCH_FLOOR_MS = 60_000; // do not start a batch with less than this left
@@ -658,6 +665,7 @@ const RETRY_FLOOR_MS = 90_000; // and do not start the retry pass with less than
 
 type BatchOutcome = {
   size: number;
+  variant: string;
   ok: boolean;
   ms: number;
   reason?: string;
@@ -677,23 +685,17 @@ export type HouseRunResult = {
   parlays: { inserted: number; removed: number; kept: number; skipped_duplicates: number };
   /** Characters of record shown to the house after the slate; 0 when there was none (or the views are missing). */
   feedback_chars: number;
+  /** Games asked of each variant this run. */
+  variants: Record<string, number>;
   preview?: {
     picks: Record<string, HousePicks>;
     parlays: ParlayDraft[];
     card: HouseCard;
-    /** The record block every batch was shown, and a batch's user message with one game in it, to show its shape. */
+    /** The record block the feedback variants were shown, and per variant a user message with one game in it, to show its shape. */
     feedback: string;
-    sample_user_message: string | null;
+    sample_user_messages: Record<string, string>;
   };
 };
-
-/** Deal items round-robin into ceil(n / size) batches so the interesting games spread out. */
-function dealBatches<T>(xs: T[], size: number): T[][] {
-  const n = Math.ceil(xs.length / size);
-  const out: T[][] = Array.from({ length: n }, () => []);
-  xs.forEach((x, i) => out[i % n].push(x));
-  return out.filter((b) => b.length);
-}
 
 /** Run fn over items with at most `limit` in flight. fn must not throw. */
 async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -752,11 +754,12 @@ async function pickBatch(
   now: Date,
   week: number,
   msLeft: number,
+  variant: HouseVariant,
   feedback: string
 ): Promise<{ picks: Map<string, HousePicks>; outcome: BatchOutcome }> {
   const started = Date.now();
   const picks = new Map<string, HousePicks>();
-  const fail = (reason: string) => ({ picks, outcome: { size: batch.length, ok: false, ms: Date.now() - started, reason } });
+  const fail = (reason: string) => ({ picks, outcome: { size: batch.length, variant: variant.id, ok: false, ms: Date.now() - started, reason } });
   try {
     // Opus 5.5 defaults to medium effort and thinks more per level than Opus 5,
     // so effort is set explicitly. A safety refusal re-runs the batch on the
@@ -770,7 +773,7 @@ async function pickBatch(
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: batch.length }],
-        system: houseSystem(league),
+        system: houseSystem(league, variant),
         messages: [{ role: "user", content: batchMessage(league, batch, signals, now, week, feedback) }],
       },
       { signal: AbortSignal.timeout(Math.max(1000, Math.min(PER_CALL_MS, msLeft))), maxRetries: 1 }
@@ -785,14 +788,14 @@ async function pickBatch(
     for (const g of parsed.games) {
       const game = byId.get(g.game_id);
       if (!game) continue;
-      const house = lockLines(game, { spread: g.spread, total: g.total, ml: g.moneyline });
+      const house: HousePicks = { ...lockLines(game, { spread: g.spread, total: g.total, ml: g.moneyline }), prompt_version: variant.prompt_version, variant: variant.id };
       // The calls are the product; a projection that contradicts them is noise and is not kept.
       const projection = { home: g.projected_home, away: g.projected_away };
       if (projectionAgrees(house, projection)) house.projection = projection;
       else projections_dropped++;
       picks.set(g.game_id, house);
     }
-    return { picks, outcome: { size: batch.length, ok: true, ms: Date.now() - started, usage: message.usage, projections_dropped } };
+    return { picks, outcome: { size: batch.length, variant: variant.id, ok: true, ms: Date.now() - started, usage: message.usage, projections_dropped } };
   } catch (e) {
     const err = e as Error & { name?: string };
     const reason = e instanceof Anthropic.APIUserAbortError || err.name === "TimeoutError" ? "timeout" : err.message;
@@ -884,6 +887,22 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   ]);
   const feedback = opts.onlyParlays ? "" : houseFeedback(league, PICKEM_SEASON, record.calibration, record.lastWeek);
 
+  // Which variant asks each game. Read over the whole week, started games
+  // included, so the deal is the same on every run (lib/pickem-variants.ts).
+  let variantOf = new Map<string, HouseVariant>();
+  if (!opts.onlyParlays) {
+    const { data: weekRows, error: wErr } = await db
+      .from("pickem_games")
+      .select("id, variant:house->>variant")
+      .eq("league", league)
+      .eq("season", PICKEM_SEASON)
+      .eq("week", week);
+    if (wErr) throw new Error(wErr.message);
+    variantOf = assignVariants(league, week, (weekRows ?? []) as { id: string; variant: string | null }[]);
+  }
+  const variantFor = (g: PickemGame) => variantOf.get(g.id) ?? HOUSE_VARIANTS[0];
+  const counts: Record<string, number> = {};
+
   const deadline = Date.now() + ROUTE_BUDGET_MS;
   const batches: BatchOutcome[] = [];
   const picks = new Map<string, HousePicks>();
@@ -896,14 +915,16 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
     );
     if (todo.length) {
       const client = new Anthropic();
+      for (const g of todo) counts[variantFor(g).id] = (counts[variantFor(g).id] ?? 0) + 1;
       const run = async (games: PickemGame[]) => {
-        await pool(dealBatches(games, BATCH_SIZE), BATCH_CONCURRENCY, async (batch) => {
+        await pool(dealVariantBatches(games, variantFor, BATCH_SIZE), BATCH_CONCURRENCY, async ({ variant, games: batch }) => {
           const msLeft = deadline - Date.now();
           if (msLeft < LAUNCH_FLOOR_MS) {
-            batches.push({ size: batch.length, ok: false, ms: 0, reason: "deadline" });
+            batches.push({ size: batch.length, variant: variant.id, ok: false, ms: 0, reason: "deadline" });
             return;
           }
-          const { picks: got, outcome } = await pickBatch(client, league, batch, signals, now, week, msLeft, feedback);
+          const shown = variant.feedback ? feedback : "";
+          const { picks: got, outcome } = await pickBatch(client, league, batch, signals, now, week, msLeft, variant, shown);
           for (const [id, house] of got) picks.set(id, house);
           batches.push(outcome);
         });
@@ -924,44 +945,49 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
     const byId = new Map(slate.map((g) => [g.id, g]));
     const log = [];
     for (const [id, house] of picks) {
-      const saved: HousePicks = { ...house, picked_at: stamp, prompt_version: HOUSE_PROMPT_VERSION, model: HOUSE_MODEL, effort: HOUSE_EFFORT };
+      const saved: HousePicks = { ...house, picked_at: stamp, model: HOUSE_MODEL, effort: HOUSE_EFFORT };
+      const variant = HOUSE_VARIANTS.find((v) => v.id === house.variant) ?? HOUSE_VARIANTS[0];
       const { error: uErr } = await db.from("pickem_games").update({ house: saved, updated_at: stamp }).eq("id", id);
       if (uErr) continue;
       picked++;
       const g = byId.get(id);
-      // signals and feedback are left off when there were none, so this insert works before their columns exist.
+      // signals and feedback are left off when there were none.
       const shown = signals.get(id);
       log.push({
         game_id: id,
         picked_at: stamp,
-        prompt_version: HOUSE_PROMPT_VERSION,
+        prompt_version: variant.prompt_version,
+        variant: variant.id,
         model: HOUSE_MODEL,
         effort: HOUSE_EFFORT,
         house: saved,
         spread_home: g?.spread_home ?? null,
         total: g?.total ?? null,
         ...(shown ? { signals: shown } : {}),
-        ...(feedback ? { feedback } : {}),
+        ...(variant.feedback && feedback ? { feedback } : {}),
       });
     }
     // Every run is kept, so a re-pick does not erase the earlier call. The
     // board reads pickem_games.house; a failed write here loses only history.
-    if (log.length) await db.from("pickem_house_calls").insert(log);
+    if (log.length) {
+      const { error: lErr } = await db.from("pickem_house_calls").insert(log);
+      // Before the 20261014/20261015 migrations the feedback and variant
+      // columns do not exist; keep the history without them.
+      if (lErr) await db.from("pickem_house_calls").insert(log.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== "feedback" && k !== "variant"))));
+    }
   }
 
   const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
   const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry), record.calibration);
 
-  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length };
+  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length, variants: counts };
   if (opts.dry) {
-    const sample = slate.find((g) => picks.has(g.id)) ?? slate[0];
-    result.preview = {
-      picks: Object.fromEntries(picks),
-      parlays: drafts,
-      card: buildHouseCard(withPicks, record.calibration),
-      feedback,
-      sample_user_message: sample ? batchMessage(league, [sample], signals, now, week, feedback) : null,
-    };
+    const sample_user_messages: Record<string, string> = {};
+    for (const v of HOUSE_VARIANTS) {
+      const g = slate.find((x) => variantFor(x).id === v.id);
+      if (g) sample_user_messages[v.id] = batchMessage(league, [g], signals, now, week, v.feedback ? feedback : "");
+    }
+    result.preview = { picks: Object.fromEntries(picks), parlays: drafts, card: buildHouseCard(withPicks, record.calibration), feedback, sample_user_messages };
   }
   return result;
 }

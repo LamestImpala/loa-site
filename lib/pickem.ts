@@ -73,6 +73,8 @@ export type HousePicks = {
   prompt_version?: string;
   model?: string;
   effort?: string;
+  /** The prompt variant that made the calls (lib/pickem-variants.ts). Absent on rows written before 2026-10-15. */
+  variant?: string;
 };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is

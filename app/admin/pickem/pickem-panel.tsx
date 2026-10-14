@@ -4,11 +4,15 @@ import { useEffect, useState } from "react";
 import { LEAGUES, LEAGUE_META, PICKEM_SEASON, tallyAvgClv, tallyWinPct, type CalibrationRow, type League, type Market } from "@/lib/pickem";
 import { calibrationTable, FEEDBACK_MIN_CALLS, type CalibrationSplit } from "@/lib/pickem-feedback";
 import { stakeTable, STAKE_MIN_CALLS } from "@/lib/pickem-house";
+import { HOUSE_VARIANTS } from "@/lib/pickem-variants";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass as btn } from "../_shell/ui";
 
 type Call = { confidence: number; pick?: string; basis?: string };
-type PreviewBody = { preview?: { picks?: Record<string, { spread: Call; total: Call; ml: Call }> }; batches?: { projections_dropped?: number }[] };
+type PreviewBody = {
+  preview?: { picks?: Record<string, { spread: Call; total: Call; ml: Call; variant?: string }> };
+  batches?: { projections_dropped?: number }[];
+};
 
 // One line on how a preview's confidences fell, so a dry run can be read
 // without scrolling the JSON: "12 games · 5:14 6:18 7:4 · spread 5:2 6:8 7:2 …".
@@ -28,6 +32,12 @@ function confidenceSpread(body: PreviewBody): string {
   const bases = new Map<string, number>();
   for (const c of all) if (c.confidence >= 6) bases.set(c.basis ?? "?", (bases.get(c.basis ?? "?") ?? 0) + 1);
   const unders = games.filter((g) => g.total.pick === "under").length;
+  // Each prompt variant's spread and total calls, to see whether one shifts the confidence.
+  const variants = [...new Set(games.map((g) => g.variant ?? "?"))].sort();
+  const byVariant = variants.map((v) => {
+    const mine = games.filter((g) => (g.variant ?? "?") === v);
+    return `${v} (${mine.length}) ${tally(mine.flatMap((g) => [g.spread, g.total]))}`;
+  });
   return [
     `${games.length} games`,
     `all ${tally(all)}`,
@@ -37,6 +47,7 @@ function confidenceSpread(body: PreviewBody): string {
     `unders ${unders}/${games.length}`,
     `basis at 6+ ${[...bases.entries()].map(([k, n]) => `${k}:${n}`).join(" ") || "none"}`,
     `projections dropped ${dropped}`,
+    `by variant, spread+total: ${byVariant.join(" | ")}`,
   ].join(" · ");
 }
 
@@ -214,6 +225,111 @@ function Calibration({ league }: { league: League }) {
   );
 }
 
+type ExperimentRow = {
+  league: string;
+  variant: string;
+  prompt_versions: string;
+  calls: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  win_pct: number | null;
+  win_lo: number | null;
+  win_hi: number | null;
+  plays: number;
+  play_wins: number;
+  play_losses: number;
+  play_win_pct: number | null;
+  play_lo: number | null;
+  play_hi: number | null;
+  clv_calls: number;
+  avg_clv: number | null;
+  units: number;
+};
+
+// The prompt variants side by side (view pickem_house_experiment), on the
+// latest call of every completed game made under the experiment. No winner is
+// picked here: promote a variant by editing HOUSE_VARIANTS.
+function Experiment({ league }: { league: League }) {
+  const { supabase } = useAdmin();
+  const [rows, setRows] = useState<ExperimentRow[] | null>(null);
+  const [scope, setScope] = useState<"league" | "all">("league");
+  useEffect(() => {
+    let live = true;
+    supabase
+      .from("pickem_house_experiment")
+      .select("*")
+      .eq("season", PICKEM_SEASON)
+      .in("league", [league, "all"])
+      .then(({ data }) => {
+        if (live) setRows((data ?? []) as ExperimentRow[]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [supabase, league]);
+  if (!rows?.length) return null;
+  const want = scope === "all" ? "all" : league;
+  const shown = rows.filter((r) => r.league === want);
+  // Variants in play first, in map order, then retired ones still on record.
+  const order = (v: string) => (HOUSE_VARIANTS.some((x) => x.id === v) ? HOUSE_VARIANTS.findIndex((x) => x.id === v) : HOUSE_VARIANTS.length);
+  const cols = [...shown].sort((a, b) => order(a.variant) - order(b.variant) || a.variant.localeCompare(b.variant));
+  const n = (v: number | string | null) => (v == null ? null : Number(v));
+  const pct = (v: number | string | null) => (n(v) == null ? "—" : `${(n(v)! * 100).toFixed(1)}%`);
+  const band = (lo: number | null, hi: number | null) => (lo == null || hi == null ? "—" : `${pct(lo)}–${pct(hi)}`);
+  const signed = (v: number | string | null) => (n(v) == null ? "—" : `${n(v)! > 0 ? "+" : ""}${n(v)!.toFixed(2)}`);
+  const metrics: { label: string; cell: (r: ExperimentRow) => React.ReactNode }[] = [
+    { label: "Prompt", cell: (r) => r.prompt_versions },
+    { label: "Spread + total calls", cell: (r) => `${r.calls} (${r.wins}-${r.losses}-${r.pushes})` },
+    { label: "Win%", cell: (r) => pct(r.win_pct) },
+    { label: "95% interval", cell: (r) => band(r.win_lo, r.win_hi) },
+    { label: "Plays (6+)", cell: (r) => `${r.plays} (${r.play_wins}-${r.play_losses})` },
+    { label: "Play win%", cell: (r) => pct(r.play_win_pct) },
+    { label: "Play 95% interval", cell: (r) => band(r.play_lo, r.play_hi) },
+    {
+      label: "Avg CLV",
+      cell: (r) => <span className={n(r.avg_clv) ? (n(r.avg_clv)! > 0 ? "text-emerald-300" : "text-red-300") : ""}>{signed(r.avg_clv)} on {r.clv_calls}</span>,
+    },
+    { label: "Units (all markets)", cell: (r) => signed(r.units) },
+  ];
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-semibold text-white">Prompt experiment</h3>
+      <p className="mt-1 text-sm text-neutral-400">
+        Each week&apos;s games are dealt to the variants in turn. Overlapping intervals mean the record cannot tell
+        them apart yet. Promote a variant by editing <code>HOUSE_VARIANTS</code> in lib/pickem-variants.ts.
+      </p>
+      <div className="mt-2">
+        <Segmented label="Scope" value={scope} options={[{ key: "league", label: LEAGUE_META[league].short }, { key: "all", label: "Both leagues" }]} onChange={setScope} />
+      </div>
+      {cols.length ? (
+        <table className="mt-2 text-left text-xs text-neutral-300">
+          <thead className="text-neutral-500">
+            <tr>
+              <th className="pr-4 font-normal" />
+              {cols.map((r) => (
+                <th key={r.variant} className="pr-6 font-normal">{r.variant}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {metrics.map((m) => (
+              <tr key={m.label}>
+                <td className="pr-4 text-neutral-500">{m.label}</td>
+                {cols.map((r) => (
+                  <td key={r.variant} className="pr-6">{m.cell(r)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="mt-2 text-xs text-neutral-500">No completed games under the experiment here yet.</p>
+      )}
+    </div>
+  );
+}
+
 // Buttons that run the pick'em jobs for one league on demand with the admin's
 // session token (the cron runs the same routes with CRON_SECRET).
 export function PickemPanel() {
@@ -319,6 +435,7 @@ export function PickemPanel() {
       {log ? <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-neutral-300">{log}</pre> : null}
       <ClosingLineValue league={league} />
       <Calibration league={league} />
+      <Experiment league={league} />
     </section>
   );
 }
