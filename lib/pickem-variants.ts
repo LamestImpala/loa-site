@@ -7,7 +7,8 @@ import type { League } from "./pickem.ts";
 
 // Bump whenever houseSystem (lib/pickem-server.ts) changes, so the record can
 // be split by prompt. Every variant's prompt_version is built on it.
-export const HOUSE_PROMPT_VERSION = "2026-10-14b";
+// 2026-10-15: Pinnacle, weather, rest and news signals; opponent-adjusted EPA; two searches a batch.
+export const HOUSE_PROMPT_VERSION = "2026-10-15";
 
 export type HouseVariant = {
   id: string;

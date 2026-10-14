@@ -128,11 +128,11 @@ Environment variables (Vercel project + `.env.local`):
 
 | Name | Used for |
 |---|---|
-| `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3, plus 2 when there are finals to grade. |
+| `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3, plus 2 when there are finals to grade. Pinnacle's line costs 3 more, fetched only by the house and research jobs (see below). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Writing games, lines and house picks from the jobs (bypasses RLS). |
-| `ANTHROPIC_API_KEY` | House picks (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from them, no model call. |
+| `ANTHROPIC_API_KEY` | House picks and research digests (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from the picks, no model call. |
 | `CRON_SECRET` | Vercel sends it as a bearer token to the cron routes; any random string. |
-| `CFBD_API_KEY` | College team ratings shown to the house (free key from collegefootballdata.com, 1,000 calls a month). Without it the college sync reports a `cfbd` error and the house runs without ratings. |
+| `CFBD_API_KEY` | College team ratings shown to the house (free key from collegefootballdata.com, 1,000 calls a month). Without it the college sync reports a `cfbd` error and the house runs without ratings. Also used, locally, by `node scripts/gen-venues.mjs` (two calls), which writes the college stadium table `lib/pickem-venues-ncaaf.ts` for the weather signal. |
 
 Jobs (schedules in `vercel.json`; the admin page can run either on demand):
 
@@ -141,8 +141,13 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   daily plus 20:00 and 23:00 UTC Sunday. Monday's NFL sync grades Sunday; Tuesday's grades Monday night.
   It also stores what the house is shown for each upcoming game (`pickem_game_signals`), at most once a
   day per source: CollegeFootballData SP+, Elo and advanced stats for college; nflverse EPA per play and
-  Sleeper's injured starters for the NFL. College also stores ESPN's FPI on every run. The JSON result
-  has a count per source (`cfbd`, `epa`, `injuries`, `fpi`) with any `unmatched` teams.
+  Sleeper's injured starters for the NFL (with opponent-adjusted `adj_off` / `adj_def`); for both, the
+  Open-Meteo forecast at kickoff (`weather`: free, no key; stadiums in `lib/pickem-venues.ts`, neutral
+  sites found through ESPN's scoreboard, domes stored as indoor) and each team's rest from the board's own
+  schedule (`schedule`: days since its last game, bye, short week, and for the NFL the time-zone change).
+  College also stores ESPN's FPI on every run. The JSON result has a count per source (`cfbd`, `epa`,
+  `injuries`, `fpi`, `weather`, `schedule`) with any `unmatched` teams or venues. None of these spends Odds
+  API requests.
 - `GET /api/pickem/{ncaaf|nfl}/house` — house picks for that league's games that don't have them, then a
   parlay rebuild. `?force=1` re-picks the week; `?dry=1` returns what would be written without writing
   (still spends Claude calls); `?only=parlays` skips Claude and only rebuilds parlays. Tailed and locked
@@ -152,6 +157,19 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   Central after the November clock change. The JSON result lists `missing` games, per-batch timing and
   variant, `variants` (games asked of each) and `feedback_chars`; a dry run's `preview` adds the record
   block (`feedback`) and, per variant, a user message with one game in it (`sample_user_messages`).
+  When there are games to pick, the run first stores Pinnacle's line (`pinnacle` in the JSON, with the
+  Odds API requests it cost and how many are left): `bookmakers=pinnacle`, 3 requests, skipped when this
+  league already has a Pinnacle row from the last 6 hours, so the gap-filling runs cost nothing. The house
+  sees it as `pinnacle` and `vs_pinnacle` (consensus and best lines against Pinnacle's no-vig line, in
+  points). The pick call has two web searches a batch; the news comes from the research digests.
+- `GET /api/pickem/{ncaaf|nfl}/research` — a news digest for every game kicking off within four days that
+  is inside 10 points, is in the top two college tiers (Arkansas, Power Four vs Power Four), or is in the
+  NFL: one Claude call with up to four web searches per game, returning dated, sourced injuries,
+  quarterback status, weather, suspensions, coaching changes and one line on what changed since Tuesday.
+  Stored as the `news` signal; the house reads it instead of searching. A game researched in the last 20
+  hours is skipped, so a run that runs out of time (12 at once, 250 s) is finished by the next. Also
+  refreshes Pinnacle (as the house does). `?dry=1` returns the digests without storing them or fetching
+  Pinnacle; `?games=id1,id2` limits the run. Not scheduled yet; see the two-pass proposal below.
 
   ```
   curl -H "Authorization: Bearer $CRON_SECRET" "https://lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"

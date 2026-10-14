@@ -368,7 +368,7 @@ export function PickemPanel() {
         numbers are early ones; college fills in late additions Saturday morning and the NFL on Thursday.
         College line refreshes also store ESPN&apos;s FPI prediction for each upcoming game. Use these to run a job for the selected league now. Refreshing lines spends about 3 of the
         500 monthly Odds API requests (5 when there are finals to grade); a house run is a handful of Claude
-        calls. Parlays are rebuilt from the picks on every house run; tailed and locked tickets are never
+        calls, plus 3 Odds API requests for Pinnacle&apos;s line when there are games to pick (at most once every 6 hours). Parlays are rebuilt from the picks on every house run; tailed and locked tickets are never
         removed.
       </p>
       <div role="group" aria-label="League" className="mt-4 inline-flex gap-0.5 rounded-md border border-white/15 p-0.5">
@@ -430,6 +430,30 @@ export function PickemPanel() {
         </button>
         <button type="button" disabled={busy !== null} onClick={() => run("house?only=parlays", "parlays")} className={btn}>
           {busy === "parlays" ? "Rebuilding…" : "Rebuild parlays"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            if (confirm("Research the news for games in the next four days? One Claude call with web search per game not researched in the last 20 hours, plus a Pinnacle fetch (3 Odds API requests).")) {
+              run("research", "research");
+            }
+          }}
+          className={btn}
+        >
+          {busy === "research" ? "Researching…" : "Research news"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            if (confirm("Preview research digests? Nothing is stored and Pinnacle is not fetched, but it spends a Claude call per game.")) {
+              run("research?dry=1", "researchdry");
+            }
+          }}
+          className={btn}
+        >
+          {busy === "researchdry" ? "Researching…" : "Preview research (dry run)"}
         </button>
       </div>
       {log ? <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-neutral-300">{log}</pre> : null}
