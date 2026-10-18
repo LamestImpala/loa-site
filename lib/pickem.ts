@@ -73,6 +73,10 @@ export type HousePicks = {
   prompt_version?: string;
   model?: string;
   effort?: string;
+  /** The prompt variant that made the calls (lib/pickem-variants.ts). Absent on rows written before 2026-10-15. */
+  variant?: string;
+  /** Set when a scoped re-pick made the calls: "news" for `?since=` (the news pass), "games" for `?games=` alone. Absent on full runs. */
+  scope?: "games" | "news";
 };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is
@@ -88,7 +92,7 @@ export function houseTier(confidence: number): HouseTier {
   return "pass";
 }
 
-/** Units the house risks on a call. */
+/** Units a call's tier is worth once earned; effectiveStake in pickem-house.ts says whether it is. */
 export function houseStake(confidence: number): 0 | 1 | 2 | 3 {
   switch (houseTier(confidence)) {
     case "best":
@@ -216,6 +220,87 @@ export type HouseRecordRow = {
   pushes: number;
   units: number;
 };
+
+/**
+ * One row of pickem_house_calibration: the house's latest calls on completed
+ * games, counted per league, season, market, confidence, basis and prompt.
+ * win_pct leaves pushes out; CLV is absent for moneylines and unlocked calls.
+ */
+export type CalibrationRow = {
+  league: League;
+  season: number;
+  market: Market;
+  confidence: number;
+  basis: string;
+  prompt_version: string;
+  calls: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  win_pct: number | null;
+  clv_calls: number;
+  /** Sum of CLV in points, so groups add up exactly. */
+  clv_points: number;
+  avg_clv: number | null;
+  /** At the tier's nominal stake: 0 on a pass, then 1, 2, 3. */
+  units: number;
+  /** 1u on every call, passes included. */
+  units_flat: number;
+};
+
+/** Calibration rows added up. */
+export type CalibrationTally = {
+  calls: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  clv_calls: number;
+  clv_points: number;
+  units: number;
+  units_flat: number;
+};
+
+/** PostgREST can hand numeric columns back as strings; Number() takes either. */
+export function tallyCalibration(rows: Iterable<CalibrationRow>): CalibrationTally {
+  const t: CalibrationTally = { calls: 0, wins: 0, losses: 0, pushes: 0, clv_calls: 0, clv_points: 0, units: 0, units_flat: 0 };
+  for (const r of rows) {
+    t.calls += Number(r.calls);
+    t.wins += Number(r.wins);
+    t.losses += Number(r.losses);
+    t.pushes += Number(r.pushes);
+    t.clv_calls += Number(r.clv_calls);
+    t.clv_points += Number(r.clv_points);
+    t.units += Number(r.units);
+    t.units_flat += Number(r.units_flat);
+  }
+  return t;
+}
+
+/** Wins over decided calls, or null with none decided. */
+export function tallyWinPct(t: CalibrationTally): number | null {
+  const decided = t.wins + t.losses;
+  return decided ? t.wins / decided : null;
+}
+
+export function tallyAvgClv(t: CalibrationTally): number | null {
+  return t.clv_calls ? t.clv_points / t.clv_calls : null;
+}
+
+/**
+ * The house's spread and total record per confidence in one league and
+ * season, every basis and prompt together: what earned stakes and parlay
+ * probabilities are read from. Moneylines are left out, since a favorite's
+ * win rate says nothing about beating the number.
+ */
+export function confidenceRecord(rows: CalibrationRow[], league: League, season: number): Map<number, CalibrationTally> {
+  const by = new Map<number, CalibrationRow[]>();
+  for (const r of rows) {
+    if (r.league !== league || Number(r.season) !== season || r.market === "ml") continue;
+    const c = Number(r.confidence);
+    by.set(c, [...(by.get(c) ?? []), r]);
+  }
+  return new Map([...by].map(([c, rs]) => [c, tallyCalibration(rs)]));
+}
 
 export type LeaderboardRow = {
   user_id: string;

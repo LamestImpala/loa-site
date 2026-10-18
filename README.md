@@ -85,6 +85,20 @@ house parlays computed from those picks (one per leg count, two through seven,
 ranked by expected value; `lib/pickem-parlays.ts`), and a net-units
 leaderboard. Players sign in with a Supabase magic link.
 
+The house learns from its own record (`supabase/migrations/20261014_pickem_house_calibration.sql`).
+`pickem_house_calibration` counts the latest call on every completed game by league, market,
+confidence, basis and prompt version, with win rate and closing line value (CLV: the locked number
+against the last line before kickoff); `pickem_house_calibration_all` is the same over every call
+including re-picks, for research. Calls under the `feedback-on` prompt variant (see House prompt
+experiments below) are shown that record and last week's calls with their CLV after the slate
+(`lib/pickem-feedback.ts`; rows under 25 calls read "too few to judge"), and each stores what it was shown
+in `pickem_house_calls.feedback`. Stakes are earned, not asserted: every play is
+1u until its confidence has 50+ completed spread and total calls in the league winning 55%, and only then
+does a 7 stake 2u and an 8+ 3u (`effectiveStake` in `lib/pickem-house.ts`, mirrored by
+`pickem_house_record`; the test reads the current record, so a tier that qualifies restates the
+season's units). Parlay probabilities use a confidence's observed win rate once it has 50 calls
+(`confidenceShift` in `lib/pickem-parlays.ts`). The admin page shows the calibration table.
+
 Schema: `supabase/migrations/20260912_pickem.sql` and the later files in that folder.
 Server code: `lib/pickem-server.ts`. League config, week math and team display names: `lib/pickem.ts`.
 
@@ -114,11 +128,11 @@ Environment variables (Vercel project + `.env.local`):
 
 | Name | Used for |
 |---|---|
-| `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3, plus 2 when there are finals to grade. |
+| `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3, plus 2 when there are finals to grade. Pinnacle's line costs 3 more, fetched only by the house and research jobs (see below). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Writing games, lines and house picks from the jobs (bypasses RLS). |
-| `ANTHROPIC_API_KEY` | House picks (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from them, no model call. |
+| `ANTHROPIC_API_KEY` | House picks and research digests (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from the picks, no model call. |
 | `CRON_SECRET` | Vercel sends it as a bearer token to the cron routes; any random string. |
-| `CFBD_API_KEY` | College team ratings shown to the house (free key from collegefootballdata.com, 1,000 calls a month). Without it the college sync reports a `cfbd` error and the house runs without ratings. |
+| `CFBD_API_KEY` | College team ratings shown to the house (free key from collegefootballdata.com, 1,000 calls a month). Without it the college sync reports a `cfbd` error and the house runs without ratings. Also used, locally, by `node scripts/gen-venues.mjs` (two calls), which writes the college stadium table `lib/pickem-venues-ncaaf.ts` for the weather signal. |
 
 Jobs (schedules in `vercel.json`; the admin page can run either on demand):
 
@@ -127,16 +141,100 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   daily plus 20:00 and 23:00 UTC Sunday. Monday's NFL sync grades Sunday; Tuesday's grades Monday night.
   It also stores what the house is shown for each upcoming game (`pickem_game_signals`), at most once a
   day per source: CollegeFootballData SP+, Elo and advanced stats for college; nflverse EPA per play and
-  Sleeper's injured starters for the NFL. College also stores ESPN's FPI on every run. The JSON result
-  has a count per source (`cfbd`, `epa`, `injuries`, `fpi`) with any `unmatched` teams.
+  Sleeper's injured starters for the NFL (with opponent-adjusted `adj_off` / `adj_def`); for both, the
+  Open-Meteo forecast at kickoff (`weather`: free, no key; stadiums in `lib/pickem-venues.ts`, neutral
+  sites found through ESPN's scoreboard, domes stored as indoor) and each team's rest from the board's own
+  schedule (`schedule`: days since its last game, bye, short week, and for the NFL the time-zone change).
+  College also stores ESPN's FPI on every run. The JSON result has a count per source (`cfbd`, `epa`,
+  `injuries`, `fpi`, `weather`, `schedule`) with any `unmatched` teams or venues. None of these spends Odds
+  API requests.
 - `GET /api/pickem/{ncaaf|nfl}/house` — house picks for that league's games that don't have them, then a
   parlay rebuild. `?force=1` re-picks the week; `?dry=1` returns what would be written without writing
-  (still spends Claude calls); `?only=parlays` skips Claude and only rebuilds parlays. Tailed and locked
+  (still spends Claude calls); `?only=parlays` skips Claude and only rebuilds parlays. `?games=id1,id2`
+  re-picks only those games, and `?since=<iso>` (or `since=call`) only games whose newest research digest
+  has news after that time (after each game's own call); the two combine, and either re-picks without
+  `force`. The JSON's `scope` block lists `games_in_scope` (with the news date that put each there),
+  `repicked`, `untouched` and `unknown` ids ("Two-pass week" below). Tailed and locked
   parlays are never removed (`pickem_replace_parlays` in the migration). College runs 14:00 UTC Tuesday
   and Saturday; the NFL runs 15:00 UTC Tuesday and Thursday, after that day's sync. Each has a
   gap-filling run 30 minutes later, except the NFL's Thursday run. Times are UTC, so they land an hour earlier in
-  Central after the November clock change. The JSON result lists `missing` games and per-batch timing.
+  Central after the November clock change. The JSON result lists `missing` games, per-batch timing and
+  variant, `variants` (games asked of each) and `feedback_chars`; a dry run's `preview` adds the record
+  block (`feedback`) and, per variant, a user message with one game in it (`sample_user_messages`).
+  When there are games to pick, the run first stores Pinnacle's line (`pinnacle` in the JSON, with the
+  Odds API requests it cost and how many are left): `bookmakers=pinnacle`, 3 requests, skipped when this
+  league already has a Pinnacle row from the last 6 hours, so the gap-filling runs cost nothing. The house
+  sees it as `pinnacle` and `vs_pinnacle` (consensus and best lines against Pinnacle's no-vig line, in
+  points). The pick call has two web searches a batch; the news comes from the research digests.
+- `GET /api/pickem/{ncaaf|nfl}/research` — a news digest for every game kicking off within four days that
+  is inside 10 points, is in the top two college tiers (Arkansas, Power Four vs Power Four), or is in the
+  NFL: one Claude call with up to four web searches per game, returning dated, sourced injuries,
+  quarterback status, weather, suspensions, coaching changes and one line on what changed since Tuesday.
+  Stored as the `news` signal; the house reads it instead of searching. A game researched in the last 20
+  hours is skipped, so a run that runs out of time (12 at once, 250 s) is finished by the next. Also
+  refreshes Pinnacle (as the house does). `?dry=1` returns the digests without storing them or fetching
+  Pinnacle; `?games=id1,id2` limits the run. Not scheduled yet; see "Two-pass week" below.
 
   ```
   curl -H "Authorization: Bearer $CRON_SECRET" "https://lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"
   ```
+
+### House prompt experiments
+
+Every house call is made under one variant of the house prompt, listed in `HOUSE_VARIANTS`
+(`lib/pickem-variants.ts`). Each variant has an `id`, a `prompt_version` stored with every call, a
+`system` diff appended to the control system prompt (`houseSystemControl` in `lib/pickem-server.ts`), and
+a `feedback` flag for whether the house's record follows the slate. Today there are two: `control` (no
+record shown) and `feedback-on` (control plus the record block and last week's calls).
+
+Each run deals the week's games to the variants in turn, in an order seeded by league and week over every
+game of the week (`assignVariants`). A game whose current call was made under a variant still in the map
+keeps that variant, so a forced re-pick, the Saturday/Thursday gap-filling run and a retried batch ask the
+same game of the same variant. Each batch is one variant's games, and the variants' batches alternate so
+both are in the first wave. The variant is stored in `pickem_games.house.variant` and
+`pickem_house_calls.variant`, next to `prompt_version`.
+
+`pickem_house_experiment` (`supabase/migrations/20261015_pickem_house_variants.sql`) compares them on the
+latest call of every completed game made under the experiment, per league and for both: spread and total
+win rate with a 95% Wilson interval, the same for plays at 6+, average CLV and units. The admin page shows it
+under Calibration, variants side by side. Nothing picks a winner automatically.
+
+- **Add a variant:** append `{ id, prompt_version: `${HOUSE_PROMPT_VERSION}+<tag>`, system, feedback, note }`
+  to `HOUSE_VARIANTS`. Games are then dealt three ways; already-picked games keep their variant.
+- **Change a variant's text:** change its `prompt_version` tag too, so the record splits.
+- **Promote a variant to control:** fold its diff into `houseSystemControl` (and set control's `feedback`
+  if it was the record block), bump `HOUSE_PROMPT_VERSION`, and delete the promoted entry. Every remaining
+  variant's version moves with the bump, so old and new calls never pool.
+- **Stop an experiment:** delete the variant. Its calls keep their id in the record, and games it picked
+  are dealt again only if they are re-picked.
+- Two variants split a 60-game college slate into 5 + 5 batches, which is why the house route runs 10
+  batches at once. A third variant would need `BATCH_CONCURRENCY` raised again or a longer wave.
+
+### Two-pass week
+
+A proposal, not scheduled. The house makes its calls once, Tuesday morning after the week's first line
+sync, and the Saturday (college) and Thursday (NFL) runs only fill gaps. That locks early numbers, which
+is where the CLV is, but by the weekend some lines have moved and the research digests hold news the
+Tuesday call never saw. The second pass re-picks only those games and leaves the rest of the week's calls
+where they are.
+
+1. **Tuesday, the number pass** — the `house` run as today: every game without a call, early lines, no
+   digests yet (the research run is meant for Thursday to Saturday, when the news exists).
+2. **Thursday to Saturday, research** — the `research` run stores a `news` digest for every game that
+   matters, dated and sourced.
+3. **Saturday morning (college) / Thursday (NFL), the news pass** — `house?since=call` re-picks only the
+   games whose newest digest was researched after the game's own call and has an item dated on or after
+   that call's Eastern day (`newsAfter` in `lib/pickem-repick.ts`; the digest a call was shown never
+   re-triggers it). A game with no call yet is left to the gap-filling run, so the two runs stay separate.
+   Games that moved without news go in by hand with `?games=id1,id2`; a line-move trigger (the sync's
+   stored movement, or the consensus line against Pinnacle) could feed the same scope later.
+
+The re-picked call keeps the game's variant, is stored with `scope: "news"` (`"games"` for a plain
+`?games=` run) in `pickem_games.house` and in the `pickem_house_calls` history, so the calibration views
+can split the number pass from the news pass once there are enough of them, and the earlier call stays in
+the history for the comparison. Tailed and locked parlays are never touched; the open untailed ones are
+rebuilt from the mixed slate. Cost is one Claude call per batch of in-scope games and the usual Pinnacle
+refresh (free within 6 hours of the last). To schedule it, add a cron after the weekend research run, for
+example `/api/pickem/ncaaf/house?since=call` at 15:00 UTC Saturday, keeping the 14:00 gap-fill run as it
+is; the NFL's would follow Thursday's. Try it by hand first with `?since=call&dry=1`, which returns the
+scope and the picks without writing them.

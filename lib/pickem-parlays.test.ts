@@ -1,10 +1,11 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { legLabel, legLineAndPrice, parlayAmericanOdds, type HousePicks, type PickemGame } from "./pickem.ts";
+import { confidenceRecord, legLabel, legLineAndPrice, parlayAmericanOdds, type CalibrationRow, type HousePicks, type PickemGame } from "./pickem.ts";
 import {
   buildParlays,
   candidateLegs,
+  CONF_LOGIT_STEP,
   estimatedProbability,
   fairProbability,
   impliedProbability,
@@ -129,4 +130,41 @@ test("deterministic and signature is order-free", () => {
     parlaySignature([{ game_id: "b", market: "ml", selection: "home" }, { game_id: "a", market: "spread", selection: "away" }]),
     parlaySignature([{ game_id: "a", market: "spread", selection: "away" }, { game_id: "b", market: "ml", selection: "home" }])
   );
+});
+
+// ---------------------------------------------------------------------------
+// Observed calibration
+
+function cal(confidence: number, calls: number, wins: number, losses: number, over: Partial<CalibrationRow> = {}): CalibrationRow {
+  return {
+    league: "ncaaf", season: 2026, market: "spread", confidence, basis: "matchup", prompt_version: "v1",
+    calls, wins, losses, pushes: calls - wins - losses, win_pct: null, clv_calls: 0, clv_points: 0, avg_clv: null, units: 0, units_flat: 0,
+    ...over,
+  };
+}
+
+test("estimatedProbability: an observed win rate replaces the asserted step once a confidence has 50 calls", () => {
+  const record = confidenceRecord([cal(6, 60, 31, 27), cal(7, 49, 40, 9)], "ncaaf", 2026);
+  // 6s: 31-27 is 53.4%, so a fair coin becomes 53.4%, not the asserted ~54%.
+  assert.ok(Math.abs(estimatedProbability(0.5, 6, record) - 31 / 58) < 1e-9);
+  // 7s: 49 calls is not enough; the step still applies.
+  assert.equal(estimatedProbability(0.5, 7, record), estimatedProbability(0.5, 7));
+  assert.ok(Math.abs(estimatedProbability(0.5, 7) - 1 / (1 + Math.exp(-2 * CONF_LOGIT_STEP))) < 1e-9);
+});
+
+test("estimatedProbability: a confidence that has lost to the number pulls the fair probability down", () => {
+  const record = confidenceRecord([cal(6, 100, 45, 55)], "ncaaf", 2026);
+  assert.ok(estimatedProbability(0.5, 6, record) < 0.5);
+  // The same shift applies on the logit scale to any price: a 70% favorite stays above 65%.
+  assert.ok(estimatedProbability(0.7, 6, record) > 0.65 && estimatedProbability(0.7, 6, record) < 0.7);
+});
+
+test("buildParlays: legs a losing record no longer backs drop out of the candidates", () => {
+  const games = ["a", "b", "c"].map((id) => game(id, { conf: [6, 6, 5] }));
+  assert.ok(candidateLegs(games, NOW).length > 0);
+  const losing = [cal(6, 100, 45, 55), cal(6, 100, 45, 55, { market: "total" })];
+  assert.deepEqual(candidateLegs(games, NOW, losing), []);
+  assert.deepEqual(buildParlays(games, NOW, losing), []);
+  // Another league's record is ignored.
+  assert.ok(candidateLegs(games, NOW, losing.map((r) => ({ ...r, league: "nfl" as const }))).length > 0);
 });

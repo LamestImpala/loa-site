@@ -15,6 +15,9 @@ export type EspnEvent = {
   };
   competitions: {
     competitors: { homeAway: string; score: string; team: { id: string; abbreviation: string } }[];
+    /** Read by the weather signal: where the game is. */
+    neutralSite?: boolean;
+    venue?: { fullName?: string; indoor?: boolean };
   }[];
 };
 

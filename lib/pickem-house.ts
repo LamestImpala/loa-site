@@ -1,9 +1,11 @@
-// The house as a player. Every call at 6 or better is a play staked by tier
-// (1u lean, 2u like, 3u best bet) at the number the house took when it made
-// the call. Pure and browser-safe so it runs under node --test; the SQL view
-// pickem_house_record (supabase/migrations/20260924_pickem_house.sql) does
-// the same arithmetic for the season leaderboard, and the two must agree.
+// The house as a player. Every call at 6 or better is a play at the number
+// the house took when it made the call, staked 1u until its confidence has
+// earned more (effectiveStake: then 2u on a like, 3u on a best bet). Pure and
+// browser-safe so it runs under node --test; the SQL view pickem_house_record
+// (supabase/migrations/20261014_pickem_house_calibration.sql) does the same
+// arithmetic for the season leaderboard, and the two must agree.
 import {
+  confidenceRecord,
   displayTeam,
   fmtSpread,
   gradePick,
@@ -11,6 +13,8 @@ import {
   houseTier,
   legLineAndPrice,
   winUnits,
+  type CalibrationRow,
+  type CalibrationTally,
   type HouseCall,
   type HousePicks,
   type HouseTier,
@@ -47,6 +51,40 @@ export function playLabel(g: PickemGame, market: Market, selection: Selection, l
   return line == null ? team : `${team} ${fmtSpread(line)}`;
 }
 
+// ---------------------------------------------------------------------------
+// Earned stakes. The prompt asserts a 7 is about 58% and an 8 about 62%; a
+// tier is staked as if that were true only once the record says so.
+
+/** Completed spread and total calls a confidence needs before its tier's full stake. */
+export const STAKE_MIN_CALLS = 50;
+
+/**
+ * Whether a confidence has earned its tier's full stake: STAKE_MIN_CALLS or
+ * more completed calls in the league, winning 55% or more of those decided.
+ * 20 * wins >= 11 * decided is 55% in integers, the test the SQL view uses.
+ */
+export function stakeEarned(t: CalibrationTally | undefined): boolean {
+  if (!t || t.calls < STAKE_MIN_CALLS) return false;
+  return 20 * t.wins >= 11 * (t.wins + t.losses);
+}
+
+/**
+ * Units the house stakes on a call: nothing on a pass, 1u on any play, and
+ * the tier's 2u or 3u once that confidence has earned it. `record` is
+ * confidenceRecord for the call's league and season.
+ */
+export function effectiveStake(confidence: number, record: Map<number, CalibrationTally>): 0 | 1 | 2 | 3 {
+  const full = houseStake(confidence);
+  if (full <= 1) return full;
+  return stakeEarned(record.get(confidence)) ? full : 1;
+}
+
+/** Effective stake for every confidence 6-10 in one league and season, for display. */
+export function stakeTable(calibration: CalibrationRow[], league: League, season: number): { confidence: number; full: number; stake: number; earned: boolean }[] {
+  const record = confidenceRecord(calibration, league, season);
+  return [6, 7, 8, 9, 10].map((c) => ({ confidence: c, full: houseStake(c), stake: effectiveStake(c, record), earned: stakeEarned(record.get(c)) }));
+}
+
 export type HousePlay = {
   game_id: string;
   market: Market;
@@ -64,9 +102,14 @@ export type HousePlay = {
   result: PickResult;
 };
 
-/** Every call the house is playing this slate, in slate order. */
-export function housePlays(games: PickemGame[]): HousePlay[] {
+/**
+ * Every call the house is playing this slate, in slate order. calibration is
+ * pickem_house_calibration's rows, which decide the stakes; with none, every
+ * play is 1u.
+ */
+export function housePlays(games: PickemGame[], calibration: CalibrationRow[] = []): HousePlay[] {
   const out: HousePlay[] = [];
+  const record = recordFor(calibration);
   for (const g of games) {
     if (!g.house) continue;
     for (const market of MARKETS) {
@@ -84,7 +127,7 @@ export function housePlays(games: PickemGame[]): HousePlay[] {
         price,
         confidence: call.confidence,
         tier,
-        stake: houseStake(call.confidence) as 1 | 2 | 3,
+        stake: effectiveStake(call.confidence, record(g)) as 1 | 2 | 3,
         why: call.why,
         label: playLabel(g, market, call.pick, line),
         kickoff: g.commence_time,
@@ -106,9 +149,9 @@ export function playUnits(result: PickResult, price: number, stake: number): num
 export type HouseRecord = { wins: number; losses: number; pushes: number; units: number };
 
 /** The house's record on the completed games in a slate. Same arithmetic as pickem_house_record. */
-export function houseWeekRecord(games: PickemGame[]): HouseRecord {
+export function houseWeekRecord(games: PickemGame[], calibration: CalibrationRow[] = []): HouseRecord {
   const rec: HouseRecord = { wins: 0, losses: 0, pushes: 0, units: 0 };
-  for (const p of housePlays(games)) {
+  for (const p of housePlays(games, calibration)) {
     if (!p.completed || !p.result) continue;
     if (p.result === "win") rec.wins++;
     else if (p.result === "loss") rec.losses++;
@@ -149,7 +192,7 @@ export function fmtProjection(g: PickemGame, proj: { home: number; away: number 
 // does not move once posted) and graded live like everything else.
 
 import { americanToDecimal, opposingPrice, type League } from "./pickem.ts";
-import { estimatedProbability, fairProbability } from "./pickem-parlays.ts";
+import { estimatedProbability, fairProbability, recordFor } from "./pickem-parlays.ts";
 
 /** How many plays make the card: enough to be a card, few enough to be a stance. */
 export const HOUSE_CARD_SIZE: Record<League, number> = { ncaaf: 5, nfl: 3 };
@@ -174,20 +217,21 @@ export type HouseCard = {
  * within a tier. opposingPrice reads the other side's current price, not the
  * one at lock time; for a tie-break that is close enough.
  */
-function edgeOf(g: PickemGame, p: HousePlay): number {
+function edgeOf(g: PickemGame, p: HousePlay, record: Map<number, CalibrationTally>): number {
   const fair = fairProbability(p.price, opposingPrice(g, p.market, p.selection));
-  return estimatedProbability(fair, p.confidence) * americanToDecimal(p.price);
+  return estimatedProbability(fair, p.confidence, record) * americanToDecimal(p.price);
 }
 
 const MARKET_ORDER: Record<Market, number> = { spread: 0, total: 1, ml: 2 };
 
 /** One play per game, the house's strongest, ranked across the slate: tier first, then edge, then kickoff. */
-export function rankHousePlays(games: PickemGame[]): HouseCardPlay[] {
+export function rankHousePlays(games: PickemGame[], calibration: CalibrationRow[] = []): HouseCardPlay[] {
   const byGame = new Map(games.map((g) => [g.id, g]));
   const best = new Map<string, HouseCardPlay>();
-  for (const p of housePlays(games)) {
+  const record = recordFor(calibration);
+  for (const p of housePlays(games, calibration)) {
     const g = byGame.get(p.game_id)!;
-    const play: HouseCardPlay = { ...p, edge: edgeOf(g, p), tags: [] };
+    const play: HouseCardPlay = { ...p, edge: edgeOf(g, p, record(g)), tags: [] };
     const cur = best.get(p.game_id);
     if (!cur || play.confidence > cur.confidence || (play.confidence === cur.confidence && (play.edge > cur.edge || (play.edge === cur.edge && MARKET_ORDER[play.market] < MARKET_ORDER[cur.market])))) {
       best.set(p.game_id, play);
@@ -221,9 +265,10 @@ function stayAwayOf(games: PickemGame[]): StayAway | null {
   return pick;
 }
 
-export function buildHouseCard(games: PickemGame[]): HouseCard {
+/** calibration is pickem_house_calibration's rows: they set the stakes and the edge ranking. */
+export function buildHouseCard(games: PickemGame[], calibration: CalibrationRow[] = []): HouseCard {
   const posted = games.some((g) => g.house);
-  const ranked = rankHousePlays(games);
+  const ranked = rankHousePlays(games, calibration);
   const league = games[0]?.league ?? "ncaaf";
   const plays = ranked.slice(0, HOUSE_CARD_SIZE[league]);
   // A 6 is a lean, not a lock: the top play only earns the tag at like or better.
@@ -234,5 +279,5 @@ export function buildHouseCard(games: PickemGame[]): HouseCard {
     upset.tags.push("upset");
     if (!plays.includes(upset)) plays.push(upset);
   }
-  return { plays, stayAway: stayAwayOf(games), record: houseWeekRecord(games), posted };
+  return { plays, stayAway: stayAwayOf(games), record: houseWeekRecord(games, calibration), posted };
 }

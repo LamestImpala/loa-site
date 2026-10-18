@@ -4,7 +4,7 @@
 // everything else is a section component fed by props.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { LEAGUES, LEAGUE_META, type HouseRecordRow, type League, type LeaderboardRow, type PickemGame, type PickemParlay } from "@/lib/pickem";
+import { LEAGUES, LEAGUE_META, type CalibrationRow, type HouseRecordRow, type League, type LeaderboardRow, type PickemGame, type PickemParlay } from "@/lib/pickem";
 import { bucketGames, conferencesOnSlate, defaultView, fmtKickLong, tzLabel, type View } from "@/lib/pickem-board";
 import { applyLive } from "@/lib/pickem-live";
 import { PickemActionsContext } from "./pickem-context";
@@ -28,12 +28,14 @@ type Props = {
   parlays: PickemParlay[];
   leaderboard: LeaderboardRow[];
   houseRecord: HouseRecordRow[];
+  /** The house's record per confidence (pickem_house_calibration), which sets its stakes. */
+  calibration: CalibrationRow[];
   /** Server clock at render, so the first client render matches the HTML. */
   initialNow: number;
   linesAsOf: string | null;
 };
 
-export default function PickemClient({ league, week, games, parlays, leaderboard, houseRecord, initialNow, linesAsOf }: Props) {
+export default function PickemClient({ league, week, games, parlays, leaderboard, houseRecord, calibration, initialNow, linesAsOf }: Props) {
   const auth = usePickemSession();
   const tz = useViewerTimeZone();
 
@@ -137,7 +139,7 @@ export default function PickemClient({ league, week, games, parlays, leaderboard
           </>
         )}
 
-        <HouseCard games={liveGames} league={league} week={week} now={now} tz={tz} />
+        <HouseCard games={liveGames} calibration={calibration} league={league} week={week} now={now} tz={tz} />
         <Parlays parlays={parlays} games={liveGames} tails={auth.tails} now={now} />
         <MyBets auth={auth} games={liveGames} league={league} week={week} now={now} />
         <Standings leaderboard={leaderboard} houseRecord={houseRecord} league={league} week={week} userId={auth.userId} />

@@ -1,13 +1,17 @@
 // House parlays, computed from the house picks. Each pick's price becomes a
-// fair probability, nudged by the house confidence; legs are scored by
-// probability times payout and the best ones are stacked two to seven deep.
+// fair probability, nudged by the house confidence (by its observed record
+// once a confidence has one); legs are scored by probability times payout and
+// the best ones are stacked two to seven deep.
 // Pure and browser-safe so it runs under node --test.
 import {
   americanToDecimal,
+  confidenceRecord,
   legLabel,
   legLineAndPrice,
   opposingPrice,
   parlayAmericanOdds,
+  type CalibrationRow,
+  type CalibrationTally,
   type Market,
   type ParlayLeg,
   type PickemGame,
@@ -38,20 +42,55 @@ export function fairProbability(price: number, opposing: number | null | undefin
   return sum > 1 ? a / sum : a;
 }
 
-/** Fair probability nudged by house confidence. 5 means the number is fair; below 5 counts as 5. */
-export function estimatedProbability(fair: number, confidence: number): number {
+/** A confidence needs this many completed spread and total calls before its own record replaces CONF_LOGIT_STEP. */
+export const OBSERVED_MIN_CALLS = 50;
+
+/**
+ * Logit shift for a confidence. With at least OBSERVED_MIN_CALLS calls on
+ * record it is the logit of the observed win rate against the spread and
+ * total (a coin flip is 0, so a confidence that has lost to the number pulls
+ * the fair probability down); otherwise the asserted CONF_LOGIT_STEP per
+ * point above 5.
+ */
+export function confidenceShift(confidence: number, record?: Map<number, CalibrationTally>): number {
   const c = Math.min(10, Math.max(5, confidence));
+  const t = record?.get(c);
+  if (t && t.calls >= OBSERVED_MIN_CALLS && t.wins + t.losses > 0) {
+    const p = Math.min(0.98, Math.max(0.02, t.wins / (t.wins + t.losses)));
+    return Math.log(p / (1 - p));
+  }
+  return (c - 5) * CONF_LOGIT_STEP;
+}
+
+/**
+ * Fair probability nudged by house confidence. 5 means the number is fair;
+ * below 5 counts as 5. Pass the league's confidenceRecord to use observed win
+ * rates where there are enough calls.
+ */
+export function estimatedProbability(fair: number, confidence: number, record?: Map<number, CalibrationTally>): number {
   const f = Math.min(0.98, Math.max(0.02, fair));
-  const logit = Math.log(f / (1 - f)) + (c - 5) * CONF_LOGIT_STEP;
+  const logit = Math.log(f / (1 - f)) + confidenceShift(confidence, record);
   const p = 1 / (1 + Math.exp(-logit));
   return Math.min(0.98, Math.max(0.02, p));
 }
 
 export type CandidateLeg = ParlayLeg & { confidence: number; p: number; score: number; kickoff: string };
 
+/** The confidence record for each game's league and season, built once per pair. */
+export function recordFor(calibration: CalibrationRow[]): (g: Pick<PickemGame, "league" | "season">) => Map<number, CalibrationTally> {
+  const cache = new Map<string, Map<number, CalibrationTally>>();
+  return (g) => {
+    const key = `${g.league}|${g.season}`;
+    let r = cache.get(key);
+    if (!r) cache.set(key, (r = confidenceRecord(calibration, g.league, g.season)));
+    return r;
+  };
+}
+
 /** One leg per pending game with picks: the market with the most edge, if it has any. Sorted best first. */
-export function candidateLegs(games: PickemGame[], now: number): CandidateLeg[] {
+export function candidateLegs(games: PickemGame[], now: number, calibration: CalibrationRow[] = []): CandidateLeg[] {
   const out: CandidateLeg[] = [];
+  const record = recordFor(calibration);
   for (const g of games) {
     if (!g.house || g.completed || Date.parse(g.commence_time) <= now) continue;
     let top: CandidateLeg | null = null;
@@ -64,7 +103,7 @@ export function candidateLegs(games: PickemGame[], now: number): CandidateLeg[] 
       const { line, price } = legLineAndPrice(g, market, sel);
       if (market !== "ml" && line == null) continue;
       if (price < PRICE_MIN || price > PRICE_MAX) continue;
-      const p = estimatedProbability(fairProbability(price, opposingPrice(g, market, sel)), call.confidence);
+      const p = estimatedProbability(fairProbability(price, opposingPrice(g, market, sel)), call.confidence, record(g));
       const score = p * americanToDecimal(price);
       const leg: CandidateLeg = {
         game_id: g.id,
@@ -112,9 +151,13 @@ export function parlayNote(k: number, hitProbability: number, ev: number): strin
   return `The ${WORDS[k] ?? k} legs with the most edge over the price. House puts it at ${pct}% to hit, ${evPct >= 0 ? "+" : ""}${evPct}% expected value on a unit.`;
 }
 
-/** One ticket per leg count, 2 through 7, each the top legs by edge. Skips counts the slate cannot fill. */
-export function buildParlays(games: PickemGame[], now: number): ParlayDraft[] {
-  const legs = candidateLegs(games, now);
+/**
+ * One ticket per leg count, 2 through 7, each the top legs by edge. Skips
+ * counts the slate cannot fill. calibration is pickem_house_calibration's
+ * rows; without it every confidence is valued at CONF_LOGIT_STEP.
+ */
+export function buildParlays(games: PickemGame[], now: number, calibration: CalibrationRow[] = []): ParlayDraft[] {
+  const legs = candidateLegs(games, now, calibration);
   const out: ParlayDraft[] = [];
   for (const k of LEG_COUNTS) {
     if (legs.length < k) break;
