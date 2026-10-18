@@ -75,6 +75,8 @@ export type HousePicks = {
   effort?: string;
   /** The prompt variant that made the calls (lib/pickem-variants.ts). Absent on rows written before 2026-10-15. */
   variant?: string;
+  /** Set when a scoped re-pick made the calls: "news" for `?since=` (the news pass), "games" for `?games=` alone. Absent on full runs. */
+  scope?: "games" | "news";
 };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is

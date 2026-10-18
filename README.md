@@ -150,7 +150,11 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   API requests.
 - `GET /api/pickem/{ncaaf|nfl}/house` — house picks for that league's games that don't have them, then a
   parlay rebuild. `?force=1` re-picks the week; `?dry=1` returns what would be written without writing
-  (still spends Claude calls); `?only=parlays` skips Claude and only rebuilds parlays. Tailed and locked
+  (still spends Claude calls); `?only=parlays` skips Claude and only rebuilds parlays. `?games=id1,id2`
+  re-picks only those games, and `?since=<iso>` (or `since=call`) only games whose newest research digest
+  has news after that time (after each game's own call); the two combine, and either re-picks without
+  `force`. The JSON's `scope` block lists `games_in_scope` (with the news date that put each there),
+  `repicked`, `untouched` and `unknown` ids ("Two-pass week" below). Tailed and locked
   parlays are never removed (`pickem_replace_parlays` in the migration). College runs 14:00 UTC Tuesday
   and Saturday; the NFL runs 15:00 UTC Tuesday and Thursday, after that day's sync. Each has a
   gap-filling run 30 minutes later, except the NFL's Thursday run. Times are UTC, so they land an hour earlier in
@@ -169,7 +173,7 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   Stored as the `news` signal; the house reads it instead of searching. A game researched in the last 20
   hours is skipped, so a run that runs out of time (12 at once, 250 s) is finished by the next. Also
   refreshes Pinnacle (as the house does). `?dry=1` returns the digests without storing them or fetching
-  Pinnacle; `?games=id1,id2` limits the run. Not scheduled yet; see the two-pass proposal below.
+  Pinnacle; `?games=id1,id2` limits the run. Not scheduled yet; see "Two-pass week" below.
 
   ```
   curl -H "Authorization: Bearer $CRON_SECRET" "https://lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"
@@ -205,3 +209,32 @@ under Calibration, variants side by side. Nothing picks a winner automatically.
   are dealt again only if they are re-picked.
 - Two variants split a 60-game college slate into 5 + 5 batches, which is why the house route runs 10
   batches at once. A third variant would need `BATCH_CONCURRENCY` raised again or a longer wave.
+
+### Two-pass week
+
+A proposal, not scheduled. The house makes its calls once, Tuesday morning after the week's first line
+sync, and the Saturday (college) and Thursday (NFL) runs only fill gaps. That locks early numbers, which
+is where the CLV is, but by the weekend some lines have moved and the research digests hold news the
+Tuesday call never saw. The second pass re-picks only those games and leaves the rest of the week's calls
+where they are.
+
+1. **Tuesday, the number pass** — the `house` run as today: every game without a call, early lines, no
+   digests yet (the research run is meant for Thursday to Saturday, when the news exists).
+2. **Thursday to Saturday, research** — the `research` run stores a `news` digest for every game that
+   matters, dated and sourced.
+3. **Saturday morning (college) / Thursday (NFL), the news pass** — `house?since=call` re-picks only the
+   games whose newest digest was researched after the game's own call and has an item dated on or after
+   that call's Eastern day (`newsAfter` in `lib/pickem-repick.ts`; the digest a call was shown never
+   re-triggers it). A game with no call yet is left to the gap-filling run, so the two runs stay separate.
+   Games that moved without news go in by hand with `?games=id1,id2`; a line-move trigger (the sync's
+   stored movement, or the consensus line against Pinnacle) could feed the same scope later.
+
+The re-picked call keeps the game's variant, is stored with `scope: "news"` (`"games"` for a plain
+`?games=` run) in `pickem_games.house` and in the `pickem_house_calls` history, so the calibration views
+can split the number pass from the news pass once there are enough of them, and the earlier call stays in
+the history for the comparison. Tailed and locked parlays are never touched; the open untailed ones are
+rebuilt from the mixed slate. Cost is one Claude call per batch of in-scope games and the usual Pinnacle
+refresh (free within 6 hours of the last). To schedule it, add a cron after the weekend research run, for
+example `/api/pickem/ncaaf/house?since=call` at 15:00 UTC Saturday, keeping the 14:00 gap-fill run as it
+is; the NFL's would follow Thursday's. Try it by hand first with `?since=call&dry=1`, which returns the
+scope and the picks without writing them.

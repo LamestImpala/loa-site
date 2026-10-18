@@ -30,6 +30,7 @@ import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlay
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
 import { houseFeedback, type LastWeekRow } from "./pickem-feedback";
 import { assignVariants, dealVariantBatches, HOUSE_VARIANTS, type HouseVariant } from "./pickem-variants";
+import { isScoped, scopeGames, type RepickScope } from "./pickem-repick";
 import { SLIP_MARKETS, SLIP_SELECTIONS, type ParsedSlip, type SlipGame } from "./pickem-slip";
 import {
   cfbdRatings,
@@ -692,6 +693,22 @@ export function captureSchedule(league: League, now = new Date()): Promise<Signa
   });
 }
 
+/** The newest news digest per game, at any age (readSignals drops ones older than three days). */
+async function readNews(db: ReturnType<typeof serviceSupabase>, ids: string[]): Promise<Map<string, NewsDigest>> {
+  if (!ids.length) return new Map();
+  const { data, error } = await db
+    .from("pickem_game_signals")
+    .select("game_id, source, taken_at, data")
+    .eq("source", "news")
+    .in("game_id", ids)
+    .order("taken_at", { ascending: false })
+    .limit(1000);
+  if (error) throw new Error(`read news: ${error.message}`);
+  const out = new Map<string, NewsDigest>();
+  for (const [id, s] of latestSignals((data ?? []) as SignalRow[])) if (s.news) out.set(id, s.news);
+  return out;
+}
+
 /**
  * What the house is shown for each game: the newest row of each signal and,
  * for college, the newest FPI margin. Signals are optional, so a read error
@@ -808,7 +825,13 @@ type BatchOutcome = {
   projections_dropped?: number;
 };
 
-export type HouseRunOptions = { force?: boolean; dry?: boolean; onlyParlays?: boolean };
+export type HouseRunOptions = {
+  force?: boolean;
+  dry?: boolean;
+  onlyParlays?: boolean;
+  /** Re-pick only these games, or only games with news since a time (lib/pickem-repick.ts). Implies force within the scope. */
+  scope?: RepickScope;
+};
 
 export type HouseRunResult = {
   league: League;
@@ -823,6 +846,13 @@ export type HouseRunResult = {
   variants: Record<string, number>;
   /** Pinnacle's fetch before picking, with its Odds API cost; null when there was nothing to pick. */
   pinnacle: PinnacleCapture | { error: string } | null;
+  /**
+   * A scoped run: its games, each with the news date that put it in scope when
+   * `since` was given; `repicked`, the ids whose call was replaced (in a dry run,
+   * would be); `untouched`, how many upcoming games kept their call; and
+   * `unknown`, requested ids not on the upcoming slate.
+   */
+  scope?: RepickScope & { games_in_scope: { id: string; game: string; news?: string }[]; repicked: string[]; untouched: number; unknown: string[] };
   preview?: {
     picks: Record<string, HousePicks>;
     parlays: ParlayDraft[];
@@ -1018,9 +1048,26 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
     .order("commence_time");
   if (error) throw new Error(error.message);
   const slate = (games ?? []) as PickemGame[];
-  const todo = opts.onlyParlays
-    ? []
-    : (opts.force ? slate : slate.filter((g) => !g.house)).sort((a, b) => Math.abs(a.spread_home ?? 99) - Math.abs(b.spread_home ?? 99));
+  const label = (g: PickemGame) => `${g.away_team} @ ${g.home_team}`;
+
+  // A scoped run re-picks only its games, already called or not, and leaves
+  // the rest of the slate alone (the normal run fills gaps).
+  const scope = opts.scope && isScoped(opts.scope) && !opts.onlyParlays ? opts.scope : null;
+  let scoped: HouseRunResult["scope"];
+  let base = opts.force ? slate : slate.filter((g) => !g.house);
+  if (scope) {
+    const news = scope.since ? await readNews(db, slate.map((g) => g.id)) : new Map<string, NewsDigest>();
+    const { games: inScope, unknown } = scopeGames(slate, scope, (id) => news.get(id));
+    base = inScope.map((s) => s.game);
+    scoped = {
+      ...scope,
+      games_in_scope: inScope.map((s) => ({ id: s.game.id, game: label(s.game), ...(s.news ? { news: s.news } : {}) })),
+      repicked: [],
+      untouched: slate.length - inScope.length,
+      unknown,
+    };
+  }
+  const todo = opts.onlyParlays ? [] : [...base].sort((a, b) => Math.abs(a.spread_home ?? 99) - Math.abs(b.spread_home ?? 99));
 
   // Pinnacle's line, fetched just before picking (3 Odds API requests, at
   // most once every 6 hours per league). A failure leaves the house without
@@ -1053,7 +1100,6 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   const deadline = Date.now() + ROUTE_BUDGET_MS;
   const batches: BatchOutcome[] = [];
   const picks = new Map<string, HousePicks>();
-  const label = (g: PickemGame) => `${g.away_team} @ ${g.home_team}`;
   let missing: HouseRunResult["missing"] = [];
 
   if (!opts.onlyParlays) {
@@ -1084,16 +1130,18 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   }
 
   let picked = 0;
+  const written = new Set<string>();
   if (!opts.dry) {
     const stamp = now.toISOString();
     const byId = new Map(slate.map((g) => [g.id, g]));
     const log = [];
     for (const [id, house] of picks) {
-      const saved: HousePicks = { ...house, picked_at: stamp, model: HOUSE_MODEL, effort: HOUSE_EFFORT };
+      const saved: HousePicks = { ...house, picked_at: stamp, model: HOUSE_MODEL, effort: HOUSE_EFFORT, ...(scope ? { scope: scope.since ? "news" : "games" } : {}) };
       const variant = HOUSE_VARIANTS.find((v) => v.id === house.variant) ?? HOUSE_VARIANTS[0];
       const { error: uErr } = await db.from("pickem_games").update({ house: saved, updated_at: stamp }).eq("id", id);
       if (uErr) continue;
       picked++;
+      written.add(id);
       const g = byId.get(id);
       // signals and feedback are left off when there were none.
       const shown = signals.get(id);
@@ -1121,10 +1169,11 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
     }
   }
 
+  if (scoped) scoped.repicked = todo.filter((g) => (opts.dry ? picks.has(g.id) : written.has(g.id))).map((g) => g.id);
   const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
   const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry), record.calibration);
 
-  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length, variants: counts, pinnacle };
+  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length, variants: counts, pinnacle, ...(scoped ? { scope: scoped } : {}) };
   if (opts.dry) {
     const sample_user_messages: Record<string, string> = {};
     for (const v of HOUSE_VARIANTS) {
