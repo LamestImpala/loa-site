@@ -50,6 +50,8 @@ const COLLEGE_ALIASES: Record<string, string> = {
   Hawaii: "Hawai'i",
   "Sam Houston State": "Sam Houston",
   "San Jose State": "San José State",
+  "Southern Mississippi": "Southern Miss",
+  UMass: "Massachusetts",
 };
 
 /**

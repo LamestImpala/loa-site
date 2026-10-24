@@ -17,7 +17,14 @@ test("every FBS school in the conference map has a logo", () => {
 });
 
 test("Odds API spellings that differ from ESPN's still resolve", () => {
-  for (const name of ["Appalachian State Mountaineers", "Hawaii Rainbow Warriors", "Sam Houston State Bearkats", "San Jose State Spartans"]) {
+  for (const name of [
+    "Appalachian State Mountaineers",
+    "Hawaii Rainbow Warriors",
+    "Sam Houston State Bearkats",
+    "San Jose State Spartans",
+    "Southern Mississippi Golden Eagles",
+    "UMass Minutemen",
+  ]) {
     assert.match(logoUrl("ncaaf", name) ?? "", /\/ncaa\/500-dark\/\d+\.png$/, name);
   }
 });
