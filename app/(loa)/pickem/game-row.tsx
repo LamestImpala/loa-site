@@ -4,10 +4,10 @@
 // Memoised so the 30-second clock only re-renders rows whose lock flips
 // (and the live poll only the rows whose score moved).
 import { memo } from "react";
-import { displayTeam, fmtPrice, fmtSpread, gradePick, HOUSE_TIER_META, houseStake, houseTier, type League, type PickemGame, type PickemPick } from "@/lib/pickem";
+import { displayTeam, fmtPrice, fmtSpread, gradePick, HOUSE_TIER_META, houseStake, houseTier, type HousePicks, type League, type Market, type PickemGame, type PickemPick, type PreviousCall } from "@/lib/pickem";
 import { conferenceOf, conferenceTag } from "@/lib/pickem-conferences";
-import { bookCode, fmtKick } from "@/lib/pickem-board";
-import { fmtProjection } from "@/lib/pickem-house";
+import { bookCode, fmtKick, fmtKickLong } from "@/lib/pickem-board";
+import { changedMarkets, fmtNewsDate, fmtProjection } from "@/lib/pickem-house";
 import PickButton from "./pick-button";
 import ConfidenceBadge from "./confidence-badge";
 import TeamLogo from "./team-logo";
@@ -172,6 +172,34 @@ function GameRow({ game: g, locked, tz, spreadPick, totalPick, mlPick, expanded,
             ]}
             house={h?.ml} sideName={(s) => (s === "home" ? home : away)}
           />
+          {h?.scope === "news" && h.picked_at ? (
+            <div className="grid gap-0.5 lg:grid-cols-[6rem_minmax(0,1fr)]">
+              <div className="text-neutral-500">Re-picked</div>
+              <div>
+                <span className="text-orange-200">{fmtKickLong(h.picked_at, tz)}</span>
+                <span className="text-neutral-400"> on news since the Tuesday call</span>
+                {h.previous ? <span className="text-neutral-400">{wasLine(h, h.previous, home, away)}</span> : null}
+              </div>
+            </div>
+          ) : null}
+          {h?.news?.items.length ? (
+            <div className="grid gap-0.5 lg:grid-cols-[6rem_minmax(0,1fr)]">
+              <div className="text-neutral-500">News</div>
+              <div className="grid gap-0.5">
+                {h.news.what_changed ? <div className="text-neutral-200">{h.news.what_changed}</div> : null}
+                <ul className="grid gap-0.5">
+                  {h.news.items.map((it, i) => (
+                    <li key={i} className="text-neutral-300">
+                      <span className="text-neutral-400">{it.team === "home" ? home : away}:</span> {it.player ? <>{it.player} — </> : null}
+                      {it.detail}
+                      {it.date ? <span className="text-neutral-500"> ({fmtNewsDate(it.date)})</span> : null}
+                    </li>
+                  ))}
+                </ul>
+                <div className="text-neutral-500">What the house read, researched {fmtKickLong(h.news.researched_at, tz)}.</div>
+              </div>
+            </div>
+          ) : null}
           {h?.projection ? (
             <div className="grid gap-0.5 lg:grid-cols-[6rem_minmax(0,1fr)]">
               <div className="text-neutral-500">Projection</div>
@@ -237,6 +265,17 @@ function Detail({
 
 // "House passes on the total" for a 5; otherwise the side, the tier pill and
 // the stake ("House likes Alabama LIKE · 2u"), then the reasoning.
+// " · was: spread pass, total lean the under" for the markets a re-pick changed; "" when it changed nothing.
+function wasLine(h: HousePicks, prev: PreviousCall, home: string, away: string): string {
+  const side = (m: Market, pick: string) => (m === "total" ? (pick === "over" ? "the over" : "the under") : pick === "home" ? home : away);
+  const label: Record<Market, string> = { spread: "spread", total: "total", ml: "moneyline" };
+  const parts = changedMarkets(h, prev).map((m) => {
+    const tier = houseTier(prev[m].confidence);
+    return `${label[m]} ${tier === "pass" ? "pass" : `${tier} ${side(m, prev[m].pick)}`}`;
+  });
+  return parts.length ? ` · was: ${parts.join(", ")}` : " · same calls, new reasoning";
+}
+
 function HouseNote({ label, house, sideName }: { label: string; house: { pick: string; confidence: number; why: string }; sideName: (s: string) => string }) {
   const tier = houseTier(house.confidence);
   if (tier === "pass") {

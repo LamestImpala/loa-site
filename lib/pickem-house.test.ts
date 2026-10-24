@@ -346,3 +346,47 @@ test("projectionAgrees: a legacy call without a locked line grades against no nu
 test("fmtProjection reads home first with display names", () => {
   assert.equal(fmtProjection(game("g"), { home: 31, away: 17 }), "Alabama 31, Kentucky 17");
 });
+
+// ---------------------------------------------------------------------------
+// News and re-picks on the board
+
+import { changedMarkets, fmtNewsDate, houseNews, previousCall } from "./pickem-house.ts";
+
+const newsItem = (detail: string, date: string | null = "2026-10-23") => ({ team: "home" as const, player: "QB One", detail, source: "espn.com", date });
+
+test("houseNews keeps injuries first, at most five items, details clipped, and nothing for an empty digest", () => {
+  const digest = {
+    injuries: [newsItem("out"), newsItem("questionable"), newsItem("x".repeat(400))],
+    suspensions: [newsItem("suspended one game")],
+    coaching: [newsItem("new OC"), newsItem("too many")],
+    what_changed: "QB One ruled out Friday.",
+    researched_at: "2026-10-23T14:00:00.000Z",
+  };
+  const n = houseNews(digest)!;
+  assert.equal(n.items.length, 5);
+  assert.deepEqual(n.items.map((i) => i.detail.slice(0, 10)), ["out", "questionab", "xxxxxxxxxx", "suspended ", "new OC"]);
+  assert.equal(n.items[2].detail.length, 160);
+  assert.ok(n.items[2].detail.endsWith("…"));
+  assert.equal(n.what_changed, "QB One ruled out Friday.");
+  assert.equal(n.researched_at, digest.researched_at);
+  // Source is not carried to the board.
+  assert.equal("source" in n.items[0], false);
+  assert.equal(houseNews({ ...digest, injuries: [], suspensions: [], coaching: [] }), undefined);
+});
+
+test("previousCall keeps each market's side and confidence and the time; changedMarkets names what moved", () => {
+  const call = (pick: "home" | "away" | "over" | "under", confidence: number) => ({ pick, confidence, why: "", basis: "none" as const });
+  const before: HousePicks = { spread: call("home", 5), total: call("over", 6), ml: call("home", 5), picked_at: "2026-10-20T14:00:00.000Z" };
+  const prev = previousCall(before);
+  assert.deepEqual(prev, { picked_at: before.picked_at, spread: { pick: "home", confidence: 5 }, total: { pick: "over", confidence: 6 }, ml: { pick: "home", confidence: 5 } });
+  assert.equal("picked_at" in previousCall({ ...before, picked_at: undefined }), false);
+  // A 5 to a 6 is a change of tier; a 6 to a 6 on the same side is not, nor is a 5 that picked the other side (both passes).
+  assert.deepEqual(changedMarkets({ spread: call("home", 6), total: call("over", 6), ml: call("away", 5) }, prev), ["spread"]);
+  assert.deepEqual(changedMarkets({ spread: call("away", 5), total: call("under", 6), ml: call("home", 7) }, prev), ["total", "ml"]);
+});
+
+test("fmtNewsDate", () => {
+  assert.equal(fmtNewsDate("2026-10-23"), "Oct 23");
+  assert.equal(fmtNewsDate("Friday"), "Friday");
+  assert.equal(fmtNewsDate(null), "");
+});

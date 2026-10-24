@@ -248,7 +248,12 @@ where they are.
 The re-picked call keeps the game's variant, is stored with `scope: "news"` (`"games"` for a plain
 `?games=` run) in `pickem_games.house` and in the `pickem_house_calls` history, so the calibration views
 can split the number pass from the news pass once there are enough of them, and the earlier call stays in
-the history for the comparison. Tailed and locked parlays are never touched; the open untailed ones are
+the history for the comparison. The re-picked call also keeps a summary of the call it replaced (`previous`: each
+market's side and confidence, and when), and every call made with a digest keeps the digest's key items
+(`news`: up to five injuries, suspensions and coaching changes, with what changed since Tuesday;
+`houseNews` in `lib/pickem-house.ts`), both inside `pickem_games.house`, because the board cannot read the
+signals table. The board's "lines & house" panel shows them: a "Re-picked Sat 10:05 AM on news" line with
+the markets that moved, and the news the house read. Tailed and locked parlays are never touched; the open untailed ones are
 rebuilt from the mixed slate. Cost is one Claude call per batch of in-scope games and the usual Pinnacle
 refresh (free within 6 hours of the last).
 
