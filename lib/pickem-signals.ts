@@ -491,10 +491,26 @@ export type NewsDigest = {
   researched_at: string;
 };
 
-/** The date of the newest dated item in a digest, or null with none. Used to find news after a call. */
-export function newestNewsDate(d: Pick<NewsDigest, "injuries" | "suspensions" | "coaching">): string | null {
-  const dates = [...d.injuries, ...d.suspensions, ...d.coaching].map((x) => x.date).filter((x): x is string => Boolean(x) && !Number.isNaN(Date.parse(x!)));
-  return dates.length ? dates.sort().at(-1)! : null;
+/**
+ * A string cut to `max` characters, ending in an ellipsis when it was longer.
+ * Structured output holds the JSON to its shape, not its string lengths, so a
+ * `.max()` in an output schema can only fail the parse and lose the whole
+ * call; sizes are applied here, after parsing, instead.
+ */
+export const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
+
+/** A digest with its text cut to the sizes the house is shown: 300 characters an item, 200 a quarterback line, 300 for weather, 240 for what changed. */
+export function clipDigest<D extends Pick<NewsDigest, "injuries" | "quarterbacks" | "weather" | "suspensions" | "coaching" | "what_changed">>(d: D): D {
+  const items = (xs: NewsItem[]) => xs.map((x) => ({ ...x, detail: clip(x.detail, 300) }));
+  return {
+    ...d,
+    injuries: items(d.injuries),
+    suspensions: items(d.suspensions),
+    coaching: items(d.coaching),
+    quarterbacks: { home: clip(d.quarterbacks.home, 200), away: clip(d.quarterbacks.away, 200) },
+    weather: d.weather == null ? null : clip(d.weather, 300),
+    what_changed: clip(d.what_changed, 240),
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,9 @@ import { authorizeJob, researchGames } from "@/lib/pickem-server";
 // hours is skipped, so a run that hits the time limit is finished by the
 // next one. `?dry=1` returns the digests without storing them (still spends
 // Claude calls, skips Pinnacle); `?games=id1,id2` limits the run to those
-// games. Same auth as the house route. Not on a schedule yet.
+// games. Same auth as the house route. Scheduled (vercel.json): college 14:00 and
+// 20:00 UTC Friday, the NFL 21:00 UTC Wednesday and 14:00 UTC Thursday, ahead of
+// each league's news pass (README, "Two-pass week").
 export const maxDuration = 300;
 
 async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/research">) {

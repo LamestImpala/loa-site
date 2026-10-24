@@ -46,6 +46,8 @@ import {
   teamRest,
   vsPinnacle,
   wantsResearch,
+  clip,
+  clipDigest,
   type NewsDigest,
   type OpenMeteo,
   type CfbdAdvanced,
@@ -518,13 +520,18 @@ function bothSides<T>(g: UpcomingGame, find: (team: string) => T | undefined, un
   return home === undefined || away === undefined ? null : { home, away };
 }
 
+// The season advanced-stats payload grows every week (340 KB and 11 s by late
+// October) and a 15 s limit silently stopped the ratings after 2026-10-13; the
+// sync swallows the error into its JSON. 40 s fits inside the route's 60 s.
+const CFBD_TIMEOUT_MS = 40_000;
+
 async function cfbdGet<T>(path: string): Promise<T> {
   const key = process.env.CFBD_API_KEY;
   if (!key) throw new Error("CFBD_API_KEY is not set");
   const res = await fetch(`https://api.collegefootballdata.com${path}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${key}` },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(CFBD_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`CFBD ${path} ${res.status}`);
   return (await res.json()) as T;
@@ -751,7 +758,9 @@ async function readSignals(db: ReturnType<typeof serviceSupabase>, league: Leagu
 // longer writes them.
 
 // Sides are per market so the model cannot hand back "over" on a spread.
-const callFields = { confidence: z.number().int().min(1).max(10), basis: z.enum(HOUSE_BASES), why: z.string().max(400) };
+// No string lengths here: structured output does not enforce them, so a cap
+// would only fail the parse and lose the batch; `why` is clipped to 400 after.
+const callFields = { confidence: z.number().int().min(1).max(10), basis: z.enum(HOUSE_BASES), why: z.string() };
 const SpreadCallSchema = z.object({ pick: z.enum(["home", "away"]), ...callFields });
 const TotalCallSchema = z.object({ pick: z.enum(["over", "under"]), ...callFields });
 
@@ -956,7 +965,8 @@ async function pickBatch(
     for (const g of parsed.games) {
       const game = byId.get(g.game_id);
       if (!game) continue;
-      const house: HousePicks = { ...lockLines(game, { spread: g.spread, total: g.total, ml: g.moneyline }), prompt_version: variant.prompt_version, variant: variant.id };
+      const sized = <C extends { why: string }>(c: C): C => ({ ...c, why: clip(c.why, 400) });
+      const house: HousePicks = { ...lockLines(game, { spread: sized(g.spread), total: sized(g.total), ml: sized(g.moneyline) }), prompt_version: variant.prompt_version, variant: variant.id };
       // The calls are the product; a projection that contradicts them is noise and is not kept.
       const projection = { home: g.projected_home, away: g.projected_away };
       if (projectionAgrees(house, projection)) house.projection = projection;
@@ -1203,20 +1213,23 @@ const RESEARCH_CALL_MS = 120_000;
 const RESEARCH_BUDGET_MS = 250_000;
 const RESEARCH_LAUNCH_FLOOR_MS = 60_000;
 
+// No string lengths here either: the first real NFL run lost a whole digest to
+// a 241-character what_changed. clipDigest (lib/pickem-signals.ts) cuts the
+// text to size after parsing.
 const NewsItemSchema = z.object({
   team: z.enum(["home", "away"]),
   player: z.string().nullable(),
-  detail: z.string().max(300),
+  detail: z.string(),
   source: z.string(),
   date: z.string().nullable(),
 });
 const NewsSchema = z.object({
   injuries: z.array(NewsItemSchema),
-  quarterbacks: z.object({ home: z.string().max(200), away: z.string().max(200) }),
-  weather: z.string().max(300).nullable(),
+  quarterbacks: z.object({ home: z.string(), away: z.string() }),
+  weather: z.string().nullable(),
   suspensions: z.array(NewsItemSchema),
   coaching: z.array(NewsItemSchema),
-  what_changed: z.string().max(240),
+  what_changed: z.string(),
 });
 
 const researchSystem = (league: League) => `You research one ${league === "nfl" ? "NFL" : "college football"} game for a handicapper who will price it later. You do not pick a side and do not comment on the line. Search the web for this week's news about both teams and return only what you found, each item with its source (a publication or site, with the URL when you have it) and its date as YYYY-MM-DD (null if the source gives none).
@@ -1277,7 +1290,7 @@ async function researchGame(
     if (message.stop_reason === "max_tokens") return fail("max_tokens");
     if (!message.parsed_output) return fail("unparseable");
     return {
-      digest: { ...message.parsed_output, model: message.model, researched_at: now.toISOString() },
+      digest: { ...clipDigest(message.parsed_output), model: message.model, researched_at: now.toISOString() },
       call: { game_id: g.id, ok: true, ms: Date.now() - started, usage: message.usage },
     };
   } catch (e) {

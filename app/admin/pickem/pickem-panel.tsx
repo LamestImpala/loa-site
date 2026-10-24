@@ -365,7 +365,7 @@ export function PickemPanel() {
       <p className="mt-1 text-sm text-neutral-400">
         Lines refresh once a day per league, plus Saturday afternoon for college and Sunday afternoon for the
         NFL. House picks post Tuesday morning Central for both leagues, as soon as the week&apos;s lines are in, so its
-        numbers are early ones; college fills in late additions Saturday morning and the NFL on Thursday.
+        numbers are early ones; college fills in late additions Saturday morning and the NFL on Thursday. Research digests are gathered Friday (college) and Wednesday and Thursday (NFL), and the news pass that follows re-picks only the games with news since their call.
         College line refreshes also store ESPN&apos;s FPI prediction for each upcoming game. Use these to run a job for the selected league now. Refreshing lines spends about 3 of the
         500 monthly Odds API requests (5 when there are finals to grade); a house run is a handful of Claude
         calls, plus 3 Odds API requests for Pinnacle&apos;s line when there are games to pick (at most once every 6 hours). Parlays are rebuilt from the picks on every house run; tailed and locked tickets are never
@@ -454,6 +454,30 @@ export function PickemPanel() {
           className={btn}
         >
           {busy === "researchdry" ? "Researching…" : "Preview research (dry run)"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            if (confirm("Run the news pass? Re-picks only the games whose research digest is newer than their call and has news since it; the rest keep their calls. One Claude call per batch, plus Pinnacle when the last fetch is older than 6 hours.")) {
+              run("house?since=call", "news");
+            }
+          }}
+          className={btn}
+        >
+          {busy === "news" ? "Picking…" : "Run news pass"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            if (confirm("Preview the news pass? Shows which games would be re-picked and their picks. Nothing is written, but it spends a Claude call per batch.")) {
+              run("house?since=call&dry=1", "newsdry");
+            }
+          }}
+          className={btn}
+        >
+          {busy === "newsdry" ? "Previewing…" : "Preview news pass (dry run)"}
         </button>
       </div>
       {log ? <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-neutral-300">{log}</pre> : null}

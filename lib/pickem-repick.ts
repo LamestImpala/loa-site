@@ -2,7 +2,7 @@
 // limited to named games (`?games=`) or to games with news since a time
 // (`?since=`), the second pass of a two-pass week (README, "Two-pass week").
 // Pure and browser-safe so it runs under node --test.
-import { newestNewsDate, type NewsDigest } from "./pickem-signals.ts";
+import type { NewsDigest } from "./pickem-signals.ts";
 
 export type RepickScope = {
   /** Only these game ids. */
@@ -34,18 +34,30 @@ const easternYmd = (iso: string) =>
 const itemYmd = (date: string) => (/^\d{4}-\d{2}-\d{2}$/.test(date) ? date : easternYmd(date));
 
 /**
- * The newest news date in a digest when it counts as news after `after`, else
- * null. The digest must have been researched after `after` (so the digest a
- * call was shown never re-triggers it), and its newest dated item must fall on
- * or after `after`'s Eastern calendar day. Items carry only a day, so news
- * from the afternoon of the call's own day counts; that re-picks some games
- * whose news the call already had, which is the cheaper mistake.
+ * The news date that makes a digest count as news after `after`, else null.
+ * The digest must have been researched after `after` (so the digest a call
+ * was shown never re-triggers it) and hold an item from on or after `after`'s
+ * Eastern calendar day: its newest dated item, compared by Eastern day, or,
+ * when the digest has an item with no date, the research time itself. The
+ * researcher reports this week's news and a final injury report often comes
+ * back undated, so an undated item counts as current. Items carry only a day,
+ * so news from the afternoon of the call's own day counts too. Both re-pick
+ * some games whose news the call already had, which is the cheaper mistake.
  */
 export function newsAfter(news: Pick<NewsDigest, "injuries" | "suspensions" | "coaching" | "researched_at"> | undefined, after: string): string | null {
   if (!news || !(Date.parse(news.researched_at) > Date.parse(after))) return null;
-  const newest = newestNewsDate(news);
-  if (!newest) return null;
-  return itemYmd(newest) >= easternYmd(after) ? newest : null;
+  let newest: { date: string; ymd: string } | null = null;
+  let undated = false;
+  for (const { date } of [...news.injuries, ...news.suspensions, ...news.coaching]) {
+    if (!date || Number.isNaN(Date.parse(date))) {
+      undated = true;
+      continue;
+    }
+    const ymd = itemYmd(date);
+    if (!newest || ymd > newest.ymd) newest = { date, ymd };
+  }
+  if (newest && newest.ymd >= easternYmd(after)) return newest.date;
+  return undated ? news.researched_at : null;
 }
 
 type Game = { id: string; house: { picked_at?: string } | null };

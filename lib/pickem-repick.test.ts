@@ -30,9 +30,25 @@ test("newsAfter: a later digest with an item dated on or after the call's Easter
   assert.equal(newsAfter(digest(FRI_RESEARCH, "2026-10-15"), TUE_CALL), "2026-10-15");
   // The afternoon of the call's own day counts: items carry only a day.
   assert.equal(newsAfter(digest(FRI_RESEARCH, "2026-10-13"), TUE_CALL), "2026-10-13");
-  assert.equal(newsAfter(digest(FRI_RESEARCH, "2026-10-12", null), TUE_CALL), null);
+  assert.equal(newsAfter(digest(FRI_RESEARCH, "2026-10-12"), TUE_CALL), null);
   assert.equal(newsAfter(digest(FRI_RESEARCH), TUE_CALL), null);
   assert.equal(newsAfter(undefined, TUE_CALL), null);
+});
+
+test("newsAfter: an item without a date counts as news from the research time", () => {
+  // The first NFL dry run came back with a whole final injury report undated.
+  assert.equal(newsAfter(digest(FRI_RESEARCH, null), TUE_CALL), FRI_RESEARCH);
+  assert.equal(newsAfter(digest(FRI_RESEARCH, "2026-10-12", null), TUE_CALL), FRI_RESEARCH);
+  // A dated item on or after the call still names its own date.
+  assert.equal(newsAfter(digest(FRI_RESEARCH, null, "2026-10-15"), TUE_CALL), "2026-10-15");
+  // Only in a digest researched after the call.
+  assert.equal(newsAfter(digest("2026-10-13T13:45:00.000Z", null), TUE_CALL), null);
+});
+
+test("newsAfter: the newest item is found by day, so a stray date format cannot hide a newer one", () => {
+  // "Oct 15" parses in V8 (as 2001) and sorts after any ISO date as a string.
+  assert.equal(newsAfter(digest(FRI_RESEARCH, "Oct 15", "2026-10-15"), TUE_CALL), "2026-10-15");
+  assert.equal(newsAfter(digest(FRI_RESEARCH, "not a date"), TUE_CALL), FRI_RESEARCH);
 });
 
 test("newsAfter: the digest a call was shown never re-triggers it", () => {

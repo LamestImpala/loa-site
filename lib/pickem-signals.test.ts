@@ -122,7 +122,7 @@ test("teamEpa: a team with no plays has no adjusted numbers", () => {
 // ---------------------------------------------------------------------------
 // Pinnacle, weather, rest, research
 
-import { collegeTier, newestNewsDate, noVig, parseWeather, pinnacleLine, teamRest, vsPinnacle, wantsResearch, type OddsEventLike } from "./pickem-signals.ts";
+import { clip, clipDigest, collegeTier, noVig, parseWeather, pinnacleLine, teamRest, vsPinnacle, wantsResearch, type OddsEventLike } from "./pickem-signals.ts";
 
 const PIN_EVENT: OddsEventLike = {
   id: "e1",
@@ -254,10 +254,25 @@ test("wantsResearch: every NFL game; college inside 10 or Power Four on both sid
   assert.equal(collegeTier("Troy Trojans", "Texas State Bobcats", 14), 3);
 });
 
-test("newestNewsDate: the latest valid date across the digest's items", () => {
-  const item = (date: string | null) => ({ team: "home" as const, player: null, detail: "", source: "", date });
-  assert.equal(newestNewsDate({ injuries: [item("2026-10-14"), item(null)], suspensions: [item("2026-10-16T09:00:00Z")], coaching: [item("not a date")] }), "2026-10-16T09:00:00Z");
-  assert.equal(newestNewsDate({ injuries: [], suspensions: [], coaching: [] }), null);
+test("clipDigest cuts over-long text to size instead of failing the digest", () => {
+  const long = "x".repeat(500);
+  const d = clipDigest({
+    injuries: [{ team: "home", player: null, detail: long, source: "s", date: null }],
+    suspensions: [],
+    coaching: [],
+    quarterbacks: { home: long, away: "ok" },
+    weather: null,
+    what_changed: long,
+  });
+  assert.equal(d.injuries[0].detail.length, 300);
+  assert.ok(d.injuries[0].detail.endsWith("…"));
+  assert.equal(d.quarterbacks.home.length, 200);
+  assert.equal(d.quarterbacks.away, "ok");
+  assert.equal(d.weather, null);
+  assert.equal(d.what_changed.length, 240);
+  assert.equal(clip("short", 10), "short");
+  assert.equal(clip("ends in space x", 15), "ends in space x");
+  assert.equal(clip("ends in space x", 14), "ends in space…");
 });
 
 test("latestSignals maps the new sources to their fields, newest row winning", () => {
