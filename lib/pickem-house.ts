@@ -16,13 +16,16 @@ import {
   type CalibrationRow,
   type CalibrationTally,
   type HouseCall,
+  type HouseNews,
   type HousePicks,
   type HouseTier,
   type Market,
   type PickemGame,
   type PickResult,
+  type PreviousCall,
   type Selection,
 } from "./pickem.ts";
+import type { NewsDigest } from "./pickem-signals.ts";
 
 export const MARKETS: Market[] = ["spread", "total", "ml"];
 
@@ -280,4 +283,53 @@ export function buildHouseCard(games: PickemGame[], calibration: CalibrationRow[
     if (!plays.includes(upset)) plays.push(upset);
   }
   return { plays, stayAway: stayAwayOf(games), record: houseWeekRecord(games, calibration), posted };
+}
+
+// ---------------------------------------------------------------------------
+// What the board shows of the news behind a call. The research digest lives in
+// pickem_game_signals, which only the jobs can read, so the house call keeps
+// the digest's key items in pickem_games.house, which the board reads whole.
+
+export const HOUSE_NEWS_ITEMS = 5;
+const HOUSE_NEWS_DETAIL = 160;
+
+/**
+ * The digest's key items for the board: injuries first (the researcher lists
+ * starters first), then suspensions and coaching changes, at most
+ * HOUSE_NEWS_ITEMS, each detail cut to HOUSE_NEWS_DETAIL characters, with the
+ * one line on what changed. Undefined for a digest with no items, which has
+ * nothing to show.
+ */
+export function houseNews(d: Pick<NewsDigest, "injuries" | "suspensions" | "coaching" | "what_changed" | "researched_at">, max = HOUSE_NEWS_ITEMS): HouseNews | undefined {
+  const items = [...d.injuries, ...d.suspensions, ...d.coaching].slice(0, max).map(({ team, player, detail, date }) => ({
+    team,
+    player,
+    detail: detail.length > HOUSE_NEWS_DETAIL ? `${detail.slice(0, HOUSE_NEWS_DETAIL - 1).trimEnd()}…` : detail,
+    date,
+  }));
+  if (!items.length) return undefined;
+  return { researched_at: d.researched_at, what_changed: d.what_changed, items };
+}
+
+/** The side and confidence of each market of a call, with when it was made: what a re-pick replaced. */
+export function previousCall(h: HousePicks): PreviousCall {
+  const call = (c: HouseCall) => ({ pick: c.pick, confidence: c.confidence });
+  return { ...(h.picked_at ? { picked_at: h.picked_at } : {}), spread: call(h.spread), total: call(h.total), ml: call(h.ml) };
+}
+
+/** The markets where a re-pick changed the tier, or the side of a play, so the board can say what moved. A pass's side means nothing, so two passes are the same call. */
+export function changedMarkets(now: Pick<HousePicks, "spread" | "total" | "ml">, prev: PreviousCall): Market[] {
+  return (["spread", "total", "ml"] as Market[]).filter((m) => {
+    const was = houseTier(prev[m].confidence);
+    const is = houseTier(now[m].confidence);
+    return was !== is || (is !== "pass" && now[m].pick !== prev[m].pick);
+  });
+}
+
+/** "Oct 23" for a digest item's YYYY-MM-DD; anything else as given. */
+export function fmtNewsDate(date: string | null): string {
+  if (!date) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
 }

@@ -77,6 +77,25 @@ export type HousePicks = {
   variant?: string;
   /** Set when a scoped re-pick made the calls: "news" for `?since=` (the news pass), "games" for `?games=` alone. Absent on full runs. */
   scope?: "games" | "news";
+  /** The key items of the research digest the house read when it made the calls (houseNews in lib/pickem-house.ts), for the board. Absent when it had none. */
+  news?: HouseNews;
+  /** The call these calls replaced, when a scoped re-pick made them (previousCall in lib/pickem-house.ts). */
+  previous?: PreviousCall;
+};
+
+export type HouseNewsItem = { team: "home" | "away"; player: string | null; detail: string; date: string | null };
+export type HouseNews = {
+  researched_at: string;
+  /** The digest's one line on what is new since Tuesday. */
+  what_changed: string;
+  /** Injuries, then suspensions and coaching changes, at most HOUSE_NEWS_ITEMS of them. */
+  items: HouseNewsItem[];
+};
+export type PreviousCall = {
+  picked_at?: string;
+  spread: { pick: Selection; confidence: number };
+  total: { pick: Selection; confidence: number };
+  ml: { pick: Selection; confidence: number };
 };
 
 // The house's confidence is a calibrated 1-10 (5 = the number is fair, 6 is

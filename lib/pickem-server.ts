@@ -28,7 +28,7 @@ import { espnDate, fpiForHome, matchEvents, pairEvents, type EspnEvent, type Esp
 import { gameVenue, venueByName, type Venue } from "./pickem-venues";
 import { runCost, sumUsage, type JobSpend } from "./pickem-usage";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
-import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
+import { buildHouseCard, houseNews, previousCall, projectionAgrees, type HouseCard } from "./pickem-house";
 import { houseFeedback, type LastWeekRow } from "./pickem-feedback";
 import { assignVariants, dealVariantBatches, HOUSE_VARIANTS, type HouseVariant } from "./pickem-variants";
 import { isScoped, scopeGames, type RepickScope } from "./pickem-repick";
@@ -1019,6 +1019,10 @@ async function pickBatch(
       const projection = { home: g.projected_home, away: g.projected_away };
       if (projectionAgrees(house, projection)) house.projection = projection;
       else projections_dropped++;
+      // The board shows the news behind the call; the digest itself is not readable there.
+      const digest = signals.get(g.game_id)?.news;
+      const news = digest ? houseNews(digest) : undefined;
+      if (news) house.news = news;
       picks.set(g.game_id, house);
     }
     return { picks, outcome: { size: batch.length, variant: variant.id, ok: true, ms: Date.now() - started, usage: message.usage, model: message.model, projections_dropped } };
@@ -1187,11 +1191,19 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
     }
   }
 
+  const byId = new Map(slate.map((g) => [g.id, g]));
+  // A scoped re-pick keeps the call it replaces, so the board can say what moved and when.
+  if (scope) {
+    for (const [id, house] of picks) {
+      const prior = byId.get(id)?.house;
+      if (prior) house.previous = previousCall(prior);
+    }
+  }
+
   let picked = 0;
   const written = new Set<string>();
   if (!opts.dry) {
     const stamp = now.toISOString();
-    const byId = new Map(slate.map((g) => [g.id, g]));
     const log = [];
     for (const [id, house] of picks) {
       const saved: HousePicks = { ...house, picked_at: stamp, model: HOUSE_MODEL, effort: HOUSE_EFFORT, ...(scope ? { scope: scope.since ? "news" : "games" } : {}) };
