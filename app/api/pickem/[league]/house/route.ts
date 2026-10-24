@@ -13,7 +13,9 @@ import { parseRepickScope } from "@/lib/pickem-repick";
 // either re-picks without `force` (lib/pickem-repick.ts). Both leagues run
 // Tuesday morning Central, right after the week's first line sync, so the
 // house locks early numbers. College runs again Saturday morning and the NFL on Thursday for
-// games that reached the board late.
+// games that reached the board late. The news pass is scheduled too (vercel.json):
+// `?since=call` at 15:00 UTC Saturday for college and 15:30 UTC Thursday for the
+// NFL, after that week's research runs (README, "Two-pass week").
 export const maxDuration = 300;
 
 async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/house">) {

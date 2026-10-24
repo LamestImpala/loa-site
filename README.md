@@ -157,7 +157,9 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   `repicked`, `untouched` and `unknown` ids ("Two-pass week" below). Tailed and locked
   parlays are never removed (`pickem_replace_parlays` in the migration). College runs 14:00 UTC Tuesday
   and Saturday; the NFL runs 15:00 UTC Tuesday and Thursday, after that day's sync. Each has a
-  gap-filling run 30 minutes later, except the NFL's Thursday run. Times are UTC, so they land an hour earlier in
+  gap-filling run 30 minutes later, except the NFL's Thursday run. The news pass, `?since=call`, runs
+  15:00 UTC Saturday for college and 15:30 UTC Thursday for the NFL, after that week's research runs
+  ("Two-pass week" below). Times are UTC, so they land an hour earlier in
   Central after the November clock change. The JSON result lists `missing` games, per-batch timing and
   variant, `variants` (games asked of each) and `feedback_chars`; a dry run's `preview` adds the record
   block (`feedback`) and, per variant, a user message with one game in it (`sample_user_messages`).
@@ -170,13 +172,18 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   is inside 10 points, is in the top two college tiers (Arkansas, Power Four vs Power Four), or is in the
   NFL: one Claude call with up to four web searches per game, returning dated, sourced injuries,
   quarterback status, weather, suspensions, coaching changes and one line on what changed since Tuesday.
-  Stored as the `news` signal; the house reads it instead of searching. A game researched in the last 20
+  Text that comes back over size is clipped after parsing (300 characters an item, 240 for what changed),
+  not rejected. Stored as the `news` signal; the house reads it instead of searching. A game researched in the last 20
   hours is skipped, so a run that runs out of time (12 at once, 250 s) is finished by the next. Also
   refreshes Pinnacle (as the house does). `?dry=1` returns the digests without storing them or fetching
-  Pinnacle; `?games=id1,id2` limits the run. Not scheduled yet; see "Two-pass week" below.
+  Pinnacle; `?games=id1,id2` limits the run. College runs 14:00 and 20:00 UTC Friday, the NFL 21:00 UTC
+  Wednesday and 14:00 UTC Thursday; the second run of each only finishes what the first left (the 20-hour
+  skip) and spends nothing when there is nothing left. With the four-day window, the NFL's Wednesday run
+  reaches Sunday afternoon's games, Thursday's adds Sunday night, and Monday night is never researched.
+  See "Two-pass week" below.
 
   ```
-  curl -H "Authorization: Bearer $CRON_SECRET" "https://lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"
+  curl -H "Authorization: Bearer $CRON_SECRET" "https://www.lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"
   ```
 
 ### House prompt experiments
@@ -212,20 +219,20 @@ under Calibration, variants side by side. Nothing picks a winner automatically.
 
 ### Two-pass week
 
-A proposal, not scheduled. The house makes its calls once, Tuesday morning after the week's first line
+Scheduled since October 2026 (crons in `vercel.json`). The house makes its calls once, Tuesday morning after the week's first line
 sync, and the Saturday (college) and Thursday (NFL) runs only fill gaps. That locks early numbers, which
 is where the CLV is, but by the weekend some lines have moved and the research digests hold news the
 Tuesday call never saw. The second pass re-picks only those games and leaves the rest of the week's calls
 where they are.
 
 1. **Tuesday, the number pass** — the `house` run as today: every game without a call, early lines, no
-   digests yet (the research run is meant for Thursday to Saturday, when the news exists).
-2. **Thursday to Saturday, research** — the `research` run stores a `news` digest for every game that
-   matters, dated and sourced.
-3. **Saturday morning (college) / Thursday (NFL), the news pass** — `house?since=call` re-picks only the
+   digests yet (the research runs come later in the week, when the news exists).
+2. **Friday (college) / Wednesday and Thursday (NFL), research** — the `research` run stores a `news`
+   digest for every game that matters, dated and sourced.
+3. **Saturday 15:00 UTC (college) / Thursday 15:30 UTC (NFL), the news pass** — `house?since=call` re-picks only the
    games whose newest digest was researched after the game's own call and has an item dated on or after
-   that call's Eastern day (`newsAfter` in `lib/pickem-repick.ts`; the digest a call was shown never
-   re-triggers it). A game with no call yet is left to the gap-filling run, so the two runs stay separate.
+   that call's Eastern day, or an item with no date, which counts as news from the research time
+   (`newsAfter` in `lib/pickem-repick.ts`; the digest a call was shown never re-triggers it). A game with no call yet is left to the gap-filling run, so the two runs stay separate.
    Games that moved without news go in by hand with `?games=id1,id2`; a line-move trigger (the sync's
    stored movement, or the consensus line against Pinnacle) could feed the same scope later.
 
@@ -234,7 +241,12 @@ The re-picked call keeps the game's variant, is stored with `scope: "news"` (`"g
 can split the number pass from the news pass once there are enough of them, and the earlier call stays in
 the history for the comparison. Tailed and locked parlays are never touched; the open untailed ones are
 rebuilt from the mixed slate. Cost is one Claude call per batch of in-scope games and the usual Pinnacle
-refresh (free within 6 hours of the last). To schedule it, add a cron after the weekend research run, for
-example `/api/pickem/ncaaf/house?since=call` at 15:00 UTC Saturday, keeping the 14:00 gap-fill run as it
-is; the NFL's would follow Thursday's. Try it by hand first with `?since=call&dry=1`, which returns the
-scope and the picks without writing them.
+refresh (free within 6 hours of the last).
+
+The crons (`vercel.json`): college research 14:00 and 20:00 UTC Friday, then the news pass
+`/api/pickem/ncaaf/house?since=call` at 15:00 UTC Saturday, after the 14:00 and 14:30 gap-fill runs; NFL
+research 21:00 UTC Wednesday and 14:00 UTC Thursday, then the news pass at 15:30 UTC Thursday, after the
+15:00 gap-fill run. A game the gap-fill run picks is not re-picked by the news pass behind it, because its
+digest is older than its call. Vercel invokes a cron `path` as written, query string included; a scheduled
+news pass shows a `scope` block in its JSON (the Vercel log), so a run without one means the query string
+was dropped. To try it by hand, `?since=call&dry=1` returns the scope and the picks without writing them.
