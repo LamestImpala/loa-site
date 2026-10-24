@@ -520,13 +520,18 @@ function bothSides<T>(g: UpcomingGame, find: (team: string) => T | undefined, un
   return home === undefined || away === undefined ? null : { home, away };
 }
 
+// The season advanced-stats payload grows every week (340 KB and 11 s by late
+// October) and a 15 s limit silently stopped the ratings after 2026-10-13; the
+// sync swallows the error into its JSON. 40 s fits inside the route's 60 s.
+const CFBD_TIMEOUT_MS = 40_000;
+
 async function cfbdGet<T>(path: string): Promise<T> {
   const key = process.env.CFBD_API_KEY;
   if (!key) throw new Error("CFBD_API_KEY is not set");
   const res = await fetch(`https://api.collegefootballdata.com${path}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${key}` },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(CFBD_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`CFBD ${path} ${res.status}`);
   return (await res.json()) as T;
