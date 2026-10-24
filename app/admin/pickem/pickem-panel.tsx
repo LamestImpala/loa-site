@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEAGUES, LEAGUE_META, PICKEM_SEASON, tallyAvgClv, tallyWinPct, type CalibrationRow, type League, type Market } from "@/lib/pickem";
+import { LEAGUES, LEAGUE_META, PICKEM_SEASON, tallyAvgClv, tallyWinPct, weekWindow, type CalibrationRow, type League, type Market } from "@/lib/pickem";
 import { calibrationTable, FEEDBACK_MIN_CALLS, type CalibrationSplit } from "@/lib/pickem-feedback";
 import { stakeTable, STAKE_MIN_CALLS } from "@/lib/pickem-house";
 import { HOUSE_VARIANTS } from "@/lib/pickem-variants";
+import { fmtTokens, fmtUsd, spendByWeek, spendTotal, type JobRunRow, type JobSpend } from "@/lib/pickem-usage";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass as btn } from "../_shell/ui";
 
@@ -12,7 +13,20 @@ type Call = { confidence: number; pick?: string; basis?: string };
 type PreviewBody = {
   preview?: { picks?: Record<string, { spread: Call; total: Call; ml: Call; variant?: string }> };
   batches?: { projections_dropped?: number }[];
+  spend?: JobSpend;
 };
+
+// What a run just spent, from the route's `spend` block: "$0.84 · 9 calls · 18 searches · 240k in, 61k out".
+function spendLine(body: PreviewBody): string {
+  const s = body.spend;
+  if (!s) return "";
+  const parts = [fmtUsd(s.cost_usd), `${s.calls} call${s.calls === 1 ? "" : "s"}`];
+  if (s.failed) parts.push(`${s.failed} failed`);
+  if (s.web_searches) parts.push(`${s.web_searches} search${s.web_searches === 1 ? "" : "es"}`);
+  parts.push(`${fmtTokens(s.input_tokens + s.cache_read_tokens + s.cache_write_tokens)} in, ${fmtTokens(s.output_tokens)} out`);
+  if (s.recorded === false) parts.push("not recorded");
+  return parts.join(" · ");
+}
 
 // One line on how a preview's confidences fell, so a dry run can be read
 // without scrolling the JSON: "12 games · 5:14 6:18 7:4 · spread 5:2 6:8 7:2 …".
@@ -330,6 +344,69 @@ function Experiment({ league }: { league: League }) {
   );
 }
 
+// What the Claude jobs cost (table pickem_job_runs): every house and research
+// run's tokens and searches, priced at list rates, added up by season week.
+// Previews (dry runs) are in the totals; the Dry column shows how much.
+function Spend({ league }: { league: League }) {
+  const { supabase } = useAdmin();
+  const [rows, setRows] = useState<JobRunRow[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    supabase
+      .from("pickem_job_runs")
+      .select("league, job, dry, started_at, calls, failed, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, web_searches, cost_usd")
+      .eq("league", league)
+      .gte("started_at", weekWindow(league, 1).start.toISOString())
+      .order("started_at", { ascending: false })
+      .limit(1000)
+      .then(({ data }) => {
+        if (live) setRows((data ?? []) as JobRunRow[]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [supabase, league]);
+  if (!rows?.length) return null;
+  const weeks = spendByWeek(rows, league);
+  const total = spendTotal(weeks);
+  const cell = "pr-4";
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-semibold text-white">Claude spend</h3>
+      <p className="mt-1 text-sm text-neutral-400">
+        {fmtUsd(total.cost_usd)} this season over {total.runs} runs, {fmtUsd(total.house_usd)} on house picks and {fmtUsd(total.research_usd)} on research
+        digests. Estimated at list prices (Opus 5.5: $4 in and $20 out per million tokens, a cent a search), not the invoice. Previews count,
+        and the Dry column is their share.
+      </p>
+      <table className="mt-2 text-left text-xs text-neutral-300">
+        <thead className="text-neutral-500">
+          <tr>
+            {["Week", "Runs", "Calls", "Searches", "Tokens in", "Tokens out", "House", "Research", "Dry", "Total"].map((h) => (
+              <th key={h} className={`${cell} font-normal`}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {weeks.map((w) => (
+            <tr key={w.week}>
+              <td className={cell}>{w.week}</td>
+              <td className={cell}>{w.runs}</td>
+              <td className={cell}>{w.calls}</td>
+              <td className={cell}>{w.web_searches}</td>
+              <td className={cell}>{fmtTokens(w.input_tokens)}</td>
+              <td className={cell}>{fmtTokens(w.output_tokens)}</td>
+              <td className={cell}>{fmtUsd(w.house_usd)}</td>
+              <td className={cell}>{fmtUsd(w.research_usd)}</td>
+              <td className={cell}>{fmtUsd(w.dry_usd)}</td>
+              <td className={`${cell} text-white`}>{fmtUsd(w.cost_usd)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Buttons that run the pick'em jobs for one league on demand with the admin's
 // session token (the cron runs the same routes with CRON_SECRET).
 export function PickemPanel() {
@@ -350,7 +427,7 @@ export function PickemPanel() {
         headers: { Authorization: `Bearer ${token ?? ""}` },
       });
       const body = await res.json();
-      const summary = res.ok ? confidenceSpread(body) : "";
+      const summary = res.ok ? [confidenceSpread(body), spendLine(body)].filter(Boolean).join(" · ") : "";
       setLog(`${res.ok ? "OK" : `HTTP ${res.status}`}${summary ? ` · ${summary}\n` : " · "}${JSON.stringify(body)}`);
     } catch (e) {
       setLog(`Failed: ${(e as Error).message}`);
@@ -484,6 +561,7 @@ export function PickemPanel() {
       <ClosingLineValue league={league} />
       <Calibration league={league} />
       <Experiment league={league} />
+      <Spend league={league} />
     </section>
   );
 }

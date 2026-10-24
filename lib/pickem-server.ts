@@ -26,6 +26,7 @@ import {
 import { unmappedTeams } from "./pickem-conferences";
 import { espnDate, fpiForHome, matchEvents, pairEvents, type EspnEvent, type EspnPredictor, type LivePayload } from "./pickem-live";
 import { gameVenue, venueByName, type Venue } from "./pickem-venues";
+import { runCost, sumUsage, type JobSpend } from "./pickem-usage";
 import { buildParlays, parlaySignature, type ParlayDraft } from "./pickem-parlays";
 import { buildHouseCard, projectionAgrees, type HouseCard } from "./pickem-house";
 import { houseFeedback, type LastWeekRow } from "./pickem-feedback";
@@ -830,6 +831,8 @@ type BatchOutcome = {
   ms: number;
   reason?: string;
   usage?: Anthropic.Beta.Messages.BetaUsage;
+  /** The model that answered: a safety refusal falls back to another, priced differently. */
+  model?: string;
   /** Projections that contradicted the model's own spread or total call and were not kept. */
   projections_dropped?: number;
 };
@@ -862,6 +865,8 @@ export type HouseRunResult = {
    * `unknown`, requested ids not on the upcoming slate.
    */
   scope?: RepickScope & { games_in_scope: { id: string; game: string; news?: string }[]; repicked: string[]; untouched: number; unknown: string[] };
+  /** The run's Claude usage and its cost at list prices, also stored in pickem_job_runs (lib/pickem-usage.ts); absent when no call was made. */
+  spend?: JobSpend;
   preview?: {
     picks: Record<string, HousePicks>;
     parlays: ParlayDraft[];
@@ -871,6 +876,49 @@ export type HouseRunResult = {
     sample_user_messages: Record<string, string>;
   };
 };
+
+type JobCall = { usage?: Anthropic.Beta.Messages.BetaUsage; model?: string };
+
+/**
+ * One row in pickem_job_runs for a run that made Claude calls (dry runs
+ * included: a preview spends the same money), and the same numbers for the
+ * route's JSON. `attempted` counts every call started, so failed is the ones
+ * that reported no usage. The insert is best-effort: before the 20261024
+ * migration the table does not exist, and a failed write must not fail the run.
+ */
+async function recordJobRun(
+  db: ReturnType<typeof serviceSupabase>,
+  run: { league: League; job: "house" | "research"; started_at: Date; dry: boolean; model: string; effort: string; params: unknown; detail: unknown },
+  calls: JobCall[],
+  attempted: number
+): Promise<JobSpend | undefined> {
+  if (!attempted) return undefined;
+  const totals = sumUsage(calls.map((c) => c.usage));
+  const { cost_usd, unpriced } = runCost(calls, run.model);
+  const spend: JobSpend = { ...totals, failed: attempted - totals.calls, cost_usd: totals.calls > unpriced ? cost_usd : null, model: run.model };
+  const { error } = await db.from("pickem_job_runs").insert({
+    league: run.league,
+    job: run.job,
+    started_at: run.started_at.toISOString(),
+    finished_at: new Date().toISOString(),
+    dry: run.dry,
+    model: run.model,
+    effort: run.effort,
+    params: run.params,
+    calls: totals.calls,
+    failed: spend.failed,
+    input_tokens: totals.input_tokens,
+    cache_read_tokens: totals.cache_read_tokens,
+    cache_write_tokens: totals.cache_write_tokens,
+    output_tokens: totals.output_tokens,
+    web_searches: totals.web_searches,
+    cost_usd: spend.cost_usd,
+    unpriced,
+    detail: run.detail,
+  });
+  spend.recorded = !error;
+  return spend;
+}
 
 /** Run fn over items with at most `limit` in flight. fn must not throw. */
 async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -973,7 +1021,7 @@ async function pickBatch(
       else projections_dropped++;
       picks.set(g.game_id, house);
     }
-    return { picks, outcome: { size: batch.length, variant: variant.id, ok: true, ms: Date.now() - started, usage: message.usage, projections_dropped } };
+    return { picks, outcome: { size: batch.length, variant: variant.id, ok: true, ms: Date.now() - started, usage: message.usage, model: message.model, projections_dropped } };
   } catch (e) {
     const err = e as Error & { name?: string };
     const reason = e instanceof Anthropic.APIUserAbortError || err.name === "TimeoutError" ? "timeout" : err.message;
@@ -1183,7 +1231,22 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
   const withPicks = slate.map((g) => (picks.has(g.id) ? { ...g, house: picks.get(g.id)! } : g));
   const { drafts, ...parlays } = await rebuildParlays(db, league, withPicks, now, week, Boolean(opts.dry), record.calibration);
 
-  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length, variants: counts, pinnacle, ...(scoped ? { scope: scoped } : {}) };
+  const spend = await recordJobRun(
+    db,
+    {
+      league,
+      job: "house",
+      started_at: now,
+      dry: Boolean(opts.dry),
+      model: HOUSE_MODEL,
+      effort: HOUSE_EFFORT,
+      params: { force: Boolean(opts.force), only_parlays: Boolean(opts.onlyParlays), ...(scope ? { scope } : {}) },
+      detail: { week, picks: picks.size, written: picked, missing: missing.length, variants: counts, ...(scoped ? { repicked: scoped.repicked.length } : {}) },
+    },
+    batches,
+    batches.length
+  );
+  const result: HouseRunResult = { league, week, picked, missing, batches, parlays, feedback_chars: feedback.length, variants: counts, pinnacle, ...(scoped ? { scope: scoped } : {}), ...(spend ? { spend } : {}) };
   if (opts.dry) {
     const sample_user_messages: Record<string, string> = {};
     for (const v of HOUSE_VARIANTS) {
@@ -1248,8 +1311,10 @@ export type ResearchResult = {
   researched: number;
   skipped_fresh: number;
   missing: { id: string; game: string; reason: string }[];
-  calls: { game_id: string; ok: boolean; ms: number; reason?: string; usage?: Anthropic.Beta.Messages.BetaUsage }[];
+  calls: { game_id: string; ok: boolean; ms: number; reason?: string; usage?: Anthropic.Beta.Messages.BetaUsage; model?: string }[];
   pinnacle: PinnacleCapture | { error: string } | { skipped: "dry" | "nothing to research" };
+  /** The run's Claude usage and its cost at list prices, also stored in pickem_job_runs (lib/pickem-usage.ts); absent when no call was made. */
+  spend?: JobSpend;
   digests?: Record<string, NewsDigest>;
 };
 
@@ -1291,7 +1356,7 @@ async function researchGame(
     if (!message.parsed_output) return fail("unparseable");
     return {
       digest: { ...clipDigest(message.parsed_output), model: message.model, researched_at: now.toISOString() },
-      call: { game_id: g.id, ok: true, ms: Date.now() - started, usage: message.usage },
+      call: { game_id: g.id, ok: true, ms: Date.now() - started, usage: message.usage, model: message.model },
     };
   } catch (e) {
     const err = e as Error & { name?: string };
@@ -1366,6 +1431,21 @@ export async function researchGames(league: League, now = new Date(), opts: { dr
     const { error: iErr } = await db.from("pickem_game_signals").insert(store);
     if (iErr) throw new Error(`insert news: ${iErr.message}`);
   }
+  const spend = await recordJobRun(
+    db,
+    {
+      league,
+      job: "research",
+      started_at: now,
+      dry: Boolean(opts.dry),
+      model: RESEARCH_MODEL,
+      effort: RESEARCH_EFFORT,
+      params: opts.games ? { games: opts.games } : {},
+      detail: { candidates: candidates.length, researched: store.length, skipped_fresh: candidates.length - todo.length, missing: missing.length },
+    },
+    calls,
+    calls.length
+  );
   const result: ResearchResult = {
     league,
     candidates: candidates.length,
@@ -1374,6 +1454,7 @@ export async function researchGames(league: League, now = new Date(), opts: { dr
     missing,
     calls,
     pinnacle,
+    ...(spend ? { spend } : {}),
   };
   if (opts.dry) result.digests = digests;
   return result;

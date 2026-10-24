@@ -186,6 +186,15 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   curl -H "Authorization: Bearer $CRON_SECRET" "https://www.lateonsetaudiophile.com/api/pickem/nfl/house?dry=1"
   ```
 
+Every house and research run that made a Claude call, dry runs included, adds a row to `pickem_job_runs`
+(`supabase/migrations/20261024_pickem_job_runs.sql`): its calls, tokens by kind, web searches and a cost at
+the list prices in `lib/pickem-usage.ts` (the model that answered prices each call, so a refusal fallback is
+charged at its own rate). The route's JSON carries the same numbers as `spend`, the admin log line reads
+them back ("$0.84 · 9 calls · 18 searches · 240k in, 61k out"), and the admin page adds the rows up by
+season week under "Claude spend". A run with nothing to pick, or `?only=parlays`, writes no row. The cost
+is an estimate at list prices, not the invoice; a call that timed out or was refused reports no usage and is
+counted under `failed` only.
+
 ### House prompt experiments
 
 Every house call is made under one variant of the house prompt, listed in `HOUSE_VARIANTS`
