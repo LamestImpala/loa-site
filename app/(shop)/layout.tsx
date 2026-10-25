@@ -57,8 +57,6 @@ export const viewport: Viewport = {
   themeColor: "#f8f1e4",
 };
 
-const redditProfile = `https://www.reddit.com/user/${SELLER_INFO.redditUsername}`;
-
 export default function ShopLayout({
   children,
 }: Readonly<{
@@ -84,9 +82,6 @@ export default function ShopLayout({
         </div>
         <div style={{ flex: 1 }} />
         <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>
-        <a href={redditProfile} target="_blank" rel="noopener noreferrer">
-          u/{SELLER_INFO.redditUsername} ↗
-        </a>
       </nav>
       <div className="shop-checker" aria-hidden />
 
@@ -122,11 +117,7 @@ export default function ShopLayout({
           </div>
         </div>
         <div className="shop-footer-bottom">
-          curiouserrecords.com · Sold by{" "}
-          <a href={redditProfile} target="_blank" rel="noopener noreferrer">
-            u/{SELLER_INFO.redditUsername}
-          </a>{" "}
-          ·{" "}
+          curiouserrecords.com ·{" "}
           <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>{" "}
           · © {new Date().getFullYear()}
         </div>
