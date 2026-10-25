@@ -1,4 +1,5 @@
 import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
+import { buyerLabel } from "./buyers.ts";
 import { awaitingDropOff } from "./pack-list.ts";
 
 // Things that went quietly wrong: states no button leads to on purpose,
@@ -40,13 +41,13 @@ export function integrityIssues(
     if (!inv) {
       issues.push({
         key: `no-invoice-${o.id}`,
-        text: `u/${o.buyer_username}'s order is invoiced, but invoice ${o.paypal_invoice_id} isn't saved here — Check PayPal on it, or cancel it`,
+        text: `${buyerLabel(o.buyer_username, o.buyer_email)}'s order is invoiced, but invoice ${o.paypal_invoice_id} isn't saved here — Check PayPal on it, or cancel it`,
         href: "/admin#open-orders",
       });
     } else if (inv.paid_at) {
       issues.push({
         key: `paid-unsold-${o.id}`,
-        text: `Invoice ${o.paypal_invoice_id} (u/${o.buyer_username}) is paid, but its records aren't marked sold — Check PayPal on it`,
+        text: `Invoice ${o.paypal_invoice_id} (${buyerLabel(o.buyer_username, o.buyer_email)}) is paid, but its records aren't marked sold — Check PayPal on it`,
         href: "/admin#open-orders",
       });
     }

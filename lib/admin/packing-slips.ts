@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { ManifestRow, PackingSlip } from "./pack-list.ts";
+import { buyerLabel } from "./buyers.ts";
 
 // Packing slips: one 4×6 page per sealed box, for the thermal label
 // printer at the packing table. The slip is the box's tag until the
@@ -144,7 +145,7 @@ export async function packingSlips(slips: PackingSlip[]): Promise<Uint8Array> {
     c.text(`BOX #${slip.boxId}`, 30, bold);
     if (slip.boxCount > 1) c.right(`${slip.boxIndex} of ${slip.boxCount}`, 12, regular, c.y + 8);
     c.y -= 8;
-    c.para(slip.buyer ? `u/${slip.buyer}` : "(no buyer)", 14, bold);
+    c.para(buyerLabel(slip.buyer, slip.buyerEmail), 14, bold);
     if (slip.shipTo?.name) c.para(slip.shipTo.name, 12, regular);
     const where = place(slip.shipTo);
     if (where) c.para(where, 10, regular, GREY);
@@ -248,7 +249,7 @@ export async function shipManifest(
       c.text(head, 11, bold, { x: left, color: r.boxId == null ? GREY : INK });
       const buyerX = left + bold.widthOfTextAtSize(head, 11) + 8;
       const buyerWidth = THERMAL.width - MARGIN - tailWidth - 6 - buyerX;
-      page.drawText(fit(r.buyer ? `u/${r.buyer}` : "(no buyer)", regular, 11, buyerWidth), {
+      page.drawText(fit(buyerLabel(r.buyer, r.buyerEmail), regular, 11, buyerWidth), {
         x: buyerX,
         y: c.y,
         size: 11,

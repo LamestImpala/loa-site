@@ -9,6 +9,7 @@ import { groupOrders } from "./fulfillment.ts";
 export type PickRow = {
   record: DbRecord;
   buyer: string;
+  buyerEmail: string | null;
   orderKey: string; // OrderGroup.key — "order-12", or "buyer-name" for pre-orders rows
   order: Order | null;
   picked: boolean;
@@ -44,6 +45,7 @@ export function pickList(
       rows.push({
         record,
         buyer: g.buyer,
+        buyerEmail: g.buyerEmail,
         orderKey: g.key,
         order: g.order,
         picked: !!record.picked_at,
@@ -72,6 +74,7 @@ export function byLetter(rows: PickRow[]): [string, PickRow[]][] {
 export type PickOrder = {
   key: string;
   buyer: string;
+  buyerEmail: string | null;
   order: Order | null;
   rows: PickRow[]; // shelf order
   picked: number;
@@ -84,7 +87,14 @@ export function byOrder(rows: PickRow[]): PickOrder[] {
   for (const row of rows) {
     let g = groups.get(row.orderKey);
     if (!g) {
-      g = { key: row.orderKey, buyer: row.buyer, order: row.order, rows: [], picked: 0 };
+      g = {
+        key: row.orderKey,
+        buyer: row.buyer,
+        buyerEmail: row.buyerEmail,
+        order: row.order,
+        rows: [],
+        picked: 0,
+      };
       groups.set(row.orderKey, g);
     }
     g.rows.push(row);

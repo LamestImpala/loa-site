@@ -59,6 +59,7 @@ export type OrderGroup = {
   key: string;
   order: Order | null; // null for sold records that predate the orders table
   buyer: string;
+  buyerEmail: string | null; // an email buyer's address, from the order
   records: DbRecord[];
   shipments: Shipment[];
   invoiceId: string; // the order's invoice, else the one id shared by member records
@@ -92,6 +93,7 @@ export function groupOrders(
         key,
         order,
         buyer: (order?.buyer_username ?? buyer).trim(),
+        buyerEmail: order?.buyer_email ?? null,
         records: [],
         shipments: [],
         invoiceId: "",

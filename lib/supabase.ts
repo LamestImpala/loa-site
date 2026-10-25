@@ -64,7 +64,8 @@ export type ShipTo = {
 
 export type Order = {
   id: number;
-  buyer_username: string; // no u/ prefix
+  buyer_username: string; // Reddit handle (no u/ prefix), or the buyer's name for an email order
+  buyer_email: string | null; // set for buyers who ordered through the shop's email form
   status: OrderStatus;
   paypal_invoice_id: string | null; // the live invoice, if one was sent
   request_id: number | null; // the shop request it came from, if any
@@ -143,16 +144,50 @@ export type OrderRequestItem = {
   price: number;
 };
 
+// How a buyer sent a request: a pre-filled Reddit DM, or the shop's email
+// form (the site emails the admin and the buyer; replies go by email).
+export type RequestChannel = "reddit" | "email";
+
 export type OrderRequest = {
   id: number;
-  ref_code: string; // CR-XXXX, also printed in the buyer's DM
-  buyer_username: string | null; // typed by the buyer on the shop, no u/ prefix
+  ref_code: string; // CR-XXXX, also printed in the buyer's DM or confirmation email
+  channel: RequestChannel;
+  buyer_username: string | null; // typed by the buyer on the shop, no u/ prefix (Reddit channel)
+  buyer_name: string | null; // email channel: the name they typed
+  buyer_email: string | null; // email channel: lowercased; always set for that channel
+  message: string | null; // email channel: optional note
   record_ids: number[];
   items: OrderRequestItem[];
   subtotal: number;
   shipping: number;
   total: number;
   status: "new" | "loaded" | "completed" | "dismissed";
+  created_at: string;
+  updated_at: string;
+};
+
+// Mail to and from orders@curiouserrecords.com. Inbound rows come from
+// the Resend webhook (/api/email-inbound); outbound rows are replies sent
+// from the admin Inbox (/api/email-reply).
+export type ShopMessageStatus = "new" | "read" | "replied" | "archived";
+
+export type ShopMessage = {
+  id: number;
+  direction: "in" | "out";
+  resend_email_id: string | null;
+  message_id: string | null; // RFC 5322 Message-ID
+  in_reply_to: string | null;
+  from_email: string;
+  from_name: string | null;
+  to_email: string;
+  subject: string | null;
+  text_body: string | null;
+  html_body: string | null;
+  ref_code: string | null; // CR-XXXX found in the subject or body
+  request_id: number | null;
+  order_id: number | null;
+  status: ShopMessageStatus;
+  received_at: string;
   created_at: string;
   updated_at: string;
 };

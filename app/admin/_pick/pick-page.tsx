@@ -12,6 +12,7 @@ import {
   pickProgress,
   type PickRow,
 } from "@/lib/admin/pick-list";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
 import { smallButtonClass } from "../_shell/ui";
@@ -174,11 +175,11 @@ export function PickPage() {
           {byOrder(rows).map((g) => (
             <section
               key={g.key}
-              aria-label={`Order for u/${g.buyer}`}
+              aria-label={`Order for ${buyerLabel(g.buyer, g.buyerEmail)}`}
               className="rounded-2xl border border-white/10 px-3 py-2"
             >
               <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
-                <h2 className="font-medium">u/{g.buyer || "(no buyer)"}</h2>
+                <h2 className="font-medium">{buyerLabel(g.buyer, g.buyerEmail)}</h2>
                 <span
                   className={`text-xs ${
                     g.picked === g.rows.length ? "text-emerald-400" : "text-neutral-400"
@@ -258,7 +259,7 @@ function PickRowButton({
           </span>
           {showBuyer ? (
             <span className="rounded-full border border-white/15 px-2 text-neutral-300">
-              u/{row.buyer || "(no buyer)"}
+              {buyerLabel(row.buyer, row.buyerEmail)}
             </span>
           ) : null}
           {showBuyer && count > 1 ? (

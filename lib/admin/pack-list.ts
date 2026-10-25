@@ -9,6 +9,7 @@ export type PackOrder = {
   key: string; // OrderGroup.key
   order: Order | null; // null for sold records that predate the orders table
   buyer: string;
+  buyerEmail: string | null;
   shipTo: ShipTo | null;
   invoiceId: string;
   loose: DbRecord[]; // sold, not in any parcel yet — shelf order
@@ -50,6 +51,7 @@ export function packList(
       key: g.key,
       order: g.order,
       buyer: g.buyer,
+      buyerEmail: g.buyerEmail,
       shipTo: g.order?.ship_to ?? null,
       invoiceId: g.invoiceId,
       loose,
@@ -78,6 +80,7 @@ export function openParcels(shipments: Shipment[]): Shipment[] {
 export type PackingSlip = {
   boxId: number;
   buyer: string;
+  buyerEmail: string | null;
   shipTo: ShipTo | null;
   boxIndex: number; // 1-based position among the order's boxes
   boxCount: number;
@@ -120,6 +123,7 @@ export function slipsForParcels(
     return {
       boxId: s.id,
       buyer: (order?.buyer_username ?? s.buyer_username).trim(),
+      buyerEmail: order?.buyer_email ?? null,
       shipTo,
       boxIndex: Math.max(1, siblings.findIndex((x) => x.id === s.id) + 1),
       boxCount: Math.max(1, siblings.length),
@@ -151,6 +155,7 @@ export function packProgress(list: PackOrder[]) {
 export type ManifestRow = {
   boxId: number | null; // null: the order's records aren't boxed in the app
   buyer: string;
+  buyerEmail: string | null;
   shipTo: ShipTo | null;
   boxIndex: number;
   boxCount: number;
@@ -191,6 +196,7 @@ export function manifestRows(
         row: {
           boxId: s.id,
           buyer: g.buyer,
+          buyerEmail: g.buyerEmail,
           shipTo: shipToOf(s),
           boxIndex: i + 1,
           boxCount: parcels.length,
@@ -203,6 +209,7 @@ export function manifestRows(
       loose.push({
         boxId: null,
         buyer: g.buyer,
+        buyerEmail: g.buyerEmail,
         shipTo: g.order?.ship_to ?? null,
         boxIndex: 1,
         boxCount: 1,
@@ -231,6 +238,7 @@ export type OrderSheetRecord = Pick<DbRecord, "artist" | "title" | "media" | "sl
 export type OrderSheetOrder = {
   key: string;
   buyer: string;
+  buyerEmail: string | null;
   shipToName: string | null;
   records: OrderSheetRecord[];
 };
@@ -268,6 +276,7 @@ export function orderSheet(
     out.push({
       key: g.key,
       buyer: g.buyer,
+      buyerEmail: g.buyerEmail,
       shipToName: g.order?.ship_to?.name ?? null,
       records: lines,
     });

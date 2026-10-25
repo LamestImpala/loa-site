@@ -9,6 +9,7 @@
 
 import type { DbRecord } from "./supabase";
 import { REF_LINE_RE } from "./records";
+import { buyerLabel } from "./admin/buyers";
 
 export type ParsedLine = {
   raw: string;
@@ -119,7 +120,7 @@ function isOnHold(r: DbRecord) {
 export function recordFlags(r: DbRecord, parsedPrice?: number): string[] {
   const flags: string[] = [];
   if (r.sold) flags.push("sold");
-  else if (isOnHold(r)) flags.push(r.hold_buyer ? `on hold for u/${r.hold_buyer}` : "on hold");
+  else if (isOnHold(r)) flags.push(r.hold_buyer ? `on hold for ${buyerLabel(r.hold_buyer)}` : "on hold");
   if (parsedPrice !== undefined && Number(r.price) !== parsedPrice) {
     flags.push(`price now $${r.price} (was $${parsedPrice})`);
   }

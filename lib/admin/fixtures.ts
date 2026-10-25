@@ -77,6 +77,7 @@ export function order(over: Partial<Order> = {}): Order {
   return {
     id: over.id ?? nextId++,
     buyer_username: "buyer",
+    buyer_email: null,
     status: "held",
     paypal_invoice_id: null,
     request_id: null,

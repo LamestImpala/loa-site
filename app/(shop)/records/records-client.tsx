@@ -201,6 +201,21 @@ function prefersReducedMotion() {
 
 // What the buyer is asking to purchase: one record from a card, or the bundle.
 type BuySheet = { kind: "single"; record: DbRecord } | { kind: "bundle" };
+type RequestMode = "email" | "reddit";
+type EmailStatus =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "sent"; refCode: string; email: string }
+  | { kind: "error"; message: string };
+
+// Fallback when the request endpoint is down: a plain email to the shop
+// with the same list, which still reaches the admin's inbox.
+function mailtoFallback(list: DbRecord[]) {
+  const { lines, total } = bundleBreakdown(list);
+  const subject = `Record request: ${list.length === 1 ? `${list[0].artist} — ${list[0].title}` : `${list.length} records`}`;
+  const body = `Hi! I'd like to buy:\n\n${lines.join("\n")}\n\nTotal: $${total}\n\n(Found on https://curiouserrecords.com)\n`;
+  return `mailto:${SELLER_INFO.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 type LightboxState = { record: DbRecord; index: number };
 
 export default function RecordsClient({
@@ -222,8 +237,16 @@ export default function RecordsClient({
   const [combinedMessageCopied, setCombinedMessageCopied] = useState(false);
   const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
   // Optional Reddit handle typed on the buy sheet; saved with the request so
-  // the admin doesn't have to retype it from the DM.
+  // the admin doesn't have to retype it from the DM. In email mode the same
+  // field is the buyer's name.
   const [buyerName, setBuyerName] = useState("");
+  // How the buyer wants to send the request. Email is the default — no
+  // account needed anywhere; the Reddit DM stays for r/VinylCollectors.
+  const [requestMode, setRequestMode] = useState<RequestMode>("email");
+  const [buyerEmail, setBuyerEmail] = useState("");
+  const [buyerNote, setBuyerNote] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+  const [emailStatus, setEmailStatus] = useState<EmailStatus>({ kind: "idle" });
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [detail, setDetail] = useState<DbRecord | null>(null);
   const [view, setView] = useState<ViewOption | null>(null);
@@ -316,6 +339,58 @@ export default function RecordsClient({
       window.prompt("Copy this message, then paste it into the DM:", message);
     }
     window.open(composeUrl(subject), "_blank", "noopener");
+  }
+
+  // Email path: the server saves the request (same table and ref code as
+  // the DM path), emails the admin, and sends the buyer a confirmation.
+  async function sendEmailRequest(list: DbRecord[]) {
+    const email = buyerEmail.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setEmailStatus({ kind: "error", message: "Enter a valid email address so I can reply." });
+      return;
+    }
+    setEmailStatus({ kind: "sending" });
+    for (const r of list) track(r.id, "buy_request");
+    try {
+      const res = await fetch("/api/order-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          record_ids: list.map((r) => r.id),
+          buyer_name: buyerName.trim() || undefined,
+          buyer_email: email,
+          message: buyerNote.trim() || undefined,
+          website: honeypot,
+        }),
+      });
+      if (res.status === 204) {
+        // Honeypot tripped — pretend it worked, nothing was saved.
+        setEmailStatus({ kind: "sent", refCode: makeRefCode(), email });
+        return;
+      }
+      const body = (await res.json().catch(() => ({}))) as { refCode?: string; error?: string };
+      if (!res.ok || !body.refCode) {
+        setEmailStatus({
+          kind: "error",
+          message: body.error || "Couldn't send the request right now.",
+        });
+        return;
+      }
+      setEmailStatus({ kind: "sent", refCode: body.refCode, email });
+      announce(`Request sent, reference ${body.refCode}.`);
+    } catch {
+      setEmailStatus({ kind: "error", message: "Couldn't reach the shop — check your connection." });
+    }
+  }
+
+  // Closing the sheet after a sent request also empties the bundle: those
+  // records are spoken for. Kept until then so the summary stays visible.
+  function closeBuySheet() {
+    if (emailStatus.kind === "sent" && buySheet?.kind === "bundle") {
+      setSelected(new Set());
+    }
+    if (emailStatus.kind !== "sending") setEmailStatus({ kind: "idle" });
+    setBuySheet(null);
   }
 
   async function copyCombinedCommentAndOpenPost() {
@@ -1011,9 +1086,9 @@ export default function RecordsClient({
         </div>
 
         <p className="shop-controls-note">
-          Records are claimed by Reddit DM — no account needed on this site.
-          Bundle up: one or two records ship for $6, {FREE_SHIPPING_MIN} or
-          more ship free.
+          Request to buy by email or Reddit DM — no account needed on this
+          site. Bundle up: one or two records ship for $6, {FREE_SHIPPING_MIN}{" "}
+          or more ship free.
         </p>
       </section>
 
@@ -1122,8 +1197,8 @@ export default function RecordsClient({
         ref={buyDialogRef}
         className="shop-dialog"
         aria-label="Request to buy"
-        onClose={() => setBuySheet(null)}
-        onClick={(e) => onBackdropClick(e, () => setBuySheet(null))}
+        onClose={closeBuySheet}
+        onClick={(e) => onBackdropClick(e, closeBuySheet)}
       >
         {buySheet && sheetItems.length > 0 ? (
           <div className="shop-dialog-body">
@@ -1133,7 +1208,7 @@ export default function RecordsClient({
                 type="button"
                 className="shop-dialog-close"
                 aria-label="Close"
-                onClick={() => setBuySheet(null)}
+                onClick={closeBuySheet}
               >
                 ×
               </button>
@@ -1157,59 +1232,185 @@ export default function RecordsClient({
               </span>
               <strong>= ${sheetQuote.total}</strong>
             </div>
-            <p className="shop-dialog-hint">
-              {hasPost
-                ? "Two quick steps, per subreddit rules: open the pre-filled Reddit DM (edit anything before sending), then paste the copied comment on the sale post."
-                : "This opens a pre-filled Reddit DM — edit anything before sending."}{" "}
-              Everything happens on Reddit; no account needed here.
-            </p>
-            <label className="shop-dialog-field">
-              <span>Your Reddit username (optional)</span>
-              <span className="shop-dialog-field-input">
-                <span aria-hidden="true">u/</span>
-                <input
-                  type="text"
-                  className="input"
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value)}
-                  placeholder="so I know who to reply to"
-                  maxLength={24}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                />
-              </span>
-            </label>
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              onClick={() => sendRequest(sheetItems)}
-            >
-              {combinedMessageCopied
-                ? "Message copied — paste into the DM"
-                : hasPost
-                  ? "1. Open the pre-filled DM ↗"
-                  : "Open the pre-filled DM ↗"}
-            </button>
-            {hasPost ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-block"
-                onClick={() =>
-                  buySheet.kind === "single"
-                    ? copyCommentAndOpenPost(buySheet.record)
-                    : copyCombinedCommentAndOpenPost()
-                }
-              >
-                {(
-                  buySheet.kind === "single"
-                    ? commentCopiedId === buySheet.record.id
-                    : combinedCommentCopied
-                )
-                  ? "Comment copied!"
-                  : "2. Copy comment & open the post"}
-              </button>
-            ) : null}
+            {emailStatus.kind === "sent" ? (
+              <div className="shop-dialog-success" role="status">
+                <strong>Request sent — ref {emailStatus.refCode}</strong>
+                <p>
+                  A confirmation is on its way to {emailStatus.email}. I&rsquo;ll
+                  reply from {SELLER_INFO.contactEmail}, usually within a day,
+                  with a PayPal invoice once we&rsquo;ve confirmed what&rsquo;s
+                  available.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={closeBuySheet}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div
+                  className="shop-dialog-tabs"
+                  role="tablist"
+                  aria-label="How to send the request"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={requestMode === "email"}
+                    className={requestMode === "email" ? "is-active" : ""}
+                    onClick={() => setRequestMode("email")}
+                  >
+                    Email
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={requestMode === "reddit"}
+                    className={requestMode === "reddit" ? "is-active" : ""}
+                    onClick={() => setRequestMode("reddit")}
+                  >
+                    Reddit DM
+                  </button>
+                </div>
+                {requestMode === "email" ? (
+                  <form
+                    className="shop-dialog-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (emailStatus.kind !== "sending") sendEmailRequest(sheetItems);
+                    }}
+                  >
+                    <p className="shop-dialog-hint">
+                      No account needed. I&rsquo;ll email you back to confirm
+                      what&rsquo;s available, then send a PayPal invoice.
+                    </p>
+                    <label className="shop-dialog-field">
+                      <span>Your name (optional)</span>
+                      <input
+                        type="text"
+                        className="input"
+                        value={buyerName}
+                        onChange={(e) => setBuyerName(e.target.value)}
+                        maxLength={80}
+                        autoComplete="name"
+                      />
+                    </label>
+                    <label className="shop-dialog-field">
+                      <span>Your email</span>
+                      <input
+                        type="email"
+                        className="input"
+                        value={buyerEmail}
+                        onChange={(e) => setBuyerEmail(e.target.value)}
+                        placeholder="so I can reply"
+                        maxLength={254}
+                        autoComplete="email"
+                        required
+                      />
+                    </label>
+                    <label className="shop-dialog-field">
+                      <span>Anything else? (optional)</span>
+                      <textarea
+                        className="input"
+                        value={buyerNote}
+                        onChange={(e) => setBuyerNote(e.target.value)}
+                        rows={2}
+                        maxLength={1000}
+                        placeholder="questions, a hold request, your Reddit name…"
+                      />
+                    </label>
+                    {/* Honeypot: hidden from people, filled in by bots. */}
+                    <div className="shop-honeypot" aria-hidden="true">
+                      <label>
+                        Website
+                        <input
+                          type="text"
+                          name="website"
+                          tabIndex={-1}
+                          autoComplete="off"
+                          value={honeypot}
+                          onChange={(e) => setHoneypot(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                    {emailStatus.kind === "error" ? (
+                      <p className="shop-dialog-error" role="alert">
+                        {emailStatus.message.replace(/[.!?]?$/, ".")}{" "}
+                        <a href={mailtoFallback(sheetItems)}>
+                          Email the list instead ↗
+                        </a>
+                      </p>
+                    ) : null}
+                    <button
+                      type="submit"
+                      className="btn btn-primary btn-block"
+                      disabled={emailStatus.kind === "sending"}
+                    >
+                      {emailStatus.kind === "sending" ? "Sending…" : "Send request"}
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <p className="shop-dialog-hint">
+                      {hasPost
+                        ? "Two quick steps, per subreddit rules: open the pre-filled Reddit DM (edit anything before sending), then paste the copied comment on the sale post."
+                        : "This opens a pre-filled Reddit DM — edit anything before sending."}{" "}
+                      Everything happens on Reddit; no account needed here.
+                    </p>
+                    <label className="shop-dialog-field">
+                      <span>Your Reddit username (optional)</span>
+                      <span className="shop-dialog-field-input">
+                        <span aria-hidden="true">u/</span>
+                        <input
+                          type="text"
+                          className="input"
+                          value={buyerName}
+                          onChange={(e) => setBuyerName(e.target.value)}
+                          placeholder="so I know who to reply to"
+                          maxLength={24}
+                          autoComplete="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                        />
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-block"
+                      onClick={() => sendRequest(sheetItems)}
+                    >
+                      {combinedMessageCopied
+                        ? "Message copied — paste into the DM"
+                        : hasPost
+                          ? "1. Open the pre-filled DM ↗"
+                          : "Open the pre-filled DM ↗"}
+                    </button>
+                    {hasPost ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-block"
+                        onClick={() =>
+                          buySheet.kind === "single"
+                            ? copyCommentAndOpenPost(buySheet.record)
+                            : copyCombinedCommentAndOpenPost()
+                        }
+                      >
+                        {(
+                          buySheet.kind === "single"
+                            ? commentCopiedId === buySheet.record.id
+                            : combinedCommentCopied
+                        )
+                          ? "Comment copied!"
+                          : "2. Copy comment & open the post"}
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </>
+            )}
           </div>
         ) : null}
       </dialog>

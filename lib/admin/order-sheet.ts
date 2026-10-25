@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { OrderSheetOrder } from "./pack-list.ts";
+import { buyerLabel } from "./buyers.ts";
 import { fit, pdfSafe, THERMAL } from "./packing-slips.ts";
 
 // Order sheet: every paid order not yet dropped off and each of its
@@ -227,7 +228,7 @@ export async function orderSheetPdf(
       const tailSize = 8 * scale;
       const tailWidth = regular.widthOfTextAtSize(tail, tailSize);
       const left = x + box + 5;
-      const buyer = o.buyer ? `u/${o.buyer}` : "(no buyer)";
+      const buyer = buyerLabel(o.buyer, o.buyerEmail);
       const name = o.shipToName ? `  ${o.shipToName}` : "";
       const avail = right - tailWidth - 6 - left;
       const buyerText = fit(buyer, bold, size, avail);

@@ -13,6 +13,7 @@ export type SaleTerms = {
   prices?: Map<number, number>; // record id -> agreed price (only where it differs)
   credit?: number;
   creditNote?: string;
+  buyerEmail?: string | null; // an email buyer's address, kept on the order
 };
 
 export type SoldResult = {
@@ -37,10 +38,12 @@ export async function markSold(
   }
 ): Promise<SoldResult> {
   const { terms, requests, byId } = opts;
-  const extra: Partial<Order> | undefined =
-    terms?.credit != null
-      ? { credit: terms.credit, credit_note: (terms.creditNote ?? "").trim() }
-      : undefined;
+  const extra: Partial<Order> = {};
+  if (terms?.credit != null) {
+    extra.credit = terms.credit;
+    extra.credit_note = (terms.creditNote ?? "").trim();
+  }
+  if (terms?.buyerEmail) extra.buyer_email = terms.buyerEmail;
   const placed = await placeOrder(supabase, targets, buyer, "paid", {
     requests,
     extra,

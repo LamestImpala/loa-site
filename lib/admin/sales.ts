@@ -138,3 +138,32 @@ export function unsellPlan(
     offDiscogs: targets.filter((r) => r.discogs_removed),
   };
 }
+
+// The sale-desk reply to a buyer: the quote, then how to pay. A Reddit
+// buyer is asked for a PayPal email; an email buyer already gave one, so
+// the invoice goes to the address the reply is sent to.
+export function saleReplyText(a: {
+  buyer: string;
+  email?: string | null;
+  lines: string[];
+  subtotal: number;
+  credit: number;
+  creditNote?: string;
+  shipping: number;
+  total: number;
+}): string {
+  const byEmail = Boolean(a.email?.trim());
+  const name = a.buyer.trim().replace(/^u\//, "");
+  const hi = name ? (byEmail ? `Hi ${name}!` : `Hi u/${name}!`) : "Hi!";
+  const note = (a.creditNote ?? "").trim();
+  const creditLine =
+    a.credit > 0 ? `\nCredit: −$${a.credit}${note ? ` (${note})` : ""}` : "";
+  const pay = byEmail
+    ? "Payment is a PayPal G&S invoice — I cover the fee. I'll send it to this email address once you confirm the list."
+    : "Payment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.";
+  return `${hi} Here's the breakdown for the records you asked about:\n\n${a.lines.join(
+    "\n"
+  )}\n\nSubtotal: $${a.subtotal}${creditLine}\nShipping: $${a.shipping}${
+    a.shipping === 0 ? " (free on 3+ records)" : ""
+  }\nTotal: $${a.total}\n\n${pay}`;
+}
