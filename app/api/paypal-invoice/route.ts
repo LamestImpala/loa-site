@@ -99,6 +99,13 @@ export async function POST(req: NextRequest) {
   if (email && !/.+@.+\..+/.test(email)) {
     return NextResponse.json({ error: "Invalid buyer email" }, { status: 400 });
   }
+  // An email buyer (the shop's form) keeps their address on the order and
+  // is named plainly; a Reddit buyer is u/name.
+  const channel: "reddit" | "email" = body.channel === "email" ? "email" : "reddit";
+  if (channel === "email" && !email) {
+    return NextResponse.json({ error: "An email buyer needs an email" }, { status: 400 });
+  }
+  const buyerName = channel === "email" ? buyer : `Reddit user u/${buyer}`;
   // Negotiated prices: only for records on the invoice, cents, never negative.
   const prices = new Map<number, number>();
   if (body.prices != null) {
@@ -216,11 +223,11 @@ export async function POST(req: NextRequest) {
       shippingValue: breakdown.shipping.toFixed(2),
       discountValue: breakdown.credit > 0 ? breakdown.credit.toFixed(2) : undefined,
       note:
-        `Vinyl records for Reddit user u/${buyer} — thanks! Shipped USPS Media Mail from Phoenix, AZ.` +
+        `Vinyl records for ${buyerName} — thanks! Shipped USPS Media Mail from Phoenix, AZ.` +
         (breakdown.credit > 0
           ? ` A $${breakdown.credit.toFixed(2)} credit is applied as the discount${creditNote ? ` (${creditNote})` : ""}.`
           : ""),
-      memo: `Reddit sale to u/${buyer}`,
+      memo: channel === "email" ? `Sale to ${buyer} <${email}>` : `Reddit sale to u/${buyer}`,
       recipientEmail: email,
     });
     const now = new Date().toISOString();
@@ -242,6 +249,7 @@ export async function POST(req: NextRequest) {
           paypal_invoice_id: result.invoiceId,
           credit: breakdown.credit,
           credit_note: creditNote,
+          ...(channel === "email" && email ? { buyer_email: email } : {}),
         },
       });
     } catch (e) {

@@ -83,6 +83,7 @@ export default function ShopLayout({
           Curiouser <span>Records</span>
         </div>
         <div style={{ flex: 1 }} />
+        <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>
         <a href={redditProfile} target="_blank" rel="noopener noreferrer">
           u/{SELLER_INFO.redditUsername} ↗
         </a>
@@ -126,9 +127,7 @@ export default function ShopLayout({
             u/{SELLER_INFO.redditUsername}
           </a>{" "}
           ·{" "}
-          <a href="mailto:contact@lateonsetaudiophile.com">
-            contact@lateonsetaudiophile.com
-          </a>{" "}
+          <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>{" "}
           · © {new Date().getFullYear()}
         </div>
       </footer>

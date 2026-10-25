@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { integrityIssues } from "@/lib/admin/integrity";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { awaitingDropOff } from "@/lib/admin/pack-list";
 import { useAdmin } from "../_shell/admin-provider";
 import { FulfillmentPanel } from "../fulfillment-panel";
@@ -34,6 +35,9 @@ export function ShipPage() {
     readdToDiscogs,
     discogsReadding,
   } = useAdmin();
+  // An email buyer's address lives on the order, not the parcel.
+  const orderEmail = (s: { order_id?: number | null }) =>
+    s.order_id != null ? (orders.find((o) => o.id === s.order_id)?.buyer_email ?? null) : null;
 
   const issues = useMemo(
     () => integrityIssues({ records, shipments, invoices, orders }),
@@ -60,7 +64,7 @@ export function ShipPage() {
     if (
       !(await confirm(
         `Mark ${n} labeled box${n === 1 ? "" : "es"} as dropped off?\n\n${going
-          .map((s) => `• Box #${s.id} — u/${s.buyer_username || "?"}`)
+          .map((s) => `• Box #${s.id} — ${buyerLabel(s.buyer_username, orderEmail(s), "?")}`)
           .join("\n")}\n\nThey come off the order sheet.`
       ))
     )
@@ -174,7 +178,7 @@ export function ShipPage() {
                     <span>
                       <span className="font-medium">Box #{s.id}</span>{" "}
                       <span className="text-neutral-400">
-                        u/{s.buyer_username || "?"} · …
+                        {buyerLabel(s.buyer_username, orderEmail(s), "?")} · …
                         {(s.tracking_code ?? "").slice(-4)}
                       </span>
                       {titles.length ? (

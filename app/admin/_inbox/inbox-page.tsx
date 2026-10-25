@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  FREE_SHIPPING_MIN,
-  bundleBreakdown,
-  makeRefCode,
-} from "@/lib/records";
-import type { DbRecord, Invoice, Order, OrderRequest } from "@/lib/supabase";
+import { bundleBreakdown, makeRefCode } from "@/lib/records";
+import type {
+  DbRecord,
+  Invoice,
+  Order,
+  OrderRequest,
+  ShopMessage,
+  ShopMessageStatus,
+} from "@/lib/supabase";
 import {
   extractRefCode,
   matchLines,
@@ -21,10 +24,13 @@ import {
   holdExpiry,
   liveInvoiceOn,
   openOrders,
+  requestForOrder,
   type OpenOrder,
 } from "@/lib/admin/orders";
 import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
-import { parseMoney, saleItem } from "@/lib/admin/sales";
+import { parseMoney, saleItem, saleReplyText } from "@/lib/admin/sales";
+import { buyerLabel } from "@/lib/admin/buyers";
+import { bodyText, messageSummary, replySubject } from "@/lib/admin/messages";
 import { salesStats } from "@/lib/admin/stats";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { NextUp } from "./next-up";
@@ -53,6 +59,8 @@ export function InboxPage() {
     setOrders,
     orderRequests,
     setOrderRequests,
+    messages,
+    setMessages,
     events,
     loading,
     loadData,
@@ -76,6 +84,8 @@ export function InboxPage() {
     setSaleBuyer,
     saleEmail,
     setSaleEmail,
+    saleChannel,
+    setSaleChannel,
     salePrices,
     setSalePrices,
     saleCredit,
@@ -96,7 +106,9 @@ export function InboxPage() {
   // Weekly mode swaps the sticky sale-desk box for a slim picks bar so
   // random picks don't look like a pending sale. Only explicit actions
   // change the mode — checkbox toggles keep it.
-  const [saleBusy, setSaleBusy] = useState<null | "hold" | "sold" | "invoice">(null);
+  const [saleBusy, setSaleBusy] = useState<
+    null | "hold" | "sold" | "invoice" | "email"
+  >(null);
   const [saleStatus, setSaleStatus] = useState("");
   const [saleInvoice, setSaleInvoice] = useState<null | {
     id: string;
@@ -178,18 +190,85 @@ export function InboxPage() {
     setSaleInvoice(null);
   }
 
+  // An email buyer on the desk: their order carries the address, the label
+  // drops the u/, and replies can go out as orders@ from here.
+  const deskEmail = saleChannel === "email" ? saleEmail.trim() || null : null;
+  // The saved request these desk records came from, for the ref code in
+  // an emailed reply's subject.
+  const deskRequest = useMemo(
+    () => requestForOrder(saleRecords.map((r) => r.id), orderRequests),
+    [saleRecords, orderRequests]
+  );
+
+  function saleReply() {
+    return saleReplyText({
+      buyer: saleBuyer,
+      email: deskEmail,
+      lines: saleTotals.lines,
+      subtotal: saleTotals.subtotal,
+      credit: saleTotals.credit,
+      creditNote: saleCreditNote,
+      shipping: saleTotals.shipping,
+      total: saleTotals.total,
+    });
+  }
+
   async function copySaleReply() {
     if (saleRecords.length === 0) return;
-    const buyer = saleBuyer.trim().replace(/^u\//, "");
-    const { lines, subtotal, credit, shipping, total } = saleTotals;
-    const note = saleCreditNote.trim();
-    const creditLine =
-      credit > 0 ? `\nCredit: −$${credit}${note ? ` (${note})` : ""}` : "";
-    const text = `${buyer ? `Hi u/${buyer}!` : "Hi!"} Here's the breakdown for the records you asked about:\n\n${lines.join(
-      "\n"
-    )}\n\nSubtotal: $${subtotal}${creditLine}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\n\nPayment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.`;
-    if (await copyText(text, "Copy this reply")) {
+    if (await copyText(saleReply(), "Copy this reply")) {
       flash("reply");
+    }
+  }
+
+  // Send mail as orders@ through the server (the Resend key lives there).
+  // False when it didn't go — already toasted.
+  async function sendShopEmail(body: {
+    to: string;
+    subject: string;
+    text: string;
+    inReplyTo?: string | null;
+    messageId?: number;
+    requestId?: number | null;
+  }): Promise<boolean> {
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/email-reply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current?.access_token ?? ""}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        pushToast("error", json.error || `Email failed (${res.status})`);
+        return false;
+      }
+      return true;
+    } catch {
+      pushToast("error", "Email failed — couldn't reach the server");
+      return false;
+    }
+  }
+
+  async function emailSaleReply() {
+    if (!deskEmail || saleRecords.length === 0 || saleBusy) return;
+    setSaleBusy("email");
+    try {
+      const ok = await sendShopEmail({
+        to: deskEmail,
+        subject: deskRequest
+          ? `Your record request (Ref ${deskRequest.ref_code})`
+          : "Your record request",
+        text: saleReply(),
+        requestId: deskRequest?.id ?? null,
+      });
+      if (ok) pushToast("success", `Reply emailed to ${deskEmail} ✓`);
+    } finally {
+      setSaleBusy(null);
     }
   }
 
@@ -203,6 +282,7 @@ export function InboxPage() {
     const placed = await placeOrder(saleRecords, buyer, "held", {
       credit: saleTerms.credit,
       credit_note: saleTerms.creditNote,
+      ...(deskEmail ? { buyer_email: deskEmail } : {}),
     });
     if (!placed) {
       setSaleBusy(null);
@@ -251,7 +331,7 @@ export function InboxPage() {
     if (targets.length === 0 || saleBusy || termsError) return;
     if (
       !(await confirm(
-        `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to u/${buyer}` : ""} for $${saleTotals.subtotal}${
+        `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to ${buyerLabel(buyer, deskEmail)}` : ""} for $${saleTotals.subtotal}${
           saleTotals.credit > 0 ? ` less a $${saleTotals.credit} credit` : ""
         }? Each record's sold price is set to its agreed price.`
       ))
@@ -259,7 +339,7 @@ export function InboxPage() {
       return;
     setSaleBusy("sold");
     try {
-      await markRecordsSold(targets, buyer, saleTerms);
+      await markRecordsSold(targets, buyer, { ...saleTerms, buyerEmail: deskEmail });
     } finally {
       setSaleBusy(null);
     }
@@ -286,6 +366,7 @@ export function InboxPage() {
           ids: targets.map((r) => r.id),
           buyer,
           email: saleEmail.trim() || undefined,
+          channel: saleChannel,
           prices: Object.fromEntries(deskPrices),
           credit: saleTerms.credit,
           creditNote: saleTerms.creditNote,
@@ -417,12 +498,19 @@ export function InboxPage() {
       return;
     }
     if (!(await applySaleSelection(available))) return;
-    // Seed the buyer field from what the buyer typed on the shop, without
-    // clobbering a name the admin already entered.
-    if (req.buyer_username) {
-      const name = req.buyer_username;
-      setSaleBuyer((prev) => (prev.trim() ? prev : name));
+    // Seed the buyer fields from what the buyer typed on the shop, without
+    // clobbering a name the admin already entered. An email request also
+    // brings its address (the PayPal invoice goes there) and its channel.
+    const name =
+      req.channel === "email"
+        ? req.buyer_name || req.buyer_email || ""
+        : req.buyer_username || "";
+    if (name) setSaleBuyer((prev) => (prev.trim() ? prev : name));
+    if (req.channel === "email" && req.buyer_email) {
+      const email = req.buyer_email;
+      setSaleEmail((prev) => (prev.trim() ? prev : email));
     }
+    setSaleChannel(req.channel);
     if (req.status === "new") {
       const { error } = await supabase
         .from("order_requests")
@@ -466,7 +554,7 @@ export function InboxPage() {
     if (orderBusy || o.recs.length === 0) return;
     if (
       !(await confirm(
-        `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to u/${o.buyer || "?"} for $${o.totals.subtotal}${
+        `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to ${buyerLabel(o.buyer, o.order.buyer_email, "?")} for $${o.totals.subtotal}${
           o.totals.credit > 0 ? ` less a $${o.totals.credit} credit` : ""
         }? Each record's sold price is set to its agreed price.`
       ))
@@ -485,7 +573,7 @@ export function InboxPage() {
     if (orderBusy) return;
     if (
       !(await confirm(
-        `Release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} held for u/${o.buyer || "?"}? They go back on the shop immediately.`
+        `Release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} held for ${buyerLabel(o.buyer, o.order.buyer_email, "?")}? They go back on the shop immediately.`
       ))
     )
       return;
@@ -567,7 +655,7 @@ export function InboxPage() {
           pushToast(
             "success",
             settled?.kind === "sold"
-              ? `Invoice ${id} is ${body.status} ✓ — ${settled.soldIds.length} record${settled.soldIds.length === 1 ? "" : "s"} sold to u/${o.buyer || "?"}`
+              ? `Invoice ${id} is ${body.status} ✓ — ${settled.soldIds.length} record${settled.soldIds.length === 1 ? "" : "s"} sold to ${buyerLabel(o.buyer, o.order.buyer_email, "?")}`
               : `Invoice ${id} is ${body.status} ✓ — order closed.`
           );
           await loadData();
@@ -673,7 +761,7 @@ export function InboxPage() {
     if (!id || orderBusy) return;
     if (
       !(await confirm(
-        `Cancel invoice ${id}${o.buyer ? ` for u/${o.buyer}` : ""} on PayPal and release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
+        `Cancel invoice ${id}${o.buyer ? ` for ${buyerLabel(o.buyer, o.order.buyer_email)}` : ""} on PayPal and release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
       ))
     )
       return;
@@ -785,6 +873,134 @@ export function InboxPage() {
     );
   }
 
+  // --- Messages: mail to orders@, filed by the Resend webhook ---
+  const [openMessageId, setOpenMessageId] = useState<number | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [messageBusy, setMessageBusy] = useState<number | null>(null);
+  const newMessageCount = messages.filter((m) => m.status === "new").length;
+
+  async function setMessageStatus(
+    m: ShopMessage,
+    status: ShopMessageStatus,
+    opts: { quiet?: boolean } = {}
+  ) {
+    const { error } = await supabase
+      .from("shop_messages")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", m.id);
+    if (error) {
+      pushToast("error", `Couldn't update the message: ${error.message}`);
+      return;
+    }
+    if (status === "archived") {
+      setMessages((prev) => prev.filter((x) => x.id !== m.id));
+      if (openMessageId === m.id) setOpenMessageId(null);
+      if (!opts.quiet) {
+        pushToast("info", `Message from ${m.from_name || m.from_email} archived.`, {
+          label: "Undo",
+          onClick: () => restoreMessage(m),
+        });
+      }
+    } else {
+      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, status } : x)));
+    }
+  }
+
+  async function restoreMessage(m: ShopMessage) {
+    const { error } = await supabase
+      .from("shop_messages")
+      .update({ status: "read", updated_at: new Date().toISOString() })
+      .eq("id", m.id);
+    if (error) {
+      pushToast("error", `Couldn't restore the message: ${error.message}`);
+      return;
+    }
+    setMessages((prev) =>
+      prev.some((x) => x.id === m.id)
+        ? prev
+        : [...prev, { ...m, status: "read" as const }].sort((a, b) =>
+            b.received_at.localeCompare(a.received_at)
+          )
+    );
+  }
+
+  // Opening a message shows the whole body and marks a new one read.
+  function toggleMessage(m: ShopMessage) {
+    const opening = openMessageId !== m.id;
+    setOpenMessageId(opening ? m.id : null);
+    if (opening) {
+      setReplyDraft(
+        `Hi${m.from_name ? ` ${m.from_name.split(/\s+/)[0]}` : ""}!\n\n`
+      );
+      if (m.status === "new") void setMessageStatus(m, "read", { quiet: true });
+    }
+  }
+
+  async function sendMessageReply(m: ShopMessage) {
+    const text = replyDraft.trim();
+    if (!text || messageBusy) return;
+    setMessageBusy(m.id);
+    try {
+      const ok = await sendShopEmail({
+        to: m.from_email,
+        subject: replySubject(m.subject),
+        text,
+        inReplyTo: m.message_id,
+        messageId: m.id,
+        requestId: m.request_id,
+      });
+      if (!ok) return;
+      setMessages((prev) =>
+        prev.map((x) => (x.id === m.id ? { ...x, status: "replied" } : x))
+      );
+      setReplyDraft("");
+      pushToast("success", `Reply sent to ${m.from_email} ✓`);
+    } finally {
+      setMessageBusy(null);
+    }
+  }
+
+  // Put the message's records on the desk: through its saved request when
+  // the ref code matched, else by parsing the body like a pasted DM. The
+  // sender becomes the desk's email buyer either way.
+  async function loadMessageIntoSaleDesk(m: ShopMessage) {
+    const seedBuyer = () => {
+      setSaleChannel("email");
+      setSaleEmail((prev) => (prev.trim() ? prev : m.from_email));
+      if (m.from_name) {
+        const name = m.from_name;
+        setSaleBuyer((prev) => (prev.trim() ? prev : name));
+      }
+    };
+    if (m.request_id != null) {
+      let req = orderRequests.find((r) => r.id === m.request_id) ?? null;
+      if (!req) {
+        const { data } = await supabase
+          .from("order_requests")
+          .select("*")
+          .eq("id", m.request_id)
+          .maybeSingle();
+        req = (data as OrderRequest | null) ?? null;
+      }
+      if (req) {
+        await loadRequestIntoSaleDesk(req);
+        seedBuyer();
+        return;
+      }
+    }
+    const text = bodyText(m);
+    setPasteText(text);
+    const rows = matchLines(parseOrderText(text), records);
+    setParseResult({ ref: m.ref_code, refRequest: null, rows, choices: {} });
+    seedBuyer();
+    if (rows.length === 0) {
+      pushToast("info", "No record lines found in this message — pick the records by hand.");
+    }
+    setTimeout(() => {
+      document.getElementById("paste-dm")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }
+
   async function copyRefCode(req: OrderRequest) {
     if (await copyText(req.ref_code, "Copy the ref code")) {
       flash(`ref-${req.id}`);
@@ -830,8 +1046,17 @@ export function InboxPage() {
   async function applyParsedSelection() {
     if (parsedIds.length === 0) return;
     if (!(await applySaleSelection(parsedIds))) return;
-    const typedBuyer = parseResult?.refRequest?.buyer_username;
+    const matched = parseResult?.refRequest;
+    const typedBuyer =
+      matched?.channel === "email"
+        ? matched.buyer_name || matched.buyer_email
+        : matched?.buyer_username;
     if (typedBuyer) setSaleBuyer((prev) => (prev.trim() ? prev : typedBuyer));
+    if (matched?.channel === "email" && matched.buyer_email) {
+      const email = matched.buyer_email;
+      setSaleEmail((prev) => (prev.trim() ? prev : email));
+      setSaleChannel("email");
+    }
     // Don't double-track: a DM whose ref matched a saved request is already
     // in the inbox.
     if (saveParsedChecked && !parseResult?.refRequest) {
@@ -960,19 +1185,34 @@ export function InboxPage() {
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-neutral-500">u/</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setSaleChannel((c) => (c === "email" ? "reddit" : "email"))
+                }
+                title={
+                  saleChannel === "email"
+                    ? "Email buyer — their name and email go on the order. Click for a Reddit buyer."
+                    : "Reddit buyer. Click if this buyer wrote in by email instead."
+                }
+                className="rounded-full border border-white/15 px-2 py-0.5 text-xs text-neutral-400 transition hover:border-white/40 hover:text-white"
+              >
+                {saleChannel === "email" ? "email" : "u/"}
+              </button>
               <input
                 type="text"
                 value={saleBuyer}
                 onChange={(e) => setSaleBuyer(e.target.value)}
-                placeholder="reddit buyer"
+                placeholder={saleChannel === "email" ? "buyer name" : "reddit buyer"}
                 className={`w-36 ${inputClass}`}
               />
               <input
                 type="email"
                 value={saleEmail}
                 onChange={(e) => setSaleEmail(e.target.value)}
-                placeholder="PayPal email (optional)"
+                placeholder={
+                  saleChannel === "email" ? "buyer email" : "PayPal email (optional)"
+                }
                 className={`w-56 ${inputClass}`}
               />
             </div>
@@ -985,6 +1225,17 @@ export function InboxPage() {
               >
                 {isCopied("reply") ? "Copied!" : "Copy reply"}
               </button>
+              {deskEmail ? (
+                <button
+                  type="button"
+                  className={buttonClass}
+                  disabled={saleRecords.length === 0 || saleBusy !== null}
+                  onClick={emailSaleReply}
+                  title={`Send the breakdown to ${deskEmail} as orders@curiouserrecords.com`}
+                >
+                  {saleBusy === "email" ? "Sending…" : "Email reply"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={buttonClass}
@@ -1111,7 +1362,31 @@ export function InboxPage() {
                         >
                           {req.status}
                         </span>
-                        {req.buyer_username ? (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-xs ${
+                            req.channel === "email"
+                              ? "border-sky-400/40 text-sky-300"
+                              : "border-white/15 text-neutral-400"
+                          }`}
+                          title={
+                            req.channel === "email"
+                              ? "Sent from the shop's email form"
+                              : "Sent as a Reddit DM"
+                          }
+                        >
+                          {req.channel === "email" ? "email" : "reddit"}
+                        </span>
+                        {req.channel === "email" ? (
+                          <span className="text-sm text-white">
+                            {req.buyer_name ? `${req.buyer_name} · ` : ""}
+                            <a
+                              href={`mailto:${req.buyer_email}`}
+                              className="text-sky-300 underline-offset-2 hover:underline"
+                            >
+                              {req.buyer_email}
+                            </a>
+                          </span>
+                        ) : req.buyer_username ? (
                           <span className="text-sm text-white">
                             u/{req.buyer_username}
                           </span>
@@ -1163,6 +1438,11 @@ export function InboxPage() {
                           {unavailable} of {req.record_ids.length} unavailable —
                           will not be selected.
                         </p>
+                      ) : null}
+                      {req.message ? (
+                        <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-white/15 pl-3 text-sm text-neutral-300">
+                          {req.message}
+                        </blockquote>
                       ) : null}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -1239,6 +1519,7 @@ export function InboxPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <BuyerField
                             value={o.buyer}
+                            email={o.order.buyer_email}
                             disabled={anyBusy}
                             onSave={(next) => renameBuyer(order, next)}
                           />
@@ -1482,6 +1763,162 @@ export function InboxPage() {
               </>
             ) : null}
 
+            {/* Mail to orders@curiouserrecords.com */}
+            <h2 id="messages" className="mt-10 scroll-mt-24 text-xl font-medium">
+              Messages{" "}
+              {newMessageCount > 0 ? (
+                <span className="text-sm text-amber-400">({newMessageCount} new)</span>
+              ) : (
+                <span className="text-sm text-neutral-400">({messages.length} open)</span>
+              )}
+            </h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              Email sent to orders@curiouserrecords.com lands here (a copy goes
+              to your Gmail too). Reply from here as orders@, or load the
+              records it talks about onto the sale desk.
+            </p>
+            {messages.length === 0 ? (
+              <p className="mt-3 text-sm text-neutral-400">No open messages.</p>
+            ) : (
+              <div className="mt-3 grid gap-3">
+                {messages.map((m) => {
+                  const open = openMessageId === m.id;
+                  const req =
+                    m.request_id != null
+                      ? orderRequests.find((r) => r.id === m.request_id) ?? null
+                      : null;
+                  const busy = messageBusy === m.id;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`rounded-2xl border p-4 ${
+                        m.status === "new"
+                          ? "border-amber-400/30 bg-white/5"
+                          : "border-white/10 bg-white/5"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleMessage(m)}
+                          className="text-left font-medium text-white transition hover:text-amber-200"
+                          aria-expanded={open}
+                        >
+                          {m.from_name || m.from_email}
+                        </button>
+                        {m.from_name ? (
+                          <a
+                            href={`mailto:${m.from_email}`}
+                            className="text-sm text-sky-300 underline-offset-2 hover:underline"
+                          >
+                            {m.from_email}
+                          </a>
+                        ) : null}
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-xs ${
+                            m.status === "new"
+                              ? "border-amber-400/40 text-amber-300"
+                              : m.status === "replied"
+                                ? "border-emerald-500/40 text-emerald-300"
+                                : "border-white/15 text-neutral-400"
+                          }`}
+                        >
+                          {m.status}
+                        </span>
+                        {m.ref_code ? (
+                          <span
+                            className="font-mono text-xs text-amber-300"
+                            title={req ? "Matches a saved request" : "Ref code in the message"}
+                          >
+                            {m.ref_code}
+                            {req ? ` · $${req.total}` : ""}
+                          </span>
+                        ) : null}
+                        <span className="ml-auto text-xs text-neutral-500">
+                          {timeAgo(m.received_at)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-neutral-200">
+                        {m.subject?.trim() || <span className="text-neutral-500">(no subject)</span>}
+                      </p>
+                      {open ? (
+                        <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words font-sans text-sm text-neutral-300">
+                          {bodyText(m) || "(empty message)"}
+                        </pre>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => toggleMessage(m)}
+                          className="mt-1 block text-left text-sm text-neutral-400 transition hover:text-neutral-200"
+                        >
+                          {messageSummary(m) || "(empty message)"}
+                        </button>
+                      )}
+                      {open ? (
+                        <div className="mt-3">
+                          <textarea
+                            value={replyDraft}
+                            onChange={(e) => setReplyDraft(e.target.value)}
+                            rows={4}
+                            placeholder="Reply as orders@curiouserrecords.com…"
+                            className={`w-full max-w-3xl ${inputClass}`}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {open ? (
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            disabled={!replyDraft.trim() || busy}
+                            onClick={() => sendMessageReply(m)}
+                          >
+                            {busy ? "Sending…" : "Send reply"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            onClick={() => toggleMessage(m)}
+                          >
+                            Open &amp; reply
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          onClick={() => loadMessageIntoSaleDesk(m)}
+                          title={
+                            req
+                              ? `Load request ${req.ref_code} into the sale desk`
+                              : "Parse the record lines in this message and pick them for the desk"
+                          }
+                        >
+                          Load into sale desk
+                        </button>
+                        {m.status === "new" ? (
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            onClick={() => setMessageStatus(m, "read")}
+                          >
+                            Mark read
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          onClick={() => setMessageStatus(m, "archived")}
+                        >
+                          Archive
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <h2 id="paste-dm" className="mt-10 scroll-mt-24 text-xl font-medium">Paste a DM</h2>
             <p className="mt-1 text-sm text-neutral-400">
               Paste the buyer&rsquo;s message — even edited — and it&rsquo;s
@@ -1530,9 +1967,11 @@ export function InboxPage() {
                       </span>{" "}
                       ({parseResult.refRequest.record_ids.length} records, $
                       {parseResult.refRequest.total}
-                      {parseResult.refRequest.buyer_username
-                        ? ` · u/${parseResult.refRequest.buyer_username}`
-                        : ""}
+                      {parseResult.refRequest.channel === "email"
+                        ? ` · ${parseResult.refRequest.buyer_name ?? ""} ${parseResult.refRequest.buyer_email ?? ""}`.trimEnd()
+                        : parseResult.refRequest.buyer_username
+                          ? ` · u/${parseResult.refRequest.buyer_username}`
+                          : ""}
                       {parseResult.refRequest.status !== "new" &&
                       parseResult.refRequest.status !== "loaded"
                         ? ` · ${parseResult.refRequest.status}`

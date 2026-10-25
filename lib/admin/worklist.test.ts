@@ -10,7 +10,11 @@ const NOW = new Date("2026-09-20T12:00:00.000Z").getTime();
 const request = (over: Partial<OrderRequest> = {}): OrderRequest => ({
   id: 1,
   ref_code: "CR-0001",
+  channel: "reddit",
   buyer_username: "amy",
+  buyer_name: null,
+  buyer_email: null,
+  message: null,
   record_ids: [],
   items: [],
   subtotal: 0,
@@ -28,6 +32,7 @@ test("nothing to do is all zeros", () => {
   const w = worklist(empty, NOW);
   assert.deepEqual(w, {
     newRequests: 0,
+    newMessages: 0,
     openOrders: 0,
     expiredHolds: 0,
     staleInvoices: 0,

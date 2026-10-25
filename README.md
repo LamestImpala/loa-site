@@ -72,6 +72,46 @@ Rules with tests: `lib/admin/pack-list.ts`, `lib/admin/label-intake.ts`,
 `lib/admin/packing-slips.ts`, `lib/admin/labels-2up.ts`; writes in
 `lib/admin/shipments-db.ts`.
 
+## Email orders
+
+Buyers without a Reddit account order by email. The shop's **Request to buy**
+sheet has two tabs: **Email** (default — name, email, optional note) and
+**Reddit DM** (the pre-filled message, as before). Both save an
+`order_requests` row with a `CR-XXXX` ref code; the email path
+(`POST /api/order-request`) also emails the admin a notification and the
+buyer a confirmation, both from `orders@curiouserrecords.com`.
+
+Mail *to* orders@ is received by Resend and delivered to
+`POST /api/email-inbound` (Svix-signed webhook), which files it in
+`shop_messages` — the **Messages** section of the Inbox — and forwards a copy
+to the admin's Gmail with Reply-To set to the sender. From the Inbox, **Reply**
+sends as orders@ (`POST /api/email-reply`), and **Load into sale desk** puts
+the message's records on the desk (through its saved request when the ref
+code matched, else by parsing the body like a pasted DM). An email buyer on
+the desk is named plainly (no `u/`), their address is pre-filled for the
+PayPal invoice, and it is kept on the order (`orders.buyer_email`), so the
+Reddit-only actions (trade confirmation, buyer nudge, thread URL) stay hidden
+for them.
+
+Setup, once:
+
+1. Resend → Domains → add `curiouserrecords.com`; add the DKIM/SPF records it
+   shows in Vercel → Domains → DNS Records; enable **Receiving** (one MX
+   record on the bare domain) and verify.
+2. Resend → Webhooks → add `https://curiouserrecords.com/api/email-inbound`
+   for the `email.received` event; copy the signing secret.
+3. Vercel env: `RESEND_API_KEY` (full access — the receiving API reads
+   bodies), `RESEND_FROM="Curiouser Records <orders@curiouserrecords.com>"`,
+   `RESEND_WEBHOOK_SECRET`. Without `RESEND_API_KEY` requests still save and
+   only the emails are skipped.
+4. To answer from Gmail as orders@: Settings → Accounts → **Send mail as**,
+   SMTP `smtp.resend.com`, port 465 (SSL), username `resend`, password = a
+   sending-only Resend API key. The confirmation code lands in Messages.
+
+Schema: `supabase/migrations/20261025_shop_email.sql`. Rules with tests:
+`lib/order-request.ts`, `lib/resend-webhook.ts`, `lib/admin/messages.ts`,
+`lib/admin/buyers.ts`; mail in `lib/email.ts`.
+
 ## Pick'em
 
 `/pickem` is a free football pick'em, NFL and college, one league at a time

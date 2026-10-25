@@ -3,6 +3,7 @@
 import { memo } from "react";
 import type { DbRecord, RecordInterest } from "@/lib/supabase";
 import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
+import { buyerLabel } from "@/lib/admin/buyers";
 import type { MarketStats } from "@/lib/admin/market";
 import { buttonClass, inputClass, pct } from "../_shell/ui";
 
@@ -160,14 +161,14 @@ export const CatalogRow = memo(function CatalogRow({
       <td className="px-3 py-2 align-top text-xs">
         {r.sold ? (
           <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
-            Sold{(r.buyer_username ?? "").trim() ? ` · u/${r.buyer_username}` : ""}
+            Sold{(r.buyer_username ?? "").trim() ? ` · ${buyerLabel(r.buyer_username)}` : ""}
           </span>
         ) : holdActive(r) ? (
           <span
             className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
             title={`Held ${holdUntilText(r)}`}
           >
-            {invoiceHold(r) ? "Invoiced" : "Held"} · u/{r.hold_buyer}
+            {invoiceHold(r) ? "Invoiced" : "Held"} · {buyerLabel(r.hold_buyer)}
           </span>
         ) : r.listed ? (
           <span className="text-neutral-500">on shop</span>

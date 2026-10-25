@@ -14,6 +14,7 @@ import {
   type PackOrder,
 } from "@/lib/admin/pack-list";
 import { packingSlips, shipManifest } from "@/lib/admin/packing-slips";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { orderSheetPdf, THERMAL_SHEET } from "@/lib/admin/order-sheet";
 import { createParcel } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
@@ -113,7 +114,7 @@ export function PackPage() {
       setChecked((prev) => ({ ...prev, [o.key]: [] }));
       pushToast(
         "success",
-        `Box #${created.id} sealed — ${ids.length} record${ids.length === 1 ? "" : "s"} for u/${o.buyer || "?"}`
+        `Box #${created.id} sealed — ${ids.length} record${ids.length === 1 ? "" : "s"} for ${buyerLabel(o.buyer, o.buyerEmail, "?")}`
       );
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Couldn't seal the box");
@@ -298,11 +299,11 @@ export function PackPage() {
             return (
               <section
                 key={o.key}
-                aria-label={`Order for u/${o.buyer}`}
+                aria-label={`Order for ${buyerLabel(o.buyer, o.buyerEmail)}`}
                 className="rounded-2xl border border-white/10 bg-white/5 p-4"
               >
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <h2 className="font-medium">u/{o.buyer || "(no buyer)"}</h2>
+                  <h2 className="font-medium">{buyerLabel(o.buyer, o.buyerEmail)}</h2>
                   {o.shipTo?.name ? (
                     <span className="text-sm text-neutral-300">
                       {o.shipTo.name}

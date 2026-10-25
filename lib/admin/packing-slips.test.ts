@@ -14,6 +14,7 @@ import type { ManifestRow, PackingSlip } from "./pack-list.ts";
 const slip = (over: Partial<PackingSlip> = {}): PackingSlip => ({
   boxId: 12,
   buyer: "zed",
+  buyerEmail: null,
   shipTo: {
     name: "Jane Buyer",
     line1: "1 Main",
@@ -74,6 +75,7 @@ test("pdfSafe keeps WinAnsi, folds accents, replaces the rest", () => {
 const row = (over: Partial<ManifestRow> = {}): ManifestRow => ({
   boxId: 12,
   buyer: "zed",
+  buyerEmail: null,
   shipTo: slip().shipTo,
   boxIndex: 1,
   boxCount: 1,

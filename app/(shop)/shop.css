@@ -1437,3 +1437,69 @@ html:has(.shop) {
     animation: none;
   }
 }
+
+/* — request sheet: email / Reddit switch and the email form — */
+.shop-dialog-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-divider);
+  border-radius: 999px;
+}
+.shop-dialog-tabs button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  background: transparent;
+  color: var(--color-neutral-700);
+  cursor: pointer;
+}
+.shop-dialog-tabs button.is-active {
+  background: var(--color-accent);
+  color: var(--color-on-accent, #fff);
+}
+.shop-dialog-tabs button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.shop-dialog-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.shop-dialog-form textarea.input {
+  resize: vertical;
+  min-height: 2.5em;
+}
+.shop-dialog-error {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-danger, #b3261e);
+}
+.shop-dialog-error a {
+  color: inherit;
+}
+.shop-dialog-success {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+}
+.shop-dialog-success p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+/* Off-screen, not display:none, so bots still "see" the field. */
+.shop-honeypot {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

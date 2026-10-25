@@ -19,6 +19,7 @@ import {
   type OrderStage,
 } from "@/lib/admin/fulfillment";
 import { dropOffState } from "@/lib/admin/pack-list";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { refundedPatch } from "@/lib/admin/refunds";
 import { parseMoney } from "@/lib/admin/sales";
 import {
@@ -823,7 +824,7 @@ export function FulfillmentPanel({
               {refunded.map(({ order, records: kept }) => (
                 <li key={order.id}>
                   <span className="text-neutral-200">
-                    u/{order.buyer_username || "(no buyer)"}
+                    {buyerLabel(order.buyer_username, order.buyer_email)}
                   </span>
                   {" · "}${Number(order.refunded_amount ?? 0).toFixed(2)} refunded
                   {order.refunded_at
@@ -884,6 +885,7 @@ export function FulfillmentPanel({
                   {g.order ? (
                     <BuyerField
                       value={g.buyer}
+                      email={g.buyerEmail}
                       disabled={groupBusy}
                       onSave={(next) => onRenameBuyer(g.order!, next)}
                     />
@@ -892,7 +894,7 @@ export function FulfillmentPanel({
                       className="font-medium"
                       title="Sold before the orders table existed — grouped by the buyer name on the records"
                     >
-                      {g.buyer ? `u/${g.buyer}` : "No buyer set"}
+                      {g.buyer ? buyerLabel(g.buyer, g.buyerEmail) : "No buyer set"}
                     </span>
                   )}
                   {g.order?.ship_to?.name ? (
@@ -1013,7 +1015,7 @@ export function FulfillmentPanel({
                       {groupBusy ? "Working…" : "Sync from PayPal"}
                     </button>
                   ) : null}
-                  {paid && g.records.length > 0 ? (
+                  {paid && g.records.length > 0 && !g.buyerEmail ? (
                     <>
                       <button
                         type="button"
@@ -1119,7 +1121,7 @@ export function FulfillmentPanel({
                       />
                     </>
                   ) : null}
-                  {paid && g.records.length > 0 ? (
+                  {paid && g.records.length > 0 && !g.buyerEmail ? (
                     <>
                       <input
                         type="text"

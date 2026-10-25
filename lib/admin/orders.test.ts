@@ -49,7 +49,11 @@ test("a blank desk buyer falls back to a hold, then the row's last buyer", () =>
 const request = (id: number, status: OrderRequest["status"], record_ids: number[]): OrderRequest => ({
   id,
   ref_code: `CR-${id}`,
+  channel: "reddit",
   buyer_username: null,
+  buyer_name: null,
+  buyer_email: null,
+  message: null,
   record_ids,
   items: [],
   subtotal: 0,

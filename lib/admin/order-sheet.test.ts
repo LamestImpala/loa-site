@@ -8,6 +8,7 @@ import type { OrderSheetOrder } from "./pack-list.ts";
 const order = (i: number, n: number, over: Partial<OrderSheetOrder> = {}): OrderSheetOrder => ({
   key: `order-${i}`,
   buyer: `buyer${i}`,
+  buyerEmail: null,
   shipToName: "Jane Buyer",
   records: Array.from({ length: n }, (_, j) => ({
     artist: `Artist ${j}`,

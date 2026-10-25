@@ -7,6 +7,7 @@ import {
   parseMoney,
   saleItem,
   salePrice,
+  saleReplyText,
   soldPatch,
   unsellPlan,
 } from "./sales.ts";
@@ -64,7 +65,11 @@ test("parseMoney: blank is none, junk is invalid, amounts round to cents", () =>
 const request = (id: number, status: OrderRequest["status"], record_ids: number[]): OrderRequest => ({
   id,
   ref_code: `CR-${id}`,
+  channel: "reddit",
   buyer_username: "b",
+  buyer_name: null,
+  buyer_email: null,
+  message: null,
   record_ids,
   items: [],
   subtotal: 0,
@@ -119,4 +124,16 @@ test("un-selling pulls records out of parcels and cancels an order left empty", 
   // 10 still has record 2; 12 is invoiced — its invoice gets cancelled first.
   assert.deepEqual(plan.cancelOrderIds, [11]);
   assert.deepEqual(plan.offDiscogs.map((r) => r.id), [3]);
+});
+
+test("sale reply: reddit buyers are asked for a PayPal email, email buyers get the invoice at theirs", () => {
+  const base = { lines: ["1. A — B — $30"], subtotal: 30, credit: 0, shipping: 6, total: 36 };
+  const reddit = saleReplyText({ ...base, buyer: "u/amy" });
+  assert.match(reddit, /^Hi u\/amy! /);
+  assert.match(reddit, /Reply with your PayPal email/);
+  const email = saleReplyText({ ...base, buyer: "Jane", email: "jane@example.com", credit: 5, creditNote: "sleeve split" });
+  assert.match(email, /^Hi Jane! /);
+  assert.match(email, /Credit: −\$5 \(sleeve split\)/);
+  assert.match(email, /send it to this email address/);
+  assert.match(saleReplyText({ ...base, buyer: "" }), /^Hi! /);
 });

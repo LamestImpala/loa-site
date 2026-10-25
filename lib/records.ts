@@ -90,6 +90,7 @@ export function makeRefCode(): string {
 export type SellerInfo = {
   pageTitle: string;
   redditUsername: string;
+  contactEmail: string;
   location: string;
   contact: string;
   payment: string;
@@ -99,8 +100,9 @@ export type SellerInfo = {
 export const SELLER_INFO: SellerInfo = {
   pageTitle: "Records for Sale",
   redditUsername: "ShroomHog", // shown on the page and used for "Request to buy" links
+  contactEmail: "orders@curiouserrecords.com", // the shop's mailbox; replies land in /admin
   location: "Phoenix, AZ",
-  contact: "PM me on Reddit to claim. First come, first served.",
+  contact: "Request to buy by email or Reddit DM. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
   shipping: "$6 USPS Media Mail for 1–2 records (USA); free shipping on 3 or more. Records ship outside the jacket in a proper LP mailer.",
 };

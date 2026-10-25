@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
 import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { bucketEventsByDay } from "@/lib/admin/interest";
@@ -438,7 +439,7 @@ export function CatalogPage() {
   async function releaseHold(r: DbRecord) {
     if (
       !(await confirm(
-        `Release the hold on "${r.artist} — ${r.title}" for u/${r.hold_buyer}? It goes back on the shop immediately.`
+        `Release the hold on "${r.artist} — ${r.title}" for ${buyerLabel(r.hold_buyer)}? It goes back on the shop immediately.`
       ))
     )
       return;
@@ -472,7 +473,7 @@ export function CatalogPage() {
     const buyer = (r.hold_buyer ?? "").trim();
     if (
       !(await confirm(
-        `Mark ${name} sold${buyer ? ` to u/${buyer}` : " with no buyer"} for $${r.negotiated_price ?? r.price}? For a different buyer or price, use "Sell on the desk" instead.`
+        `Mark ${name} sold${buyer ? ` to ${buyerLabel(buyer)}` : " with no buyer"} for $${r.negotiated_price ?? r.price}? For a different buyer or price, use "Sell on the desk" instead.`
       ))
     )
       return;
@@ -1486,7 +1487,7 @@ export function CatalogPage() {
                       ) : holdActive(r) ? (
                         <div className="flex flex-col gap-1 text-xs">
                           <span className="text-amber-300">
-                            Held for u/{r.hold_buyer} {holdUntilText(r)}
+                            Held for {buyerLabel(r.hold_buyer)} {holdUntilText(r)}
                           </span>
                           {invoiceHold(r) ? (
                             <Link

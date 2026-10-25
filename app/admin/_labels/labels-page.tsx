@@ -18,6 +18,7 @@ import {
   type LabelCandidate,
 } from "@/lib/admin/label-intake";
 import { openParcels, sortByPackOrder } from "@/lib/admin/pack-list";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { setParcelTracking } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
@@ -88,7 +89,7 @@ export function LabelsPage() {
   const boxLabel = (c: LabelCandidate) => {
     const name = shipToName(c);
     const n = c.shipment.record_ids?.length ?? 0;
-    return `Box #${c.shipment.id} · u/${c.buyer || "?"}${name ? ` · ${name}` : ""} · ${n} record${n === 1 ? "" : "s"}`;
+    return `Box #${c.shipment.id} · ${buyerLabel(c.buyer, c.order?.buyer_email, "?")}${name ? ` · ${name}` : ""} · ${n} record${n === 1 ? "" : "s"}`;
   };
 
   // One object URL at a time; drop the old one on rebuild or leaving.

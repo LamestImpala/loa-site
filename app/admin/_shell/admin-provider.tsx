@@ -22,7 +22,9 @@ import type {
   RecordEventRow,
   RecordInterest,
   RedditPost,
+  RequestChannel,
   Shipment,
+  ShopMessage,
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
 import { holdActive, invoiceHold } from "@/lib/admin/records";
@@ -35,6 +37,7 @@ import {
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { unsellPlan, unsoldPatch } from "@/lib/admin/sales";
 import { markSold, type SaleTerms } from "@/lib/admin/sales-db";
+import { buyerLabel } from "@/lib/admin/buyers";
 import { useAdminSession } from "../admin-gate";
 import type { ConfirmRequest, Toast } from "./ui";
 
@@ -85,6 +88,9 @@ type AdminContextValue = {
   runs: PriceRun[];
   orderRequests: OrderRequest[];
   setOrderRequests: Setter<OrderRequest[]>;
+  // Mail to orders@ (inbound, not yet archived) for the Inbox.
+  messages: ShopMessage[];
+  setMessages: Setter<ShopMessage[]>;
   interest: Record<number, RecordInterest>;
   events: RecordEventRow[];
   market: MarketMap;
@@ -186,6 +192,11 @@ type AdminContextValue = {
   setSaleBuyer: Setter<string>;
   saleEmail: string;
   setSaleEmail: Setter<string>;
+  // Where the buyer on the desk came from: a Reddit DM (the default) or
+  // the shop's email form. An email buyer's order carries their email and
+  // shows their name without the u/ prefix.
+  saleChannel: RequestChannel;
+  setSaleChannel: Setter<RequestChannel>;
   // Negotiated prices as typed at the desk, keyed by record id (blank =
   // listed price), and the order credit with its reason. Persisted to the
   // records/order on Hold, PayPal invoice, or Mark sold.
@@ -245,6 +256,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingPriceChange[]>([]);
   const [runs, setRuns] = useState<PriceRun[]>([]);
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
+  const [messages, setMessages] = useState<ShopMessage[]>([]);
   const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
   // Raw shopper events for the last 60 days, newest first (capped at 5000).
   const [events, setEvents] = useState<RecordEventRow[]>([]);
@@ -280,6 +292,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [selectionMode, setSelectionMode] = useState<"sale" | "weekly">("sale");
   const [saleBuyer, setSaleBuyer] = useState("");
   const [saleEmail, setSaleEmail] = useState("");
+  const [saleChannel, setSaleChannel] = useState<RequestChannel>("reddit");
   const [salePrices, setSalePrices] = useState<Record<number, string>>({});
   const [saleCredit, setSaleCredit] = useState("");
   const [saleCreditNote, setSaleCreditNote] = useState("");
@@ -457,6 +470,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       shipmentsRes,
       invoicesRes,
       ordersRes,
+      messagesRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
@@ -478,6 +492,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .from("orders")
           .select("*")
           .order("created_at", { ascending: false }),
+        supabase
+          .from("shop_messages")
+          .select("*")
+          .eq("direction", "in")
+          .in("status", ["new", "read", "replied"])
+          .order("received_at", { ascending: false })
+          .limit(50),
       ]);
     setLoading(false);
     if (recordsRes.error || requestsRes.error) {
@@ -498,6 +519,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (ordersRes.error) {
       pushToast("error", `Orders didn't load: ${ordersRes.error.message}`);
     }
+    if (messagesRes.error) {
+      pushToast("error", `Messages didn't load: ${messagesRes.error.message}`);
+    }
+    setMessages((messagesRes.data ?? []) as ShopMessage[]);
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setInvoices((invoicesRes.data ?? []) as Invoice[]);
     setOrders((ordersRes.data ?? []) as Order[]);
@@ -699,7 +724,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           s.order_id === order.id ? { ...s, buyer_username: name } : s
         )
       );
-      pushToast("success", `Buyer renamed to u/${name} ✓`);
+      pushToast("success", `Buyer renamed to ${buyerLabel(name, order.buyer_email)} ✓`);
       return true;
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Rename failed");
@@ -1069,6 +1094,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSelectionMode("sale");
     setSaleBuyer("");
     setSaleEmail("");
+    setSaleChannel("reddit");
     setSalePrices({});
     setSaleCredit("");
     setSaleCreditNote("");
@@ -1092,6 +1118,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     runs,
     orderRequests,
     setOrderRequests,
+    messages,
+    setMessages,
     interest,
     events,
     market,
@@ -1147,6 +1175,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSaleBuyer,
     saleEmail,
     setSaleEmail,
+    saleChannel,
+    setSaleChannel,
     salePrices,
     setSalePrices,
     saleCredit,
