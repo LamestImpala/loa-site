@@ -1,17 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   FREE_SHIPPING_MIN,
   LETTERS,
   SELLER_INFO,
   artistLetter,
-  bundleBreakdown,
-  combinedShipping,
-  makeRefCode,
 } from "@/lib/records";
-import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
+import {
+  cleanDiscogsName,
+  dropPct,
+  isNew,
+  isOnHold,
+  isReduced,
+  recordPath,
+} from "@/lib/record-info";
+import type { DbRecord } from "@/lib/supabase";
+import {
+  BundleBar,
+  BuyDialog,
+  PhotoLightbox,
+  initials,
+  prefersReducedMotion,
+  tintFor,
+  track,
+  useBundle,
+  type BuySheet,
+  type LightboxState,
+} from "./shop-ui";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
@@ -28,196 +46,6 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 const AVAIL_OPTIONS: AvailOption[] = ["all", "open", "sold"];
 
-const NEW_WINDOW_DAYS = 14;
-// Was-prices and discount badges clear from view a day after the change.
-const REDUCED_WINDOW_HOURS = 24;
-
-function isNew(r: DbRecord) {
-  return (
-    !!r.created_at &&
-    Date.now() - new Date(r.created_at).getTime() <
-      NEW_WINDOW_DAYS * 24 * 3600 * 1000
-  );
-}
-
-// Reduced = price dropped and the change is recent enough to still matter.
-function isReduced(r: DbRecord) {
-  return (
-    r.prev_price != null &&
-    Number(r.prev_price) > r.price &&
-    Date.now() - new Date(r.updated_at).getTime() <
-      REDUCED_WINDOW_HOURS * 3600 * 1000
-  );
-}
-
-function isOnHold(r: DbRecord) {
-  return !!r.hold_until && new Date(r.hold_until).getTime() > Date.now();
-}
-
-type TrackEvent = "photo_open" | "discogs_click" | "bundle_add" | "buy_request";
-// Suppress repeat interest events within a page load; cross-visit repeats are
-// absorbed by distinct-session counting on the admin side.
-const sentEvents = new Set<string>();
-
-function trackingSessionId(): string {
-  let sid = localStorage.getItem("cr_session_id");
-  if (!sid) {
-    sid = crypto.randomUUID();
-    localStorage.setItem("cr_session_id", sid);
-  }
-  return sid;
-}
-
-function track(recordId: number, event: TrackEvent) {
-  try {
-    // Set by /admin so the owner's own browsing doesn't count.
-    if (localStorage.getItem("cr_no_track")) return;
-    const key = `${recordId}:${event}`;
-    if (event !== "buy_request") {
-      if (sentEvents.has(key)) return;
-      sentEvents.add(key);
-    }
-    const payload = JSON.stringify({
-      record_id: recordId,
-      event,
-      session_id: trackingSessionId(),
-    });
-    // sendBeacon survives the new-tab navigation on "Request to buy".
-    const blob = new Blob([payload], { type: "application/json" });
-    if (!navigator.sendBeacon?.("/api/track", blob)) {
-      fetch("/api/track", {
-        method: "POST",
-        body: payload,
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-      }).catch(() => {});
-    }
-  } catch {
-    // Tracking must never break the shop.
-  }
-}
-
-function dropPct(r: DbRecord) {
-  return Math.round((1 - r.price / Number(r.prev_price)) * 100);
-}
-
-function initials(artist: string) {
-  return artist
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-}
-
-// Deterministic accent tint per artist so placeholder covers vary like the mockup.
-const TINTS = [
-  { bg: "var(--color-accent-200)", text: "var(--color-accent-800)" },
-  { bg: "var(--color-accent-2-200)", text: "var(--color-accent-2-800)" },
-  { bg: "var(--color-neutral-200)", text: "var(--color-neutral-800)" },
-  { bg: "var(--color-accent-300)", text: "var(--color-accent-900)" },
-  { bg: "var(--color-accent-2-300)", text: "var(--color-accent-2-900)" },
-  { bg: "var(--color-neutral-300)", text: "var(--color-neutral-900)" },
-];
-
-function tintFor(artist: string) {
-  let h = 0;
-  for (const ch of artist) h = (h * 31 + ch.charCodeAt(0)) % 997;
-  return TINTS[h % TINTS.length];
-}
-
-function discogsUrl(r: DbRecord) {
-  return r.discogs_release_id
-    ? `https://www.discogs.com/release/${r.discogs_release_id}`
-    : `https://www.discogs.com/search/?q=${encodeURIComponent(`${r.artist} ${r.title}`)}&type=release`;
-}
-
-// DM for one record. The Ref line ties the DM to the order_requests row
-// saved when the buyer clicks send, same as the bundle flow.
-function singleRequestMessage(r: DbRecord, hasPost: boolean, refCode: string) {
-  const subject = `Record purchase: ${r.artist} — ${r.title}`;
-  const commentLine = hasPost
-    ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
-    : "";
-  const shipping = combinedShipping(1);
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
-  return { subject, message };
-}
-
-// One combined DM for a bundle of records; parallels singleRequestMessage but drops
-// the pressing line per record to keep the compose URL short. The Ref line
-// ties the DM to the order_requests row saved when the buyer clicks send.
-function combinedRequestMessage(
-  list: DbRecord[],
-  hasPost: boolean,
-  refCode: string
-) {
-  const subject = `Record purchase: ${list.length} records from your list`;
-  const { lines, subtotal, shipping, total } = bundleBreakdown(list);
-  const commentLine = hasPost
-    ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
-    : "";
-  const message = `Hi! I am interested in purchasing these titles from you:\n\n${lines.join(
-    "\n"
-  )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
-  return { subject, message };
-}
-
-function composeUrl(subject: string, message?: string) {
-  const base = `https://www.reddit.com/message/compose/?to=${SELLER_INFO.redditUsername}&subject=${encodeURIComponent(subject)}`;
-  return message === undefined
-    ? base
-    : `${base}&message=${encodeURIComponent(message)}`;
-}
-
-// Fire-and-forget: save the request so /admin can load it by ref code. The
-// trigger revalidates ids and recomputes totals server-side; errors are
-// swallowed because the DM must go out regardless (paste parser is the
-// fallback). No .select() — the anon role has no read access to the table.
-function persistOrderRequest(
-  refCode: string,
-  ids: number[],
-  buyerUsername: string
-) {
-  const buyer = buyerUsername.trim().replace(/^\/?u\//i, "");
-  getBrowserSupabase()
-    .from("order_requests")
-    .insert({
-      ref_code: refCode,
-      record_ids: ids,
-      buyer_username: buyer || null,
-    })
-    .then(({ error }) => {
-      if (error) console.warn("order request not saved:", error.message);
-    });
-}
-
-function prefersReducedMotion() {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-// What the buyer is asking to purchase: one record from a card, or the bundle.
-type BuySheet = { kind: "single"; record: DbRecord } | { kind: "bundle" };
-type RequestMode = "email" | "reddit";
-type EmailStatus =
-  | { kind: "idle" }
-  | { kind: "sending" }
-  | { kind: "sent"; refCode: string; email: string }
-  | { kind: "error"; message: string };
-
-// Fallback when the request endpoint is down: a plain email to the shop
-// with the same list, which still reaches the admin's inbox.
-function mailtoFallback(list: DbRecord[]) {
-  const { lines, total } = bundleBreakdown(list);
-  const subject = `Record request: ${list.length === 1 ? `${list[0].artist} — ${list[0].title}` : `${list.length} records`}`;
-  const body = `Hi! I'd like to buy:\n\n${lines.join("\n")}\n\nTotal: $${total}\n\n(Found on https://curiouserrecords.com)\n`;
-  return `mailto:${SELLER_INFO.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
-type LightboxState = { record: DbRecord; index: number };
-
 export default function RecordsClient({
   records,
   redditPostUrl,
@@ -231,24 +59,8 @@ export default function RecordsClient({
   const [genre, setGenre] = useState<string>("all");
   const [collection, setCollection] = useState<string | null>(null);
   const [letter, setLetter] = useState<string | null>(null);
-  const [commentCopiedId, setCommentCopiedId] = useState<number | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [combinedCommentCopied, setCombinedCommentCopied] = useState(false);
-  const [combinedMessageCopied, setCombinedMessageCopied] = useState(false);
   const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
-  // Optional Reddit handle typed on the buy sheet; saved with the request so
-  // the admin doesn't have to retype it from the DM. In email mode the same
-  // field is the buyer's name.
-  const [buyerName, setBuyerName] = useState("");
-  // How the buyer wants to send the request. Email is the default — no
-  // account needed anywhere; the Reddit DM stays for r/VinylCollectors.
-  const [requestMode, setRequestMode] = useState<RequestMode>("email");
-  const [buyerEmail, setBuyerEmail] = useState("");
-  const [buyerNote, setBuyerNote] = useState("");
-  const [honeypot, setHoneypot] = useState("");
-  const [emailStatus, setEmailStatus] = useState<EmailStatus>({ kind: "idle" });
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
-  const [detail, setDetail] = useState<DbRecord | null>(null);
   const [view, setView] = useState<ViewOption | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [highlightId, setHighlightId] = useState<number | null>(null);
@@ -256,21 +68,12 @@ export default function RecordsClient({
   const [liveMessage, setLiveMessage] = useState("");
 
   const controlsRef = useRef<HTMLElement | null>(null);
-  const buyDialogRef = useRef<HTMLDialogElement | null>(null);
-  const lightboxRef = useRef<HTMLDialogElement | null>(null);
-  const detailDialogRef = useRef<HTMLDialogElement | null>(null);
   const highlightTimer = useRef<number | undefined>(undefined);
   const urlSynced = useRef(false);
-  const touchX = useRef<number | null>(null);
 
-  function toggleSelected(id: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  // Derived from `records` (not `visible`) so filters never drop a selection.
+  const bundle = useBundle(records);
+  const selectedRecords = bundle.selectedRecords;
 
   function clearFilters() {
     setQuery("");
@@ -281,133 +84,16 @@ export default function RecordsClient({
     setLetter(null);
   }
 
-  function announce(message: string) {
-    setLiveMessage(message);
-  }
-
-  async function copyCommentAndOpenPost(r: DbRecord) {
-    const comment = `Sent you a DM about ${r.artist} — ${r.title}!`;
-    try {
-      await navigator.clipboard.writeText(comment);
-      setCommentCopiedId(r.id);
-      announce("Comment copied to clipboard.");
-      setTimeout(() => setCommentCopiedId(null), 2500);
-    } catch {
-      window.prompt("Copy this comment, then paste it on the post:", comment);
-    }
-    window.open(redditPostUrl, "_blank", "noopener");
-  }
-
-  // Derived from `records` (not `visible`) so filters never drop a selection,
-  // and records that sell or go on hold fall out of the bundle automatically.
-  const selectedRecords = useMemo(
-    () => records.filter((r) => selected.has(r.id) && !r.sold && !isOnHold(r)),
-    [records, selected]
+  // Closing the sheet after a sent bundle request also empties the bundle:
+  // those records are spoken for.
+  const closeBuySheet = useCallback(
+    (sentBundle: boolean) => {
+      if (sentBundle) bundle.clear();
+      setBuySheet(null);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
-  const bundleSubtotal = selectedRecords.reduce((s, r) => s + r.price, 0);
-  const bundleShipping = combinedShipping(selectedRecords.length);
-
-  // Save the request (single record or bundle) and open the pre-filled DM.
-  async function sendRequest(list: DbRecord[]) {
-    for (const r of list) track(r.id, "buy_request");
-    const hasPost = Boolean(redditPostUrl);
-    const refCode = makeRefCode();
-    const { subject, message } =
-      list.length === 1
-        ? singleRequestMessage(list[0], hasPost, refCode)
-        : combinedRequestMessage(list, hasPost, refCode);
-    // Insert before window.open but without awaiting — popup blockers only
-    // tolerate window.open inside the click gesture.
-    persistOrderRequest(
-      refCode,
-      list.map((r) => r.id),
-      buyerName
-    );
-    const url = composeUrl(subject, message);
-    if (url.length <= 2000) {
-      window.open(url, "_blank", "noopener");
-      return;
-    }
-    // Compose URLs past ~2k chars get truncated — copy the body instead and
-    // open the compose window with just the subject.
-    try {
-      await navigator.clipboard.writeText(message);
-      setCombinedMessageCopied(true);
-      announce("Message copied — paste it into the Reddit DM.");
-      setTimeout(() => setCombinedMessageCopied(false), 2500);
-    } catch {
-      window.prompt("Copy this message, then paste it into the DM:", message);
-    }
-    window.open(composeUrl(subject), "_blank", "noopener");
-  }
-
-  // Email path: the server saves the request (same table and ref code as
-  // the DM path), emails the admin, and sends the buyer a confirmation.
-  async function sendEmailRequest(list: DbRecord[]) {
-    const email = buyerEmail.trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      setEmailStatus({ kind: "error", message: "Enter a valid email address so I can reply." });
-      return;
-    }
-    setEmailStatus({ kind: "sending" });
-    for (const r of list) track(r.id, "buy_request");
-    try {
-      const res = await fetch("/api/order-request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          record_ids: list.map((r) => r.id),
-          buyer_name: buyerName.trim() || undefined,
-          buyer_email: email,
-          message: buyerNote.trim() || undefined,
-          website: honeypot,
-        }),
-      });
-      if (res.status === 204) {
-        // Honeypot tripped — pretend it worked, nothing was saved.
-        setEmailStatus({ kind: "sent", refCode: makeRefCode(), email });
-        return;
-      }
-      const body = (await res.json().catch(() => ({}))) as { refCode?: string; error?: string };
-      if (!res.ok || !body.refCode) {
-        setEmailStatus({
-          kind: "error",
-          message: body.error || "Couldn't send the request right now.",
-        });
-        return;
-      }
-      setEmailStatus({ kind: "sent", refCode: body.refCode, email });
-      announce(`Request sent, reference ${body.refCode}.`);
-    } catch {
-      setEmailStatus({ kind: "error", message: "Couldn't reach the shop — check your connection." });
-    }
-  }
-
-  // Closing the sheet after a sent request also empties the bundle: those
-  // records are spoken for. Kept until then so the summary stays visible.
-  function closeBuySheet() {
-    if (emailStatus.kind === "sent" && buySheet?.kind === "bundle") {
-      setSelected(new Set());
-    }
-    if (emailStatus.kind !== "sending") setEmailStatus({ kind: "idle" });
-    setBuySheet(null);
-  }
-
-  async function copyCombinedCommentAndOpenPost() {
-    const titles = selectedRecords.map((r) => `${r.artist} — ${r.title}`);
-    const shown = titles.slice(0, 3).join("; ");
-    const rest = titles.length - 3;
-    const comment = `Sent you a DM about ${selectedRecords.length} records: ${shown}${rest > 0 ? ` and ${rest} more` : ""}!`;
-    try {
-      await navigator.clipboard.writeText(comment);
-      setCombinedCommentCopied(true);
-      announce("Comment copied to clipboard.");
-      setTimeout(() => setCombinedCommentCopied(false), 2500);
-    } catch {
-      window.prompt("Copy this comment, then paste it on the post:", comment);
-    }
-    window.open(redditPostUrl, "_blank", "noopener");
-  }
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -600,60 +286,12 @@ export default function RecordsClient({
     return () => io.disconnect();
   }, []);
 
-  // Native <dialog> drives focus trapping and Esc for the buy sheet…
-  useEffect(() => {
-    const d = buyDialogRef.current;
-    if (!d) return;
-    if (buySheet && !d.open) d.showModal();
-    else if (!buySheet && d.open) d.close();
-  }, [buySheet]);
-
-  // …and the photo lightbox.
-  useEffect(() => {
-    const d = lightboxRef.current;
-    if (!d) return;
-    if (lightbox && !d.open) d.showModal();
-    else if (!lightbox && d.open) d.close();
-  }, [lightbox]);
-
-  // …and the compact-view record detail popup.
-  useEffect(() => {
-    const d = detailDialogRef.current;
-    if (!d) return;
-    if (detail && !d.open) d.showModal();
-    else if (!detail && d.open) d.close();
-  }, [detail]);
-
-  // A bundle sheet with nothing left in it has nothing to sell.
-  useEffect(() => {
-    if (buySheet?.kind === "bundle" && selectedRecords.length === 0) {
-      setBuySheet(null);
-    }
-  }, [buySheet, selectedRecords]);
-
   function openLightbox(r: DbRecord, index: number) {
     track(r.id, "photo_open");
     setLightbox({ record: r, index });
   }
 
-  function stepLightbox(delta: number) {
-    setLightbox((l) => {
-      if (!l) return l;
-      const photos = l.record.photo_urls ?? [];
-      if (photos.length < 2) return l;
-      return { ...l, index: (l.index + delta + photos.length) % photos.length };
-    });
-  }
-
-  function onBackdropClick(
-    e: React.MouseEvent<HTMLDialogElement>,
-    close: () => void
-  ) {
-    if (e.target === e.currentTarget) close();
-  }
-
-  // Tags, notes, price row, and buy actions — shared between the full record
-  // card and the compact view's detail popup.
+  // Tags, notes, price row, and buy actions on a full record card.
   function recordDetails(r: DbRecord) {
     const held = isOnHold(r) && !r.sold;
     const reduced = isReduced(r) && !r.sold;
@@ -677,14 +315,9 @@ export default function RecordsClient({
             <span className="record-prev-price">${r.prev_price}</span>
           ) : null}
           <span className="record-price">${r.price}</span>
-          <a
-            href={discogsUrl(r)}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => track(r.id, "discogs_click")}
-          >
-            Discogs ↗
-          </a>
+          <Link href={recordPath(r)}>
+            Details<span className="visually-hidden"> for {r.artist} — {r.title}</span> →
+          </Link>
         </div>
 
         {r.sold ? (
@@ -700,22 +333,16 @@ export default function RecordsClient({
           <>
             <button
               type="button"
-              className={`record-select ${selected.has(r.id) ? "is-selected" : ""}`}
-              aria-pressed={selected.has(r.id)}
-              onClick={() => {
-                if (!selected.has(r.id)) track(r.id, "bundle_add");
-                toggleSelected(r.id);
-              }}
+              className={`record-select ${bundle.has(r.id) ? "is-selected" : ""}`}
+              aria-pressed={bundle.has(r.id)}
+              onClick={() => bundle.toggle(r.id)}
             >
-              {selected.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
+              {bundle.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
             </button>
             <button
               type="button"
               className="btn btn-primary btn-block"
-              onClick={() => {
-                setDetail(null);
-                setBuySheet({ kind: "single", record: r });
-              }}
+              onClick={() => setBuySheet({ kind: "single", record: r })}
             >
               Request to buy
             </button>
@@ -730,19 +357,20 @@ export default function RecordsClient({
     const held = isOnHold(r) && !r.sold;
     const reduced = isReduced(r) && !r.sold;
     const tint = tintFor(r.artist);
+    const href = recordPath(r);
+    const inBundle = bundle.has(r.id) && !r.sold && !held;
     if (effectiveView === "compact") {
       return (
-        <button
+        <Link
           key={r.id}
           id={`r-${r.id}`}
-          type="button"
+          href={href}
           className={`card elev-sm record-compact ${r.sold ? "is-sold" : ""} ${
-            selected.has(r.id) && !r.sold && !held ? "is-selected" : ""
+            inBundle ? "is-selected" : ""
           } ${highlightId === r.id ? "is-highlighted" : ""}`}
           aria-label={`${r.artist} — ${r.title}, $${r.price}${
             r.sold ? ", sold" : held ? ", on hold" : ""
           }`}
-          onClick={() => setDetail(r)}
         >
           <span
             className="record-compact-cover"
@@ -782,8 +410,13 @@ export default function RecordsClient({
           <span className="record-compact-title">
             {r.artist} — {r.title}
           </span>
-          <span className="record-compact-price">${r.price}</span>
-        </button>
+          <span className="record-compact-price">
+            ${r.price}
+            <span className="record-compact-grade">
+              {r.media}/{r.sleeve}
+            </span>
+          </span>
+        </Link>
       );
     }
     return (
@@ -791,45 +424,31 @@ export default function RecordsClient({
         key={r.id}
         id={`r-${r.id}`}
         className={`card elev-sm record-card ${r.sold ? "is-sold" : ""} ${
-          selected.has(r.id) && !r.sold && !held ? "is-selected" : ""
+          inBundle ? "is-selected" : ""
         } ${highlightId === r.id ? "is-highlighted" : ""}`}
       >
         <div className="record-cover-wrap">
-          <div
+          <Link
+            href={href}
             className="record-cover"
             style={cover ? undefined : { background: tint.bg }}
+            tabIndex={-1}
+            aria-hidden="true"
           >
             {cover ? (
-              r.photo_urls?.length ? (
-                <button
-                  type="button"
-                  className="record-cover-btn"
-                  onClick={() => openLightbox(r, 0)}
-                  aria-label={`View photos of ${r.artist} — ${r.title}`}
-                >
-                  <Image
-                    src={cover}
-                    alt={`${r.artist} — ${r.title}`}
-                    width={600}
-                    height={600}
-                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 100vw"
-                  />
-                </button>
-              ) : (
-                <Image
-                  src={cover}
-                  alt={`${r.artist} — ${r.title}`}
-                  width={600}
-                  height={600}
-                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 100vw"
-                />
-              )
+              <Image
+                src={cover}
+                alt=""
+                width={600}
+                height={600}
+                sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 100vw"
+              />
             ) : (
               <span className="initials" style={{ color: tint.text }}>
                 {initials(r.artist)}
               </span>
             )}
-          </div>
+          </Link>
           {r.sold ? (
             <span
               className="tag record-badge-tl"
@@ -871,10 +490,12 @@ export default function RecordsClient({
 
         <div>
           <div className="record-title">
-            {r.artist} — {r.title}
+            <Link href={href}>
+              {r.artist} — {r.title}
+            </Link>
           </div>
           <div className="record-meta">
-            {r.pressing}
+            {cleanDiscogsName(r.pressing)}
             {r.collection ? ` · ${r.collection}` : ""}
           </div>
         </div>
@@ -908,13 +529,6 @@ export default function RecordsClient({
     );
   }
 
-  // The buy sheet quotes one card's record or the whole bundle with the same
-  // math the DM itself uses.
-  const sheetItems =
-    buySheet?.kind === "single" ? [buySheet.record] : selectedRecords;
-  const sheetQuote = bundleBreakdown(sheetItems);
-  const hasPost = Boolean(redditPostUrl);
-
   return (
     <>
       {drops.length > 0 ? (
@@ -930,11 +544,10 @@ export default function RecordsClient({
               const tint = tintFor(r.artist);
               const cover = r.photo_urls?.[0] || r.cover_image;
               return (
-                <button
+                <Link
                   key={r.id}
-                  type="button"
+                  href={recordPath(r)}
                   className="shop-drop-chip"
-                  onClick={() => scrollToRecord(r.id)}
                 >
                   <span
                     className="thumb"
@@ -955,7 +568,7 @@ export default function RecordsClient({
                     {r.artist} — {r.title}
                   </span>
                   <span className="tag tag-accent-2">↓ {dropPct(r)}%</span>
-                </button>
+                </Link>
               );
             })}
           </div>
@@ -1161,452 +774,21 @@ export default function RecordsClient({
         )}
       </div>
 
-      {selectedRecords.length > 0 ? (
-        <div className="shop-bundle-bar" role="region" aria-label="Your bundle">
-          <div className="shop-shell shop-bundle-inner">
-            <span className="shop-bundle-summary" aria-live="polite">
-              {selectedRecords.length} record
-              {selectedRecords.length === 1 ? "" : "s"} · ${bundleSubtotal}
-              {bundleShipping > 0 ? ` + $${bundleShipping} shipping` : " + free shipping"}{" "}
-              <strong>= ${bundleSubtotal + bundleShipping}</strong>
-            </span>
-            <span className="shop-bundle-shipnote">
-              {selectedRecords.length >= FREE_SHIPPING_MIN
-                ? "Free shipping unlocked"
-                : `Add ${FREE_SHIPPING_MIN - selectedRecords.length} more for free shipping`}
-            </span>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setBuySheet({ kind: "bundle" })}
-            >
-              Request to buy {selectedRecords.length}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => setSelected(new Set())}
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <BundleBar
+        records={selectedRecords}
+        onRequest={() => setBuySheet({ kind: "bundle" })}
+        onClear={bundle.clear}
+      />
 
-      <dialog
-        ref={buyDialogRef}
-        className="shop-dialog"
-        aria-label="Request to buy"
+      <BuyDialog
+        sheet={buySheet}
+        bundleRecords={selectedRecords}
+        redditPostUrl={redditPostUrl}
         onClose={closeBuySheet}
-        onClick={(e) => onBackdropClick(e, closeBuySheet)}
-      >
-        {buySheet && sheetItems.length > 0 ? (
-          <div className="shop-dialog-body">
-            <div className="shop-dialog-head">
-              <h3>Request to buy</h3>
-              <button
-                type="button"
-                className="shop-dialog-close"
-                aria-label="Close"
-                onClick={closeBuySheet}
-              >
-                ×
-              </button>
-            </div>
-            <ul className="shop-dialog-items">
-              {sheetItems.map((r) => (
-                <li key={r.id}>
-                  <span>
-                    {r.artist} — {r.title}
-                  </span>
-                  <span>${r.price}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="shop-dialog-total">
-              <span>
-                ${sheetQuote.subtotal}
-                {sheetQuote.shipping > 0
-                  ? ` + $${sheetQuote.shipping} shipping`
-                  : " + free shipping"}
-              </span>
-              <strong>= ${sheetQuote.total}</strong>
-            </div>
-            {emailStatus.kind === "sent" ? (
-              <div className="shop-dialog-success" role="status">
-                <strong>Request sent — ref {emailStatus.refCode}</strong>
-                <p>
-                  A confirmation is on its way to {emailStatus.email}. I&rsquo;ll
-                  reply from {SELLER_INFO.contactEmail}, usually within a day,
-                  with a PayPal invoice once we&rsquo;ve confirmed what&rsquo;s
-                  available.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-block"
-                  onClick={closeBuySheet}
-                >
-                  Done
-                </button>
-              </div>
-            ) : (
-              <>
-                <div
-                  className="shop-dialog-tabs"
-                  role="tablist"
-                  aria-label="How to send the request"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={requestMode === "email"}
-                    className={requestMode === "email" ? "is-active" : ""}
-                    onClick={() => setRequestMode("email")}
-                  >
-                    Email
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={requestMode === "reddit"}
-                    className={requestMode === "reddit" ? "is-active" : ""}
-                    onClick={() => setRequestMode("reddit")}
-                  >
-                    Reddit DM
-                  </button>
-                </div>
-                {requestMode === "email" ? (
-                  <form
-                    className="shop-dialog-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (emailStatus.kind !== "sending") sendEmailRequest(sheetItems);
-                    }}
-                  >
-                    <p className="shop-dialog-hint">
-                      No account needed. I&rsquo;ll email you back to confirm
-                      what&rsquo;s available, then send a PayPal invoice.
-                    </p>
-                    <label className="shop-dialog-field">
-                      <span>Your name (optional)</span>
-                      <input
-                        type="text"
-                        className="input"
-                        value={buyerName}
-                        onChange={(e) => setBuyerName(e.target.value)}
-                        maxLength={80}
-                        autoComplete="name"
-                      />
-                    </label>
-                    <label className="shop-dialog-field">
-                      <span>Your email</span>
-                      <input
-                        type="email"
-                        className="input"
-                        value={buyerEmail}
-                        onChange={(e) => setBuyerEmail(e.target.value)}
-                        placeholder="so I can reply"
-                        maxLength={254}
-                        autoComplete="email"
-                        required
-                      />
-                    </label>
-                    <label className="shop-dialog-field">
-                      <span>Anything else? (optional)</span>
-                      <textarea
-                        className="input"
-                        value={buyerNote}
-                        onChange={(e) => setBuyerNote(e.target.value)}
-                        rows={2}
-                        maxLength={1000}
-                        placeholder="questions, a hold request, your Reddit name…"
-                      />
-                    </label>
-                    {/* Honeypot: hidden from people, filled in by bots. */}
-                    <div className="shop-honeypot" aria-hidden="true">
-                      <label>
-                        Website
-                        <input
-                          type="text"
-                          name="website"
-                          tabIndex={-1}
-                          autoComplete="off"
-                          value={honeypot}
-                          onChange={(e) => setHoneypot(e.target.value)}
-                        />
-                      </label>
-                    </div>
-                    {emailStatus.kind === "error" ? (
-                      <p className="shop-dialog-error" role="alert">
-                        {emailStatus.message.replace(/[.!?]?$/, ".")}{" "}
-                        <a href={mailtoFallback(sheetItems)}>
-                          Email the list instead ↗
-                        </a>
-                      </p>
-                    ) : null}
-                    <button
-                      type="submit"
-                      className="btn btn-primary btn-block"
-                      disabled={emailStatus.kind === "sending"}
-                    >
-                      {emailStatus.kind === "sending" ? "Sending…" : "Send request"}
-                    </button>
-                  </form>
-                ) : (
-                  <>
-                    <p className="shop-dialog-hint">
-                      {hasPost
-                        ? "Two quick steps, per subreddit rules: open the pre-filled Reddit DM (edit anything before sending), then paste the copied comment on the sale post."
-                        : "This opens a pre-filled Reddit DM — edit anything before sending."}{" "}
-                      Everything happens on Reddit; no account needed here.
-                    </p>
-                    <label className="shop-dialog-field">
-                      <span>Your Reddit username (optional)</span>
-                      <span className="shop-dialog-field-input">
-                        <span aria-hidden="true">u/</span>
-                        <input
-                          type="text"
-                          className="input"
-                          value={buyerName}
-                          onChange={(e) => setBuyerName(e.target.value)}
-                          placeholder="so I know who to reply to"
-                          maxLength={24}
-                          autoComplete="off"
-                          autoCapitalize="none"
-                          spellCheck={false}
-                        />
-                      </span>
-                    </label>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-block"
-                      onClick={() => sendRequest(sheetItems)}
-                    >
-                      {combinedMessageCopied
-                        ? "Message copied — paste into the DM"
-                        : hasPost
-                          ? "1. Open the pre-filled DM ↗"
-                          : "Open the pre-filled DM ↗"}
-                    </button>
-                    {hasPost ? (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-block"
-                        onClick={() =>
-                          buySheet.kind === "single"
-                            ? copyCommentAndOpenPost(buySheet.record)
-                            : copyCombinedCommentAndOpenPost()
-                        }
-                      >
-                        {(
-                          buySheet.kind === "single"
-                            ? commentCopiedId === buySheet.record.id
-                            : combinedCommentCopied
-                        )
-                          ? "Comment copied!"
-                          : "2. Copy comment & open the post"}
-                      </button>
-                    ) : null}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        ) : null}
-      </dialog>
+        announce={setLiveMessage}
+      />
 
-      <dialog
-        ref={lightboxRef}
-        className="shop-lightbox"
-        aria-label="Record photos"
-        onClose={() => setLightbox(null)}
-        onClick={(e) => onBackdropClick(e, () => setLightbox(null))}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowRight") stepLightbox(1);
-          if (e.key === "ArrowLeft") stepLightbox(-1);
-        }}
-      >
-        {lightbox
-          ? (() => {
-              const photos = lightbox.record.photo_urls ?? [];
-              const src = photos[lightbox.index];
-              if (!src) return null;
-              return (
-                <div
-                  className="shop-lightbox-body"
-                  onTouchStart={(e) => {
-                    touchX.current = e.touches[0]?.clientX ?? null;
-                  }}
-                  onTouchEnd={(e) => {
-                    const start = touchX.current;
-                    touchX.current = null;
-                    if (start == null) return;
-                    const dx = (e.changedTouches[0]?.clientX ?? start) - start;
-                    if (Math.abs(dx) > 40) stepLightbox(dx < 0 ? 1 : -1);
-                  }}
-                >
-                  <div className="shop-lightbox-top">
-                    <span className="shop-lightbox-title">
-                      {lightbox.record.artist} — {lightbox.record.title}
-                    </span>
-                    <span className="shop-lightbox-count">
-                      {lightbox.index + 1} / {photos.length}
-                    </span>
-                    <button
-                      type="button"
-                      className="shop-dialog-close"
-                      aria-label="Close photos"
-                      onClick={() => setLightbox(null)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div className="shop-lightbox-stage">
-                    {photos.length > 1 ? (
-                      <button
-                        type="button"
-                        className="shop-lightbox-nav"
-                        aria-label="Previous photo"
-                        onClick={() => stepLightbox(-1)}
-                      >
-                        ‹
-                      </button>
-                    ) : null}
-                    <Image
-                      key={src}
-                      src={src}
-                      alt={`${lightbox.record.artist} — ${lightbox.record.title}, photo ${lightbox.index + 1} of ${photos.length}`}
-                      width={1200}
-                      height={1200}
-                      sizes="100vw"
-                      className="shop-lightbox-img"
-                    />
-                    {photos.length > 1 ? (
-                      <button
-                        type="button"
-                        className="shop-lightbox-nav"
-                        aria-label="Next photo"
-                        onClick={() => stepLightbox(1)}
-                      >
-                        ›
-                      </button>
-                    ) : null}
-                  </div>
-                  {photos.length > 1 ? (
-                    <div className="shop-lightbox-thumbs">
-                      {photos.map((u, i) => (
-                        <button
-                          key={u}
-                          type="button"
-                          className={i === lightbox.index ? "is-active" : ""}
-                          aria-label={`Photo ${i + 1}`}
-                          onClick={() =>
-                            setLightbox((l) => (l ? { ...l, index: i } : l))
-                          }
-                        >
-                          <Image src={u} alt="" width={80} height={80} />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()
-          : null}
-      </dialog>
-
-      <dialog
-        ref={detailDialogRef}
-        className="shop-dialog shop-detail"
-        aria-label="Record details"
-        onClose={() => setDetail(null)}
-        onClick={(e) => onBackdropClick(e, () => setDetail(null))}
-      >
-        {detail
-          ? (() => {
-              const r = detail;
-              const cover = r.photo_urls?.[0] || r.cover_image;
-              const tint = tintFor(r.artist);
-              return (
-                <div className="shop-dialog-body">
-                  <div className="shop-dialog-head">
-                    <h3 className="shop-detail-title">
-                      {r.artist} — {r.title}
-                    </h3>
-                    <button
-                      type="button"
-                      className="shop-dialog-close"
-                      aria-label="Close"
-                      onClick={() => setDetail(null)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div
-                    className="record-cover shop-detail-cover"
-                    style={cover ? undefined : { background: tint.bg }}
-                  >
-                    {cover ? (
-                      r.photo_urls?.length ? (
-                        <button
-                          type="button"
-                          className="record-cover-btn"
-                          onClick={() => openLightbox(r, 0)}
-                          aria-label={`View photos of ${r.artist} — ${r.title}`}
-                        >
-                          <Image
-                            src={cover}
-                            alt={`${r.artist} — ${r.title}`}
-                            width={600}
-                            height={600}
-                            sizes="(min-width: 640px) 480px, 100vw"
-                          />
-                        </button>
-                      ) : (
-                        <Image
-                          src={cover}
-                          alt={`${r.artist} — ${r.title}`}
-                          width={600}
-                          height={600}
-                          sizes="(min-width: 640px) 480px, 100vw"
-                        />
-                      )
-                    ) : (
-                      <span className="initials" style={{ color: tint.text }}>
-                        {initials(r.artist)}
-                      </span>
-                    )}
-                  </div>
-                  {r.photo_urls?.length > 1 ? (
-                    <div className="record-thumbs">
-                      {r.photo_urls.slice(1, 5).map((url, i) => (
-                        <button
-                          key={url}
-                          type="button"
-                          onClick={() => openLightbox(r, i + 1)}
-                          aria-label={`View photo ${i + 2} of ${r.artist} — ${r.title}`}
-                        >
-                          <Image
-                            src={url}
-                            alt=""
-                            width={150}
-                            height={150}
-                            sizes="110px"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="record-meta">
-                    {r.pressing}
-                    {r.collection ? ` · ${r.collection}` : ""}
-                  </div>
-                  {recordDetails(r)}
-                </div>
-              );
-            })()
-          : null}
-      </dialog>
+      <PhotoLightbox state={lightbox} onChange={setLightbox} />
 
       <span className="visually-hidden" aria-live="polite">
         {liveMessage}

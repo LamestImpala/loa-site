@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { SELLER_INFO } from "@/lib/records";
-import { createServerSupabase, type DbRecord } from "@/lib/supabase";
-import RecordsClient from "./records-client";
+import { getListedRecords, getRedditPostUrl } from "../data";
+import RecordsClient from "../records-client";
 
 export const metadata: Metadata = {
   title: "Records for Sale — Curiouser Records",
   description:
     "Vinyl records for sale from my personal collection. Graded to the Goldmine standard, shipped in proper LP mailers.",
+  alternates: { canonical: "/" },
 };
 
 export const revalidate = 60;
@@ -29,20 +30,10 @@ function SellerInfoLines() {
 }
 
 export default async function RecordsPage() {
-  const supabase = createServerSupabase();
-  const [{ data, error }, { data: settingsData }] = await Promise.all([
-    supabase
-      .from("records")
-      .select(
-        "id, artist, title, pressing, media, sleeve, price, prev_price, notes, photos, photo_urls, discogs_release_id, cover_image, genres, collection, sold, listed, hold_until, created_at, updated_at"
-      )
-      .eq("listed", true)
-      .order("artist"),
-    supabase.from("settings").select("value").eq("key", "reddit_post_url").single(),
+  const [{ records, error }, redditPostUrl] = await Promise.all([
+    getListedRecords(),
+    getRedditPostUrl(),
   ]);
-
-  const records = (data ?? []) as DbRecord[];
-  const redditPostUrl = settingsData?.value?.trim() ?? "";
 
   return (
     <>

@@ -946,24 +946,327 @@ html:has(.shop) {
     var(--shadow-md);
 }
 
-/* — compact view's record detail popup — */
-.shop-dialog.shop-detail {
-  width: min(520px, calc(100vw - var(--space-6)));
+/* — cards are links to their record page — */
+.shop a.record-cover,
+.shop a.record-compact,
+.shop a.shop-drop-chip {
+  color: var(--color-text);
+  text-decoration: none;
 }
-.shop-detail-title {
-  font-size: 18px;
-  line-height: 1.25;
+.record-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.record-title a:hover {
+  text-decoration: underline;
+}
+.record-compact-grade {
+  margin-left: 6px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--color-neutral-700);
+}
+
+/* ── Record page (/r/<id>-<slug>) ─────────────────────────────────── */
+
+.rp {
+  padding-block: var(--space-4) calc(var(--space-8) * 3);
+}
+.rp-crumbs {
+  display: flex;
+  gap: var(--space-2);
+  font-size: 14px;
+  margin-bottom: var(--space-4);
+  color: var(--color-neutral-600);
+}
+.rp-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: calc(var(--space-8) * 1.25);
+  align-items: start;
+}
+.rp-gallery {
+  position: sticky;
+  top: var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+}
+.rp-gallery-main {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+.rp-gallery-main img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rp-gallery-main .initials {
+  font-family: var(--font-heading);
+  font-size: 96px;
+  opacity: 0.85;
+}
+.rp-gallery-zoom {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.rp-gallery-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: var(--space-2);
+}
+.rp-gallery-thumbs button {
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  background: none;
+  cursor: pointer;
+}
+.rp-gallery-thumbs button.is-active {
+  border-color: var(--color-accent);
+}
+.rp-gallery-thumbs img {
+  aspect-ratio: 1;
+  width: 100%;
+  object-fit: cover;
+}
+.rp-gallery-caption {
+  font-size: 13px;
+  color: var(--color-neutral-700);
   margin: 0;
 }
-.shop-detail-cover {
-  max-height: 45vh;
+.rp-info {
+  display: grid;
+  gap: var(--space-6);
 }
-.shop-detail-cover img {
-  object-fit: contain;
+.rp-head p {
+  margin: 0;
 }
-.shop-detail .shop-dialog-body {
-  max-height: calc(100dvh - var(--space-8));
-  overflow-y: auto;
+.rp-artist {
+  font-size: 18px;
+}
+.rp-artist a {
+  color: var(--color-accent-700);
+  text-decoration: none;
+}
+.rp-artist a:hover {
+  text-decoration: underline;
+}
+.shop .rp-title {
+  font-size: clamp(28px, 4vw, 40px);
+  margin: 4px 0 var(--space-2);
+}
+.rp-sub {
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+.rp-buy {
+  display: grid;
+  gap: var(--space-2);
+  padding-block: var(--space-4);
+  border-block: 1px solid var(--color-divider);
+}
+.rp-price-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.rp-price-row .record-price {
+  font-size: 34px;
+}
+.rp-buy-note {
+  font-size: 14px;
+  margin: 0;
+  color: var(--color-neutral-800);
+}
+.rp-buy .record-select {
+  margin-top: 0;
+}
+.rp-buy-fine {
+  font-size: 12.5px;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+.shop .rp-section h2 {
+  font-size: 20px;
+  margin-bottom: var(--space-3);
+}
+.rp-grades,
+.rp-specs {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.rp-grades > div,
+.rp-specs > div {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  gap: var(--space-3);
+  font-size: 14.5px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dotted var(--color-divider);
+}
+.rp-grades dt,
+.rp-specs dt {
+  color: var(--color-neutral-700);
+}
+.rp-grades dd,
+.rp-specs dd {
+  margin: 0;
+}
+.rp-note {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-accent-2);
+  background: var(--color-accent-2-100);
+  font-size: 15px;
+}
+.rp-note p {
+  margin: 0 0 var(--space-1);
+}
+.rp-note footer {
+  font-size: 12.5px;
+  color: var(--color-neutral-700);
+}
+.rp-fine {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  margin: var(--space-3) 0 0;
+}
+.rp-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4) var(--space-6);
+}
+.shop .rp-side h3 {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+  margin-bottom: var(--space-1);
+}
+.rp-side ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rp-side li {
+  display: grid;
+  grid-template-columns: 2.6em 1fr auto;
+  gap: var(--space-2);
+  padding-block: 5px;
+  font-size: 14.5px;
+  border-bottom: 1px dotted var(--color-divider);
+}
+.rp-pos,
+.rp-dur {
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+.rp-terms {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: var(--space-1);
+  font-size: 14.5px;
+}
+.shop .rp-related-heading {
+  margin-top: calc(var(--space-8) * 1.5);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-divider);
+  font-size: 26px;
+}
+.rp-related {
+  margin-top: var(--space-6);
+}
+.rp-related-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.shop .rp-related-head h3 {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0;
+}
+.rp-related-head a {
+  font-size: 14px;
+}
+.rp-related-grid {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.shop a.rp-related-card {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.rp-related-cover {
+  display: block;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.rp-related-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+}
+.rp-related-card:hover .rp-related-cover img {
+  transform: scale(1.03);
+}
+.rp-related-title {
+  font-size: 14px;
+  line-height: 1.3;
+}
+.rp-related-card:hover .rp-related-title {
+  text-decoration: underline;
+}
+.rp-related-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.rp-related-meta span:first-child {
+  font-family: var(--font-heading);
+  color: var(--color-text);
+  font-size: 15px;
+}
+@media (max-width: 760px) {
+  .rp-top {
+    grid-template-columns: 1fr;
+    gap: var(--space-6);
+  }
+  .rp-gallery {
+    position: static;
+  }
+  .rp-related-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .shop-empty {

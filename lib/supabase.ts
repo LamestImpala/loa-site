@@ -7,6 +7,12 @@ export const SUPABASE_PUBLISHABLE_KEY =
 
 export const ADMIN_EMAIL = "brandoncgillihan@gmail.com";
 
+export type Track = {
+  position: string; // "A1", "B2", "1" — whatever Discogs lists
+  title: string;
+  duration: string; // "3:41", or "" when Discogs has none
+};
+
 export type DbRecord = {
   id: number;
   artist: string;
@@ -23,6 +29,11 @@ export type DbRecord = {
   discogs_folder_id?: number | null; // admin-only; collection folder it was removed from, for the re-add
   cover_image: string;
   genres: string[]; // from Discogs release data, e.g. ["Rock", "Jazz"]
+  // Release details for the record page; null = not fetched from Discogs yet.
+  tracklist?: Track[] | null;
+  country?: string | null;
+  barcode?: string | null;
+  styles?: string[] | null; // Discogs styles, e.g. ["Indie Rock", "Shoegaze"]
   collection: string | null; // curated series like "VMP" or "IVC"
   manual_price?: boolean; // true = daily price run leaves this record alone
   photo_urls: string[]; // uploaded photos of the actual copy (Supabase Storage)
