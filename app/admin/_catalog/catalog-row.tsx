@@ -26,6 +26,14 @@ type Props = {
   onToggleListed: (r: DbRecord, listed: boolean) => void;
 };
 
+// Records at or above this price on the shop without photos of the actual
+// copy get an "Add photos" nudge in the catalog.
+export const PHOTO_NUDGE_PRICE = 40;
+
+export function needsPhotos(r: Pick<DbRecord, "price" | "photo_urls" | "sold" | "listed">) {
+  return r.listed && !r.sold && r.price >= PHOTO_NUDGE_PRICE && !(r.photo_urls ?? []).length;
+}
+
 export const CatalogRow = memo(function CatalogRow({
   r,
   selected,
@@ -175,6 +183,16 @@ export const CatalogRow = memo(function CatalogRow({
         ) : (
           <span className="text-neutral-600">hidden</span>
         )}
+        {needsPhotos(r) ? (
+          // Buyers want to see the actual copy before paying real money;
+          // the shop otherwise shows a Discogs stock cover.
+          <span
+            className="ml-2 rounded-full border border-sky-400/40 px-2 py-0.5 text-sky-300"
+            title={`$${PHOTO_NUDGE_PRICE}+ with only a stock cover on the shop — add photos of this copy in the drawer`}
+          >
+            Add photos
+          </span>
+        ) : null}
         {r.discogs_removed && !r.sold ? (
           // Back for sale (un-sold, or a refund relisted it) but already
           // out of the Discogs collection — the drawer re-adds it.

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Alice, Rye } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
+import { GRADES } from "@/lib/record-info";
 import { SELLER_INFO } from "@/lib/records";
 import "./shop.css";
 
@@ -99,21 +100,15 @@ export default function ShopLayout({
               two grades, I use the lower one. Prices track Discogs daily, so
               the &ldquo;Drink me&rdquo; drops are genuine.
             </p>
+            <p>{SELLER_INFO.guarantee}</p>
           </div>
           <div className="shop-footer-grades">
             <div className="head">Grade cheat-sheet</div>
-            <div>
-              <strong>M</strong> — Mint, still sealed or flawless
-            </div>
-            <div>
-              <strong>NM</strong> — Near Mint, looks unplayed
-            </div>
-            <div>
-              <strong>VG+</strong> — light wear, plays clean
-            </div>
-            <div>
-              <strong>VG</strong> — visible wear, minor surface noise
-            </div>
+            {GRADES.map((g) => (
+              <div key={g.code}>
+                <strong>{g.code}</strong> — {g.meaning}
+              </div>
+            ))}
           </div>
         </div>
         <div className="shop-footer-bottom">

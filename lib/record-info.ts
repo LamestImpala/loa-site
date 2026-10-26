@@ -243,3 +243,20 @@ export function relatedGroups<R extends DbRecord>(
   }
   return groups;
 }
+
+// "45 records sold since August 2026" — the shop's track record. Left out
+// (null) until there are enough sales for it to reassure rather than worry.
+export function trackRecordLine(
+  stats: { soldCount: number; firstSale: string | null } | null,
+  min = 10
+) {
+  if (!stats || stats.soldCount < min) return null;
+  const since = stats.firstSale
+    ? new Date(stats.firstSale).toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+        timeZone: "America/Phoenix",
+      })
+    : null;
+  return `${stats.soldCount} records sold${since ? ` since ${since}` : ""}`;
+}
