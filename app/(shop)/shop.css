@@ -671,8 +671,9 @@ html:has(.shop) {
   border-color: var(--color-accent-300);
   background: var(--color-accent-100);
 }
-/* Phones hide sort and count in the sticky bar; this jumps back to them. */
-.shop-sticky-filters {
+/* Phones hide sort and count in the sticky bar; this jumps back to them.
+   (.shop .btn sets display, so match its specificity.) */
+.shop .shop-sticky-filters {
   display: none;
 }
 .shop-chip-row {
@@ -1723,7 +1724,7 @@ html:has(.shop) {
   .shop-sticky-count {
     display: none;
   }
-  .shop-sticky-filters {
+  .shop .shop-sticky-filters {
     display: inline-flex;
   }
   .shop-grid.view-compact {
