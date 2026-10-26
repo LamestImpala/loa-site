@@ -1,7 +1,8 @@
 // node --test scripts/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planPrice } from "./price-run.mjs";
+import { planPrice, releaseDetails } from "./price-run.mjs";
+import { releaseDetailsFromDiscogs } from "../lib/record-info.ts";
 
 // Stone Temple Pilots — Live In New Haven, 1994 (release 33673521), the
 // case that exposed the phantom listing: Discogs says lowest_price $8.92 on
@@ -96,4 +97,22 @@ test("eBay exact-match median caps the target but not below the floor", () => {
 test("the comparability bar is half the grade suggestion", () => {
   assert.equal(planPrice({ price: 40, suggestion: 40, lowest: 19, forSale: 12 }).lowestPlausible, false);
   assert.equal(planPrice({ price: 40, suggestion: 40, lowest: 21, forSale: 12 }).lowestPlausible, true);
+});
+
+// The backfill here and the admin import (lib/record-info.ts) must store the
+// same shape, or record pages would render the two kinds of rows differently.
+test("release details match the admin import's shape", () => {
+  const rel = {
+    country: "UK",
+    styles: ["Dub"],
+    identifiers: [{ type: "Barcode", value: "5 012345 678900" }, { type: "Matrix", value: "X" }],
+    tracklist: [
+      { type_: "heading", title: "Side One" },
+      { type_: "track", position: "A1", title: " Exodus ", duration: "7:40" },
+      { type_: "index", title: "Medley", sub_tracks: [{ type_: "track", position: "B1a", title: "Part", duration: "" }] },
+      { type_: "track", position: "B2", title: "", duration: "" },
+    ],
+  };
+  assert.deepEqual(releaseDetails(rel), releaseDetailsFromDiscogs(rel));
+  assert.deepEqual(releaseDetails({}), releaseDetailsFromDiscogs({}));
 });

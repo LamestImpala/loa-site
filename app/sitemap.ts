@@ -1,13 +1,18 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
+import { getListedRecords } from "@/app/(shop)/records/data";
 import { SHOP_HOST, matchesHost } from "@/lib/hosts";
+import { recordPath } from "@/lib/record-info";
 
 // headers() makes this dynamic so each host serves its own sitemap: the shop
-// is a single page at the domain root; everything else is the LOA site.
+// is the catalog plus one page per record; everything else is the LOA site.
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const host = (await headers()).get("host")?.split(":")[0] ?? "";
 
   if (matchesHost(host, SHOP_HOST)) {
+    // The catalog plus a page per record still for sale; sold records keep
+    // their pages (old links work) but drop out of the sitemap.
+    const { records } = await getListedRecords();
     return [
       {
         url: `https://${SHOP_HOST}`,
@@ -15,6 +20,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         changeFrequency: "daily",
         priority: 1,
       },
+      ...records
+        .filter((r) => !r.sold)
+        .map((r) => ({
+          url: `https://${SHOP_HOST}${recordPath(r)}`,
+          lastModified: new Date(r.updated_at),
+          changeFrequency: "weekly" as const,
+          priority: 0.7,
+        })),
     ];
   }
 

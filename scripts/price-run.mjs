@@ -307,6 +307,77 @@ async function fetchSuggestion(releaseId) {
   throw new Error(`Rate limited three times for ${releaseId}`);
 }
 
+// Release details for the shop's record pages (tracklist, country, barcode,
+// styles). Records added before these columns existed — or added by hand —
+// have tracklist = null; fill them in. Same shape as
+// releaseDetailsFromDiscogs() in lib/record-info.ts (keep the two in step).
+export function releaseDetails(rel) {
+  const tracklist = [];
+  const add = (t) => {
+    if (!t?.title?.trim()) return;
+    tracklist.push({
+      position: t.position?.trim() ?? "",
+      title: t.title.trim(),
+      duration: t.duration?.trim() ?? "",
+    });
+  };
+  for (const t of rel?.tracklist ?? []) {
+    if (t.type_ === "heading") continue;
+    if (t.type_ === "index" && t.sub_tracks?.length) t.sub_tracks.forEach(add);
+    else add(t);
+  }
+  const raw = (rel?.identifiers ?? []).find((i) => i.type === "Barcode")?.value ?? "";
+  const digits = raw.replace(/\D/g, "");
+  return {
+    tracklist,
+    country: rel?.country?.trim() ?? "",
+    barcode: digits.length >= 8 && digits.length <= 14 ? digits : "",
+    styles: rel?.styles ?? [],
+  };
+}
+
+async function backfillReleaseDetails() {
+  const { data: missing, error } = await supabase
+    .from("records")
+    .select("id, discogs_release_id")
+    .is("tracklist", null)
+    .not("discogs_release_id", "is", null);
+  if (error) throw error;
+  let filled = 0;
+  for (const r of missing) {
+    try {
+      const res = await fetch(
+        `https://api.discogs.com/releases/${r.discogs_release_id}`,
+        {
+          headers: {
+            Authorization: `Discogs token=${discogsToken}`,
+            "User-Agent": "LateOnsetAudiophileRecords/1.0",
+          },
+        }
+      );
+      if (res.status === 429) {
+        await sleep(65_000);
+        continue; // picked up on the next run
+      }
+      if (!res.ok && res.status !== 404) continue;
+      // A release gone from Discogs gets empty details so it isn't retried daily.
+      const details = res.ok
+        ? releaseDetails(await res.json())
+        : { tracklist: [], country: "", barcode: "", styles: [] };
+      const { error: upErr } = await supabase
+        .from("records")
+        .update(details)
+        .eq("id", r.id);
+      if (upErr) throw upErr;
+      filled++;
+    } catch (e) {
+      console.error(`release details for record ${r.id}:`, e.message);
+    }
+    await sleep(1100);
+  }
+  if (missing.length) console.log(`release details: filled ${filled} of ${missing.length}`);
+}
+
 // Fill in cover art for records that don't have it yet (new listings).
 async function backfillCoverImages() {
   const { data: missing, error } = await supabase
@@ -366,6 +437,7 @@ async function main() {
   }
 
   if (!DRY_RUN) await backfillCoverImages();
+  if (!DRY_RUN) await backfillReleaseDetails();
 
   let query = supabase
     .from("records")

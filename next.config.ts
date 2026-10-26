@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // Dev-only: the shop is served on shop.localhost (see proxy.ts).
+  allowedDevOrigins: ["shop.localhost"],
   images: {
     remotePatterns: [
       {

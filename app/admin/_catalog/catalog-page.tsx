@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
+import { releaseDetailsFromDiscogs, type ReleaseDetails } from "@/lib/record-info";
 import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
@@ -37,6 +38,7 @@ type NewRecordDraft = {
   cover_image: string;
   genres: string; // comma-separated in the form; stored as text[]
   collection: string;
+  details: ReleaseDetails; // tracklist, country, barcode, styles for the record page
 };
 
 
@@ -630,6 +632,7 @@ export function CatalogPage() {
         cover_image: primary?.uri ?? rel.thumb ?? "",
         genres: (rel.genres ?? []).join(", "),
         collection: detectCollection(rel),
+        details: releaseDetailsFromDiscogs(rel),
       });
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to fetch release");
@@ -662,6 +665,7 @@ export function CatalogPage() {
           .map((g) => g.trim())
           .filter(Boolean),
         collection: draft.collection.trim() || null,
+        ...draft.details,
       })
       .select()
       .single();

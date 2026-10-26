@@ -9,7 +9,11 @@ function stripPort(host: string) {
 export function proxy(request: NextRequest) {
   const host = stripPort(request.headers.get("host") ?? "");
   const { pathname } = request.nextUrl;
-  const isShopHost = matchesHost(host, SHOP_HOST);
+  // shop.localhost (browsers resolve *.localhost to 127.0.0.1) serves the
+  // shop at its real paths during development, so /r/… links work locally.
+  const isShopHost =
+    matchesHost(host, SHOP_HOST) ||
+    (process.env.NODE_ENV === "development" && host === "shop.localhost");
   const isOldShopHost = matchesHost(host, OLD_SHOP_HOST);
   const isLoaHost = matchesHost(host, LOA_HOST);
 

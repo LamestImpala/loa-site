@@ -95,6 +95,7 @@ export type SellerInfo = {
   contact: string;
   payment: string;
   shipping: string;
+  guarantee: string;
 };
 
 export const SELLER_INFO: SellerInfo = {
@@ -105,4 +106,5 @@ export const SELLER_INFO: SellerInfo = {
   contact: "Request to buy by email or Reddit DM. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
   shipping: "$6 USPS Media Mail for 1–2 records (USA); free shipping on 3 or more. Records ship outside the jacket in a proper LP mailer.",
+  guarantee: "Something not as described? Email me and I'll make it right.",
 };
