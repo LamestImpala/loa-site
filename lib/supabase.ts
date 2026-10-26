@@ -129,6 +129,7 @@ export type PendingPriceChange = {
   old_price: number;
   suggested_price: number;
   pct_change: number;
+  run_id?: number | null; // the price run that queued it
   status: "pending" | "approved" | "rejected";
   created_at: string;
   records?: Pick<DbRecord, "artist" | "title" | "pressing" | "price"> | null;
@@ -215,8 +216,9 @@ export type PriceRun = {
     want?: number | null; // Discogs community want count at run time
     ebay_median?: number | null; // median used asking price on eBay US
     // what set the target: the tier factor on the grade suggestion
-    // (suggestion 85% / scarce 100% / stocked 70%), a comparable cheapest
-    // listing, the eBay median, or the unsold-30-days time decay
+    // (suggestion 85% / scarce 100% / stocked 70%, +3% Discogs adder since
+    // Oct 2026), a comparable cheapest listing, the eBay median, or the
+    // time decay for shelf-sitters
     reason?: "suggestion" | "scarce" | "stocked" | "lowest" | "ebay" | "decay";
     action: "applied" | "flagged" | "above-lowest" | "undercut";
   }[];
