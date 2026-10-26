@@ -5,12 +5,12 @@ export default function Loading() {
     <div className="shop-shell shop-main" aria-busy="true" aria-label="Loading records">
       <div
         className="shop-skeleton"
-        style={{ height: 280, borderRadius: "var(--radius-lg)", marginBlock: "var(--space-4) var(--space-8)" }}
+        style={{ height: 280, marginBlock: "var(--space-4) var(--space-8)" }}
       />
       <div className="shop-grid">
         {Array.from({ length: 8 }, (_, i) => (
           <div key={i} className="card elev-sm record-card">
-            <div className="shop-skeleton" style={{ aspectRatio: "1 / 1", borderRadius: "var(--radius-lg)" }} />
+            <div className="shop-skeleton" style={{ aspectRatio: "1 / 1" }} />
             <div className="shop-skeleton" style={{ height: 16, width: "80%" }} />
             <div className="shop-skeleton" style={{ height: 12, width: "55%" }} />
             <div className="shop-skeleton" style={{ height: 26, width: "40%" }} />

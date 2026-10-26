@@ -51,12 +51,11 @@ export default async function RecordsPage() {
   return (
     <>
       <header className="shop-shell shop-hero">
-        <span className="shop-hero-shooting-star" aria-hidden="true" />
         <div className="shop-hero-copy">
-          <div className="tag tag-accent-2" style={{ marginBottom: "var(--space-4)" }}>
-            Phoenix, Arizona · one-person shop
-          </div>
-          <h1>Curiouser and curiouser finds for your turntable.</h1>
+          <p className="shop-hero-kicker">Phoenix, Arizona · a one-person record shop</p>
+          <h1>
+            <em>Curiouser and curiouser</em> finds for your turntable.
+          </h1>
           <p className="shop-hero-lede">
             Every record here is from my own shelves, graded to the{" "}
             <a
@@ -69,12 +68,12 @@ export default async function RecordsPage() {
             , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
             That&rsquo;s a real price drop since yesterday.
           </p>
-          {/* Same info twice: an always-open card on desktop, a collapsed
-              <details> on phones so records surface within ~1.5 screens. */}
-          <div className="card elev-sm shop-hero-info shop-hero-info-static">
+          {/* Same info twice: always open on desktop, a collapsed <details>
+              on phones so records surface within ~1.5 screens. */}
+          <div className="shop-hero-info shop-hero-info-static">
             <SellerInfoLines trackRecord={trackRecord} />
           </div>
-          <details className="card elev-sm shop-hero-info shop-hero-info-details">
+          <details className="shop-hero-info shop-hero-info-details">
             <summary>How buying works — payment &amp; shipping</summary>
             <div className="shop-hero-info-detail-body">
               <SellerInfoLines trackRecord={trackRecord} />
@@ -84,12 +83,12 @@ export default async function RecordsPage() {
             Browse the records ↓
           </a>
         </div>
-        <div>
+        <div className="shop-hero-art">
           <Image
             src="/images/curiouserlogo.png"
-            alt="Curiouser Records logo"
-            width={280}
-            height={280}
+            alt="Curiouser Records — the White Rabbit with his pocket watch"
+            width={260}
+            height={260}
             priority
             className="shop-hero-logo"
           />
@@ -99,11 +98,10 @@ export default async function RecordsPage() {
       {error ? (
         <div className="shop-shell shop-main">
           <div className="card shop-empty">
-            <div className="shop-empty-title">
-              The record list has gone down the rabbit hole.
-            </div>
+            <div className="shop-empty-title">The record list didn&rsquo;t load.</div>
             <p className="shop-muted" style={{ margin: 0 }}>
-              Please check back in a minute.
+              Please check back in a minute, or email{" "}
+              <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>.
             </p>
           </div>
         </div>

@@ -919,7 +919,7 @@ export default function RecordsClient({
         ) : (
           <div className="card shop-empty">
             <div className="shop-empty-title">
-              Curiouser and curiouser… nothing matches.
+              Nothing on the shelf matches that.
             </div>
             <button type="button" className="btn btn-ghost" onClick={clearFilters}>
               Clear filters

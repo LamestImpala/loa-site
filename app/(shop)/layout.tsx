@@ -1,15 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { Alice, Rye } from "next/font/google";
+import { Alice, IM_Fell_English, IM_Fell_English_SC } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import { GRADES } from "@/lib/record-info";
 import { SELLER_INFO } from "@/lib/records";
 import "./shop.css";
 
-const rye = Rye({
+// IM Fell: 17th-century English types, close kin to the Tenniel-era books
+// the Wonderland look borrows from. Roman and italic for display, the
+// small-caps cut for labels.
+const fell = IM_Fell_English({
+  weight: "400",
+  style: ["normal", "italic"],
+  subsets: ["latin"],
+  variable: "--font-fell",
+});
+
+const fellSC = IM_Fell_English_SC({
   weight: "400",
   subsets: ["latin"],
-  variable: "--font-rye",
+  variable: "--font-fell-sc",
 });
 
 const alice = Alice({
@@ -64,7 +74,7 @@ export default function ShopLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <div className={`shop ${rye.variable} ${alice.variable}`}>
+    <div className={`shop ${fell.variable} ${fellSC.variable} ${alice.variable}`}>
       <a className="shop-skip-link" href="#records">
         Skip to the records
       </a>
@@ -82,7 +92,9 @@ export default function ShopLayout({
           Curiouser <span>Records</span>
         </div>
         <div style={{ flex: 1 }} />
-        <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>
+        <a className="shop-nav-email" href={`mailto:${SELLER_INFO.contactEmail}`}>
+          {SELLER_INFO.contactEmail}
+        </a>
       </nav>
       <div className="shop-checker" aria-hidden />
 
