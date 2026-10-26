@@ -9,6 +9,7 @@ import {
   relatedGroups,
   releaseDetailsFromDiscogs,
   splitPressing,
+  trackRecordLine,
 } from "./record-info.ts";
 import type { DbRecord } from "./supabase.ts";
 
@@ -110,4 +111,14 @@ test("related groups: same artist first, no repeats, sold and held excluded", ()
       ["More Rock around $20", [6]],
     ]
   );
+});
+
+test("track record line: hidden below the minimum, month and year in Phoenix time", () => {
+  assert.equal(trackRecordLine(null), null);
+  assert.equal(trackRecordLine({ soldCount: 3, firstSale: null }), null);
+  assert.equal(
+    trackRecordLine({ soldCount: 45, firstSale: "2026-08-01T03:00:00Z" }),
+    "45 records sold since July 2026"
+  );
+  assert.equal(trackRecordLine({ soldCount: 12, firstSale: null }), "12 records sold");
 });

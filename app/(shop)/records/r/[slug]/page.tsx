@@ -12,9 +12,10 @@ import {
   recordPath,
   relatedGroups,
   splitPressing,
+  trackRecordLine,
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
-import { PAGE_COLUMNS, getListedRecords, getRedditPostUrl } from "../../data";
+import { PAGE_COLUMNS, getListedRecords, getRedditPostUrl, getShopStats } from "../../data";
 import { DiscogsLink, RecordBuyBox, RecordGallery } from "./record-client";
 
 export const revalidate = 60;
@@ -135,9 +136,10 @@ function jsonLd(r: DbRecord) {
 
 export default async function RecordPage({ params }: PageProps<"/records/r/[slug]">) {
   const { slug } = await params;
-  const [{ record: r, records }, redditPostUrl] = await Promise.all([
+  const [{ record: r, records }, redditPostUrl, stats] = await Promise.all([
     loadRecord(slug),
     getRedditPostUrl(),
+    getShopStats(),
   ]);
   if (!r) notFound();
   // One URL per record: a stale or hand-typed slug forwards to the real one.
@@ -313,6 +315,9 @@ export default async function RecordPage({ params }: PageProps<"/records/r/[slug
                 <li>{SELLER_INFO.shipping}</li>
                 <li>{SELLER_INFO.payment}</li>
                 <li>{SELLER_INFO.guarantee}</li>
+                {trackRecordLine(stats) ? (
+                  <li>{trackRecordLine(stats)}, all from my own shelves.</li>
+                ) : null}
               </ul>
             </section>
           </div>

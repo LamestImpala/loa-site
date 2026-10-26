@@ -28,3 +28,13 @@ export const getRedditPostUrl = cache(async () => {
     .single();
   return (data?.value as string | undefined)?.trim() ?? "";
 });
+
+// Seller track record from the shop_stats() function (anon can't see sold
+// rows, which are unlisted once they ship). Null when unavailable — the
+// shop simply leaves the line out.
+export const getShopStats = cache(async () => {
+  const { data, error } = await createServerSupabase().rpc("shop_stats").single();
+  if (error || !data) return null;
+  const row = data as { sold_count: number | string; first_sale: string | null };
+  return { soldCount: Number(row.sold_count), firstSale: row.first_sale };
+});

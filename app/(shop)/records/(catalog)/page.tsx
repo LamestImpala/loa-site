@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { SELLER_INFO } from "@/lib/records";
-import { getListedRecords, getRedditPostUrl } from "../data";
+import { trackRecordLine } from "@/lib/record-info";
+import { getListedRecords, getRedditPostUrl, getShopStats } from "../data";
 import RecordsClient from "../records-client";
 
 export const metadata: Metadata = {
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 
 export const revalidate = 60;
 
-function SellerInfoLines() {
+function SellerInfoLines({ trackRecord }: { trackRecord: string | null }) {
   return (
     <>
       <div>
@@ -25,15 +26,27 @@ function SellerInfoLines() {
       <div>
         <strong>Shipping:</strong> {SELLER_INFO.shipping}
       </div>
+      <div>
+        <strong>Not as described?</strong> Email me and I&rsquo;ll make it
+        right.
+      </div>
+      {trackRecord ? (
+        <div>
+          <strong>Track record:</strong> {trackRecord}, every one graded and
+          packed by me.
+        </div>
+      ) : null}
     </>
   );
 }
 
 export default async function RecordsPage() {
-  const [{ records, error }, redditPostUrl] = await Promise.all([
+  const [{ records, error }, redditPostUrl, stats] = await Promise.all([
     getListedRecords(),
     getRedditPostUrl(),
+    getShopStats(),
   ]);
+  const trackRecord = trackRecordLine(stats);
 
   return (
     <>
@@ -59,12 +72,12 @@ export default async function RecordsPage() {
           {/* Same info twice: an always-open card on desktop, a collapsed
               <details> on phones so records surface within ~1.5 screens. */}
           <div className="card elev-sm shop-hero-info shop-hero-info-static">
-            <SellerInfoLines />
+            <SellerInfoLines trackRecord={trackRecord} />
           </div>
           <details className="card elev-sm shop-hero-info shop-hero-info-details">
             <summary>How buying works — payment &amp; shipping</summary>
             <div className="shop-hero-info-detail-body">
-              <SellerInfoLines />
+              <SellerInfoLines trackRecord={trackRecord} />
             </div>
           </details>
           <a className="btn btn-primary shop-hero-cta" href="#records">

@@ -12,6 +12,7 @@ import {
 import {
   cleanDiscogsName,
   dropPct,
+  gradeInfo,
   isNew,
   isOnHold,
   isReduced,
@@ -298,8 +299,12 @@ export default function RecordsClient({
     return (
       <>
         <div className="record-tags">
-          <span className="tag tag-outline">Media: {r.media}</span>
-          <span className="tag tag-outline">Sleeve: {r.sleeve}</span>
+          <span className="tag tag-outline" title={gradeInfo(r.media)?.meaning}>
+            Media: {r.media}
+          </span>
+          <span className="tag tag-outline" title={gradeInfo(r.sleeve)?.name}>
+            Sleeve: {r.sleeve}
+          </span>
           {r.photo_urls?.length ? (
             <span className="tag tag-neutral">Actual copy pictured</span>
           ) : null}
