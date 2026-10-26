@@ -659,6 +659,22 @@ html:has(.shop) {
 .shop-controls-row .search {
   flex: 1 1 280px;
 }
+.shop-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.shop-filter-row .input {
+  width: auto;
+}
+.shop-new-chip {
+  border-color: var(--color-accent-300);
+  background: var(--color-accent-100);
+}
+/* Phones hide sort and count in the sticky bar; this jumps back to them. */
+.shop-sticky-filters {
+  display: none;
+}
 .shop-chip-row {
   display: flex;
   gap: var(--space-2);
@@ -1706,6 +1722,9 @@ html:has(.shop) {
   .shop-sticky-sort,
   .shop-sticky-count {
     display: none;
+  }
+  .shop-sticky-filters {
+    display: inline-flex;
   }
   .shop-grid.view-compact {
     grid-template-columns: repeat(3, 1fr);
