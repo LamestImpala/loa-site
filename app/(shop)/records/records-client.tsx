@@ -11,11 +11,16 @@ import {
 } from "@/lib/records";
 import {
   cleanDiscogsName,
+  GRADE_FLOORS,
+  PRICE_BANDS,
   dropPct,
   gradeInfo,
+  inPriceBand,
   isNew,
   isOnHold,
   isReduced,
+  meetsGrade,
+  pressingDecade,
   recordPath,
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
@@ -56,8 +61,12 @@ export default function RecordsClient({
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("artist");
-  const [avail, setAvail] = useState<AvailOption>("all");
+  // Sold records stay a click away but don't crowd the default view.
+  const [avail, setAvail] = useState<AvailOption>("open");
   const [genre, setGenre] = useState<string>("all");
+  const [grade, setGrade] = useState<string>("any");
+  const [priceBand, setPriceBand] = useState<string>("any");
+  const [decade, setDecade] = useState<string>("all");
   const [collection, setCollection] = useState<string | null>(null);
   const [letter, setLetter] = useState<string | null>(null);
   const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
@@ -79,8 +88,11 @@ export default function RecordsClient({
   function clearFilters() {
     setQuery("");
     setSort("artist");
-    setAvail("all");
+    setAvail("open");
     setGenre("all");
+    setGrade("any");
+    setPriceBand("any");
+    setDecade("all");
     setCollection(null);
     setLetter(null);
   }
@@ -102,6 +114,9 @@ export default function RecordsClient({
       if (avail === "open" && r.sold) return false;
       if (avail === "sold" && !r.sold) return false;
       if (genre !== "all" && !(r.genres ?? []).includes(genre)) return false;
+      if (grade !== "any" && !meetsGrade(r.media, grade)) return false;
+      if (priceBand !== "any" && !inPriceBand(r.price, priceBand)) return false;
+      if (decade !== "all" && pressingDecade(r.pressing) !== decade) return false;
       if (collection && r.collection !== collection) return false;
       if (letter && artistLetter(r.artist) !== letter) return false;
       if (!q) return true;
@@ -120,7 +135,7 @@ export default function RecordsClient({
               : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
-  }, [records, query, sort, avail, genre, collection, letter]);
+  }, [records, query, sort, avail, genre, grade, priceBand, decade, collection, letter]);
 
   // The rail only features drops worth a look (≥5% or ≥$5); smaller overnight
   // ticks still get the per-card "Drink me" tag but don't headline a section.
@@ -131,6 +146,31 @@ export default function RecordsClient({
         const delta = Number(r.prev_price) - r.price;
         return delta >= 5 || dropPct(r) >= 5;
       }),
+    [records]
+  );
+
+  // Listed in the last NEW_WINDOW_DAYS and still for sale, newest first.
+  const justIn = useMemo(
+    () =>
+      records
+        .filter((r) => !r.sold && isNew(r))
+        .sort(
+          (a, b) =>
+            new Date(b.created_at ?? 0).getTime() -
+            new Date(a.created_at ?? 0).getTime()
+        ),
+    [records]
+  );
+
+  const decades = useMemo(
+    () =>
+      [
+        ...new Set(
+          records
+            .map((r) => pressingDecade(r.pressing))
+            .filter((d): d is string => d !== null)
+        ),
+      ].sort(),
     [records]
   );
 
@@ -156,8 +196,11 @@ export default function RecordsClient({
   const available = records.filter((r) => !r.sold).length;
   const hasFilters =
     query.trim() !== "" ||
-    avail !== "all" ||
+    avail !== "open" ||
     genre !== "all" ||
+    grade !== "any" ||
+    priceBand !== "any" ||
+    decade !== "all" ||
     collection !== null ||
     letter !== null;
 
@@ -179,7 +222,7 @@ export default function RecordsClient({
     ? `${visible.length} of ${records.length} records`
     : available === records.length
       ? `${records.length} records`
-      : `${available} available of ${records.length} records`;
+      : `${available} available · ${records.length - available} sold`;
 
   function scrollToRecord(id: number) {
     const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
@@ -197,8 +240,10 @@ export default function RecordsClient({
     if (document.getElementById(`r-${id}`)) {
       go();
     } else {
-      // The card is filtered out — reset filters, then jump after re-render.
+      // The card is filtered out — reset filters (sold included, since a
+      // deep link may point at one), then jump after re-render.
       clearFilters();
+      setAvail("all");
       window.setTimeout(go, 80);
     }
   }
@@ -210,7 +255,8 @@ export default function RecordsClient({
     });
   }
 
-  // ── URL state: read once on mount (?q=&sort=&genre=&avail=&coll=&letter=
+  // ── URL state: read once on mount (?q=&sort=&genre=&avail=&cond=&price=
+  // &decade=&coll=&letter=
   // plus #r-<id> deep links) …
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -222,6 +268,12 @@ export default function RecordsClient({
     if (a && AVAIL_OPTIONS.includes(a)) setAvail(a);
     const g = params.get("genre");
     if (g) setGenre(g);
+    const cond = params.get("cond");
+    if (cond && (GRADE_FLOORS as readonly string[]).includes(cond)) setGrade(cond);
+    const pr = params.get("price");
+    if (pr && PRICE_BANDS.some((b) => b.key === pr)) setPriceBand(pr);
+    const dec = params.get("decade");
+    if (dec && /^\d{4}s$/.test(dec)) setDecade(dec);
     const c = params.get("coll");
     if (c) setCollection(c);
     const l = params.get("letter");
@@ -243,7 +295,10 @@ export default function RecordsClient({
       if (query.trim()) p.set("q", query.trim());
       if (sort !== "artist") p.set("sort", sort);
       if (genre !== "all") p.set("genre", genre);
-      if (avail !== "all") p.set("avail", avail);
+      if (avail !== "open") p.set("avail", avail);
+      if (grade !== "any") p.set("cond", grade);
+      if (priceBand !== "any") p.set("price", priceBand);
+      if (decade !== "all") p.set("decade", decade);
       if (collection) p.set("coll", collection);
       if (letter) p.set("letter", letter);
       const qs = p.toString();
@@ -254,7 +309,7 @@ export default function RecordsClient({
       );
     }, 300);
     return () => window.clearTimeout(t);
-  }, [query, sort, genre, avail, collection, letter]);
+  }, [query, sort, genre, avail, grade, priceBand, decade, collection, letter]);
 
   // Stored view choice wins; otherwise the matchMedia effect below decides.
   useEffect(() => {
@@ -580,6 +635,45 @@ export default function RecordsClient({
         </section>
       ) : null}
 
+      {justIn.length > 0 ? (
+        <section className="shop-shell shop-section">
+          <div className="shop-section-head">
+            <h2>Just in</h2>
+            <span className="shop-muted">
+              new to the shelves in the last two weeks
+            </span>
+          </div>
+          <div className="shop-drops">
+            {justIn.map((r) => {
+              const tint = tintFor(r.artist);
+              const cover = r.photo_urls?.[0] || r.cover_image;
+              return (
+                <Link
+                  key={r.id}
+                  href={recordPath(r)}
+                  className="shop-drop-chip shop-new-chip"
+                >
+                  <span
+                    className="thumb"
+                    style={cover ? undefined : { background: tint.bg }}
+                  >
+                    {cover ? (
+                      <Image src={cover} alt="" width={68} height={68} />
+                    ) : (
+                      initials(r.artist)
+                    )}
+                  </span>
+                  <span className="name">
+                    {r.artist} — {r.title}
+                  </span>
+                  <span className="tag tag-outline">${r.price}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <section
         id="records"
         ref={controlsRef}
@@ -643,6 +737,50 @@ export default function RecordsClient({
             ))}
           </div>
           {viewToggle()}
+        </div>
+
+        <div className="shop-filter-row" role="group" aria-label="More filters">
+          <select
+            className="input"
+            aria-label="Filter by condition"
+            value={grade}
+            onChange={(e) => setGrade(e.target.value)}
+          >
+            <option value="any">Condition: Any</option>
+            {GRADE_FLOORS.map((g) => (
+              <option key={g} value={g}>
+                {g} or better
+              </option>
+            ))}
+          </select>
+          <select
+            className="input"
+            aria-label="Filter by price"
+            value={priceBand}
+            onChange={(e) => setPriceBand(e.target.value)}
+          >
+            <option value="any">Price: Any</option>
+            {PRICE_BANDS.map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+          {decades.length > 1 ? (
+            <select
+              className="input"
+              aria-label="Filter by pressing decade"
+              value={decade}
+              onChange={(e) => setDecade(e.target.value)}
+            >
+              <option value="all">Pressed: Any decade</option>
+              {decades.map((d) => (
+                <option key={d} value={d}>
+                  Pressed in the {d}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
 
         {collections.length > 0 ? (
@@ -734,6 +872,17 @@ export default function RecordsClient({
               <option value="newest">Newest arrivals</option>
             </select>
             <span className="shop-muted shop-sticky-count">{countLabel}</span>
+            <button
+              type="button"
+              className="btn btn-ghost shop-sticky-filters"
+              onClick={() =>
+                controlsRef.current?.scrollIntoView({
+                  behavior: prefersReducedMotion() ? "auto" : "smooth",
+                })
+              }
+            >
+              Filters{hasFilters ? " •" : ""}
+            </button>
             {viewToggle()}
             <button type="button" className="btn btn-ghost" onClick={scrollToTop}>
               ↑ Top

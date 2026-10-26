@@ -260,3 +260,36 @@ export function trackRecordLine(
     : null;
   return `${stats.soldCount} records sold${since ? ` since ${since}` : ""}`;
 }
+
+// ── Catalog filters ──────────────────────────────────────────────────────
+
+// Position on the Goldmine scale (0 = M); unknown grades sort last.
+export function gradeRank(code: string) {
+  const i = GRADES.findIndex((g) => g.code === code.trim().toUpperCase());
+  return i === -1 ? GRADES.length : i;
+}
+
+// "NM or better" etc. — the media grade is what buyers filter on.
+export const GRADE_FLOORS = ["NM", "VG+", "VG"] as const;
+
+export function meetsGrade(media: string, floor: string) {
+  return gradeRank(media) <= gradeRank(floor);
+}
+
+export const PRICE_BANDS = [
+  { key: "under20", label: "Under $20", min: 0, max: 20 },
+  { key: "20to40", label: "$20–$40", min: 20, max: 40 },
+  { key: "40up", label: "$40 and up", min: 40, max: Infinity },
+] as const;
+
+export function inPriceBand(price: number, key: string) {
+  const band = PRICE_BANDS.find((b) => b.key === key);
+  return !band || (price >= band.min && price < band.max);
+}
+
+// Decade of the pressing ("1970s"), from the year that leads the pressing
+// line; null when the line has no year.
+export function pressingDecade(pressing: string) {
+  const year = pressingYear(pressing);
+  return year ? `${Math.floor(year / 10) * 10}s` : null;
+}

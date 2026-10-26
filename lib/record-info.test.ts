@@ -5,6 +5,9 @@ import {
   cleanDiscogsName,
   groupBySide,
   idFromSlug,
+  inPriceBand,
+  meetsGrade,
+  pressingDecade,
   recordPath,
   relatedGroups,
   releaseDetailsFromDiscogs,
@@ -121,4 +124,18 @@ test("track record line: hidden below the minimum, month and year in Phoenix tim
     "45 records sold since July 2026"
   );
   assert.equal(trackRecordLine({ soldCount: 12, firstSale: null }), "12 records sold");
+});
+
+test("catalog filters: grade floor, price bands, pressing decade", () => {
+  assert.equal(meetsGrade("M", "NM"), true);
+  assert.equal(meetsGrade("VG+", "NM"), false);
+  assert.equal(meetsGrade("vg+", "VG+"), true);
+  assert.equal(meetsGrade("??", "VG"), false);
+  assert.equal(inPriceBand(19, "under20"), true);
+  assert.equal(inPriceBand(20, "under20"), false);
+  assert.equal(inPriceBand(40, "20to40"), false);
+  assert.equal(inPriceBand(185, "40up"), true);
+  assert.equal(inPriceBand(5, "nonsense"), true);
+  assert.equal(pressingDecade("1977 · Warner BSK 3010 · Reissue"), "1970s");
+  assert.equal(pressingDecade("Warner BSK 3010"), null);
 });
