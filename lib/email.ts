@@ -24,6 +24,10 @@ export function addressOf(from: string): string {
   return (m ? m[1] : from).trim().toLowerCase();
 }
 
+// A file Resend fetches by URL and attaches under `filename`. The whole
+// email, attachments included, must stay under Resend's 40MB cap.
+export type EmailAttachment = { path: string; filename: string };
+
 export type SendEmailArgs = {
   to: string | string[];
   subject: string;
@@ -31,6 +35,7 @@ export type SendEmailArgs = {
   html?: string;
   replyTo?: string;
   headers?: Record<string, string>;
+  attachments?: EmailAttachment[];
 };
 
 export type SendResult = { ok: true; id: string } | { ok: false; error: string };
@@ -53,6 +58,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendResult> {
         html: args.html,
         reply_to: args.replyTo,
         headers: args.headers,
+        attachments: args.attachments?.length ? args.attachments : undefined,
       }),
     });
     const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string };

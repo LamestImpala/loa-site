@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabase";
 import { EMAIL_RE } from "@/lib/order-request";
 import { ORDERS_ADDRESS, addressOf, emailConfigured, emailFrom, sendEmail } from "@/lib/email";
+import { parseAttachments } from "@/lib/admin/attachments";
 
 // Send an email from the admin Inbox as orders@curiouserrecords.com — a
 // reply to an inbound message, or the sale-desk breakdown to an email
@@ -15,8 +16,10 @@ import { ORDERS_ADDRESS, addressOf, emailConfigured, emailFrom, sendEmail } from
 // route; the shop_messages writes go through the admin's own token, so
 // RLS still enforces the admin policy.
 //
-//   POST { to, subject, text, inReplyTo?, messageId?, requestId? }
+//   POST { to, subject, text, inReplyTo?, messageId?, requestId?, attachments? }
 //     → sends, saves an outbound row, marks the inbound row replied.
+//   attachments: [{ url, filename }] — photos in our public record-photos
+//   bucket, which Resend fetches by URL (parseAttachments refuses the rest).
 
 async function adminClient(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -57,6 +60,10 @@ export async function POST(req: NextRequest) {
       : null;
   const messageId = Number.isInteger(body.messageId) ? (body.messageId as number) : null;
   const requestId = Number.isInteger(body.requestId) ? (body.requestId as number) : null;
+  const attachments = parseAttachments(body.attachments, SUPABASE_URL);
+  if (!attachments.ok) {
+    return NextResponse.json({ error: attachments.error }, { status: 400 });
+  }
 
   const sent = await sendEmail({
     to,
@@ -64,6 +71,7 @@ export async function POST(req: NextRequest) {
     text,
     replyTo: ORDERS_ADDRESS,
     headers: inReplyTo ? { "In-Reply-To": inReplyTo, References: inReplyTo } : undefined,
+    attachments: attachments.attachments,
   });
   if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: 502 });
 
