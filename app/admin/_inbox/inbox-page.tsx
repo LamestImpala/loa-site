@@ -39,8 +39,10 @@ import {
   requestReplySubject,
 } from "@/lib/admin/messages";
 import { salesStats } from "@/lib/admin/stats";
+import type { PhotoAttachment } from "@/lib/admin/attachments";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { NextUp } from "./next-up";
+import { PhotoPicker } from "./photo-picker";
 import { BuyerField } from "../_shell/buyer-field";
 import { MoneyField, NoteField } from "../_shell/inline-fields";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
@@ -119,6 +121,9 @@ export function InboxPage() {
     null | "hold" | "sold" | "invoice" | "email"
   >(null);
   const [saleStatus, setSaleStatus] = useState("");
+  // Photos riding along with the desk's emailed breakdown.
+  const [salePhotos, setSalePhotos] = useState<PhotoAttachment[]>([]);
+  const [saleShowPhotos, setSaleShowPhotos] = useState(false);
   const [saleInvoice, setSaleInvoice] = useState<null | {
     id: string;
     url: string | null;
@@ -239,6 +244,7 @@ export function InboxPage() {
     inReplyTo?: string | null;
     messageId?: number;
     requestId?: number | null;
+    attachments?: { url: string; filename: string }[];
   }): Promise<boolean> {
     try {
       const {
@@ -282,8 +288,13 @@ export function InboxPage() {
           : "Your record request",
         text: saleReply(),
         requestId: deskRequest?.id ?? null,
+        attachments: toAttachments(salePhotos),
       });
-      if (ok) pushToast("success", `Reply emailed to ${deskEmail} ✓`);
+      if (ok) {
+        pushToast("success", `Reply emailed to ${deskEmail}${withPhotos(salePhotos)} ✓`);
+        setSalePhotos([]);
+        setSaleShowPhotos(false);
+      }
     } finally {
       setSaleBusy(null);
     }
@@ -873,15 +884,25 @@ export function InboxPage() {
   }
 
   // Reply to an email request from its card, as orders@. One draft at a
-  // time, like the Messages section.
+  // time, like the Messages section; photos picked for it go as
+  // attachments.
   const [replyRequestId, setReplyRequestId] = useState<number | null>(null);
   const [requestReplyDraft, setRequestReplyDraft] = useState("");
   const [requestReplyBusy, setRequestReplyBusy] = useState<number | null>(null);
+  const [replyPhotos, setReplyPhotos] = useState<PhotoAttachment[]>([]);
+
+  function toAttachments(photos: PhotoAttachment[]) {
+    return photos.map(({ url, filename }) => ({ url, filename }));
+  }
+  function withPhotos(photos: PhotoAttachment[]) {
+    return photos.length ? ` with ${photos.length} photo${photos.length === 1 ? "" : "s"}` : "";
+  }
 
   function toggleRequestReply(req: OrderRequest) {
     const opening = replyRequestId !== req.id;
     setReplyRequestId(opening ? req.id : null);
     setRequestReplyDraft(opening ? replyGreeting(req.buyer_name) : "");
+    setReplyPhotos([]);
   }
 
   async function sendRequestReply(req: OrderRequest) {
@@ -894,11 +915,13 @@ export function InboxPage() {
         subject: requestReplySubject(req.ref_code),
         text,
         requestId: req.id,
+        attachments: toAttachments(replyPhotos),
       });
       if (!ok) return;
       setReplyRequestId(null);
       setRequestReplyDraft("");
-      pushToast("success", `Reply sent to ${req.buyer_email} ✓`);
+      pushToast("success", `Reply sent to ${req.buyer_email}${withPhotos(replyPhotos)} ✓`);
+      setReplyPhotos([]);
     } finally {
       setRequestReplyBusy(null);
     }
@@ -1263,6 +1286,13 @@ export function InboxPage() {
                 className={`w-56 ${inputClass}`}
               />
             </div>
+            {deskEmail && saleShowPhotos && saleRecords.length > 0 ? (
+              <PhotoPicker
+                records={saleRecords}
+                selected={salePhotos}
+                onChange={setSalePhotos}
+              />
+            ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1281,6 +1311,18 @@ export function InboxPage() {
                   title={`Send the breakdown to ${deskEmail} as orders@curiouserrecords.com`}
                 >
                   {saleBusy === "email" ? "Sending…" : "Email reply"}
+                </button>
+              ) : null}
+              {deskEmail ? (
+                <button
+                  type="button"
+                  className={buttonClass}
+                  disabled={saleRecords.length === 0 || saleBusy !== null}
+                  onClick={() => setSaleShowPhotos((v) => !v)}
+                  aria-expanded={saleShowPhotos}
+                  title="Pick listing photos or upload new ones to attach to the emailed reply"
+                >
+                  {salePhotos.length ? `Photos (${salePhotos.length})` : "Photos"}
                 </button>
               ) : null}
               <button
@@ -1390,6 +1432,12 @@ export function InboxPage() {
                   const replied = canReply ? latestReplyTo(sentMessages, req.id) : null;
                   const replyOpen = replyRequestId === req.id;
                   const replyBusy = requestReplyBusy === req.id;
+                  const replyRecords = replyOpen
+                    ? req.record_ids.flatMap((id) => {
+                        const r = byId.get(id);
+                        return r ? [r] : [];
+                      })
+                    : [];
                   return (
                     <div
                       key={req.id}
@@ -1514,6 +1562,13 @@ export function InboxPage() {
                             aria-label={`Reply to ${req.buyer_name || req.buyer_email}`}
                             className={`w-full ${inputClass}`}
                           />
+                          {replyRecords.length > 0 ? (
+                            <PhotoPicker
+                              records={replyRecords}
+                              selected={replyPhotos}
+                              onChange={setReplyPhotos}
+                            />
+                          ) : null}
                         </div>
                       ) : null}
                       <div className="mt-3 flex flex-wrap gap-2">
