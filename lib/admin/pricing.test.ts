@@ -2,11 +2,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PendingPriceChange, PriceRun } from "../supabase.ts";
-import { approvalBlock, forSaleById, isActionable } from "./pricing.ts";
+import {
+  approvalBlock,
+  forSaleById,
+  isActionable,
+  pendingReason,
+  reasonByPending,
+} from "./pricing.ts";
 import { rec } from "./fixtures.ts";
 import { INVOICE_HOLD_UNTIL } from "./records.ts";
 
-const run = (id: number, summary: { record_id: number; for_sale?: number | null }[]): PriceRun => ({
+const run = (
+  id: number,
+  summary: (Partial<PriceRun["summary"][number]> & { record_id: number })[]
+): PriceRun => ({
   id,
   ran_at: `2026-09-${String(id).padStart(2, "0")}T06:00:00Z`,
   checked: 0,
@@ -74,4 +83,26 @@ test("a flagged change waits while its record is sold, held, invoiced or reprice
     "a lapsed hold no longer blocks"
   );
   assert.equal(approvalBlock(p, rec({ price: 25 }), NOW), "price is now $25");
+});
+
+test("pending changes carry the reason their run queued them for", () => {
+  const reasons = reasonByPending([
+    run(13, [
+      { record_id: 1, action: "flagged", reason: "decay" },
+      { record_id: 2, action: "above-lowest" },
+      { record_id: 3, action: "applied", reason: "suggestion" },
+    ]),
+    run(12, [{ record_id: 1, action: "flagged", reason: "ebay" }]),
+  ]);
+  assert.equal(pendingReason({ run_id: 13, record_id: 1 }, reasons), "decay");
+  assert.equal(pendingReason({ run_id: 12, record_id: 1 }, reasons), "ebay", "keyed by run, not just record");
+  assert.equal(pendingReason({ run_id: 13, record_id: 2 }, reasons), "lowest", "above-lowest is an undercut");
+  assert.equal(pendingReason({ run_id: 13, record_id: 3 }, reasons), undefined, "applied moves aren't pending");
+  assert.equal(pendingReason({ run_id: null, record_id: 1 }, reasons), undefined);
+});
+
+test("a time-decay step is always worth acting on", () => {
+  const copies = new Map([[1, 1]]);
+  assert.equal(isActionable(change(1, -0.03), copies), false, "one copy, no reason: noise");
+  assert.equal(isActionable(change(1, -0.03), copies, "decay"), true);
 });
