@@ -1,7 +1,16 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bodyText, findRefCode, messageSummary, replySubject, requestForRef } from "./messages.ts";
+import {
+  bodyText,
+  findRefCode,
+  latestReplyTo,
+  messageSummary,
+  replyGreeting,
+  replySubject,
+  requestForRef,
+  requestReplySubject,
+} from "./messages.ts";
 
 test("ref code: Ref: line in the body, bare code in a reply subject, none otherwise", () => {
   assert.equal(findRefCode("hello", "…\nRef: cr-ab23\n"), "CR-AB23");
@@ -32,4 +41,23 @@ test("reply subject", () => {
   assert.equal(replySubject("Records"), "Re: Records");
   assert.equal(replySubject("RE: Records"), "RE: Records");
   assert.equal(replySubject(""), "Re: your record request");
+});
+
+test("request reply: greeting by first name, threaded subject with the ref code", () => {
+  assert.equal(replyGreeting("Tommy Black"), "Hi Tommy!\n\n");
+  assert.equal(replyGreeting("  "), "Hi!\n\n");
+  assert.equal(replyGreeting(null), "Hi!\n\n");
+  assert.equal(requestReplySubject("cr-822j"), "Re: Got your record request (Ref CR-822J)");
+  assert.equal(findRefCode(requestReplySubject("CR-822J"), null), "CR-822J");
+});
+
+test("latest reply to a request: newest outbound row for that request only", () => {
+  const sent = [
+    { direction: "out" as const, request_id: 5, received_at: "2026-10-30T01:00:00Z" },
+    { direction: "out" as const, request_id: 5, received_at: "2026-10-30T03:00:00Z" },
+    { direction: "in" as const, request_id: 5, received_at: "2026-10-30T09:00:00Z" },
+    { direction: "out" as const, request_id: 6, received_at: "2026-10-30T09:00:00Z" },
+  ];
+  assert.equal(latestReplyTo(sent, 5)?.received_at, "2026-10-30T03:00:00Z");
+  assert.equal(latestReplyTo(sent, 7), null);
 });
