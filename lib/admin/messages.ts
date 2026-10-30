@@ -67,3 +67,28 @@ export function replySubject(subject: string | null): string {
   if (!s) return "Re: your record request";
   return /^re:/i.test(s) ? s : `Re: ${s}`;
 }
+
+// Opening line of a reply typed in the Inbox: first name when we have one.
+export function replyGreeting(name: string | null | undefined): string {
+  const first = (name ?? "").trim().split(/\s+/)[0];
+  return `Hi${first ? ` ${first}` : ""}!\n\n`;
+}
+
+// Subject for a reply to a shop email request. It mirrors the buyer's
+// confirmation email so the two thread together in their mailbox, and it
+// carries the ref code so their answer is matched back to the request.
+export function requestReplySubject(refCode: string): string {
+  return `Re: Got your record request (Ref ${refCode.toUpperCase()})`;
+}
+
+// The newest outbound message filed against a request, or null.
+export function latestReplyTo<
+  T extends Pick<ShopMessage, "direction" | "request_id" | "received_at">,
+>(sent: T[], requestId: number): T | null {
+  let best: T | null = null;
+  for (const m of sent) {
+    if (m.direction !== "out" || m.request_id !== requestId) continue;
+    if (!best || m.received_at > best.received_at) best = m;
+  }
+  return best;
+}

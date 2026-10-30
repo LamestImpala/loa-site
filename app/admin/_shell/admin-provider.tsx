@@ -91,6 +91,9 @@ type AdminContextValue = {
   // Mail to orders@ (inbound, not yet archived) for the Inbox.
   messages: ShopMessage[];
   setMessages: Setter<ShopMessage[]>;
+  // Replies the Inbox sent against a request, so its card can say so.
+  sentMessages: ShopMessage[];
+  setSentMessages: Setter<ShopMessage[]>;
   interest: Record<number, RecordInterest>;
   events: RecordEventRow[];
   market: MarketMap;
@@ -257,6 +260,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<PriceRun[]>([]);
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
   const [messages, setMessages] = useState<ShopMessage[]>([]);
+  const [sentMessages, setSentMessages] = useState<ShopMessage[]>([]);
   const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
   // Raw shopper events for the last 60 days, newest first (capped at 5000).
   const [events, setEvents] = useState<RecordEventRow[]>([]);
@@ -471,6 +475,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       invoicesRes,
       ordersRes,
       messagesRes,
+      sentRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
@@ -499,6 +504,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .in("status", ["new", "read", "replied"])
           .order("received_at", { ascending: false })
           .limit(50),
+        supabase
+          .from("shop_messages")
+          .select("*")
+          .eq("direction", "out")
+          .not("request_id", "is", null)
+          .order("received_at", { ascending: false })
+          .limit(100),
       ]);
     setLoading(false);
     if (recordsRes.error || requestsRes.error) {
@@ -523,6 +535,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       pushToast("error", `Messages didn't load: ${messagesRes.error.message}`);
     }
     setMessages((messagesRes.data ?? []) as ShopMessage[]);
+    if (sentRes.error) {
+      pushToast("error", `Sent replies didn't load: ${sentRes.error.message}`);
+    }
+    setSentMessages((sentRes.data ?? []) as ShopMessage[]);
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setInvoices((invoicesRes.data ?? []) as Invoice[]);
     setOrders((ordersRes.data ?? []) as Order[]);
@@ -1120,6 +1136,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setOrderRequests,
     messages,
     setMessages,
+    sentMessages,
+    setSentMessages,
     interest,
     events,
     market,

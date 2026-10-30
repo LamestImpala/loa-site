@@ -30,7 +30,14 @@ import {
 import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
 import { parseMoney, saleItem, saleReplyText } from "@/lib/admin/sales";
 import { buyerLabel } from "@/lib/admin/buyers";
-import { bodyText, messageSummary, replySubject } from "@/lib/admin/messages";
+import {
+  bodyText,
+  latestReplyTo,
+  messageSummary,
+  replyGreeting,
+  replySubject,
+  requestReplySubject,
+} from "@/lib/admin/messages";
 import { salesStats } from "@/lib/admin/stats";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { NextUp } from "./next-up";
@@ -61,6 +68,8 @@ export function InboxPage() {
     setOrderRequests,
     messages,
     setMessages,
+    sentMessages,
+    setSentMessages,
     events,
     loading,
     loadData,
@@ -221,7 +230,8 @@ export function InboxPage() {
   }
 
   // Send mail as orders@ through the server (the Resend key lives there).
-  // False when it didn't go — already toasted.
+  // False when it didn't go — already toasted. A reply filed against a
+  // request joins sentMessages so its card shows it was answered.
   async function sendShopEmail(body: {
     to: string;
     subject: string;
@@ -242,10 +252,17 @@ export function InboxPage() {
         },
         body: JSON.stringify(body),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        sent?: ShopMessage | null;
+      };
       if (!res.ok) {
         pushToast("error", json.error || `Email failed (${res.status})`);
         return false;
+      }
+      const sent = json.sent;
+      if (sent && sent.request_id != null) {
+        setSentMessages((prev) => [sent, ...prev.filter((m) => m.id !== sent.id)]);
       }
       return true;
     } catch {
@@ -855,6 +872,38 @@ export function InboxPage() {
     );
   }
 
+  // Reply to an email request from its card, as orders@. One draft at a
+  // time, like the Messages section.
+  const [replyRequestId, setReplyRequestId] = useState<number | null>(null);
+  const [requestReplyDraft, setRequestReplyDraft] = useState("");
+  const [requestReplyBusy, setRequestReplyBusy] = useState<number | null>(null);
+
+  function toggleRequestReply(req: OrderRequest) {
+    const opening = replyRequestId !== req.id;
+    setReplyRequestId(opening ? req.id : null);
+    setRequestReplyDraft(opening ? replyGreeting(req.buyer_name) : "");
+  }
+
+  async function sendRequestReply(req: OrderRequest) {
+    const text = requestReplyDraft.trim();
+    if (!text || !req.buyer_email || requestReplyBusy) return;
+    setRequestReplyBusy(req.id);
+    try {
+      const ok = await sendShopEmail({
+        to: req.buyer_email,
+        subject: requestReplySubject(req.ref_code),
+        text,
+        requestId: req.id,
+      });
+      if (!ok) return;
+      setReplyRequestId(null);
+      setRequestReplyDraft("");
+      pushToast("success", `Reply sent to ${req.buyer_email} ✓`);
+    } finally {
+      setRequestReplyBusy(null);
+    }
+  }
+
   async function restoreRequest(req: OrderRequest) {
     const { error } = await supabase
       .from("order_requests")
@@ -929,9 +978,7 @@ export function InboxPage() {
     const opening = openMessageId !== m.id;
     setOpenMessageId(opening ? m.id : null);
     if (opening) {
-      setReplyDraft(
-        `Hi${m.from_name ? ` ${m.from_name.split(/\s+/)[0]}` : ""}!\n\n`
-      );
+      setReplyDraft(replyGreeting(m.from_name));
       if (m.status === "new") void setMessageStatus(m, "read", { quiet: true });
     }
   }
@@ -1339,6 +1386,10 @@ export function InboxPage() {
                     const r = byId.get(id);
                     return !r || r.sold;
                   }).length;
+                  const canReply = req.channel === "email" && Boolean(req.buyer_email);
+                  const replied = canReply ? latestReplyTo(sentMessages, req.id) : null;
+                  const replyOpen = replyRequestId === req.id;
+                  const replyBusy = requestReplyBusy === req.id;
                   return (
                     <div
                       key={req.id}
@@ -1400,6 +1451,14 @@ export function InboxPage() {
                             invoice sent
                           </span>
                         ) : null}
+                        {replied ? (
+                          <span
+                            className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-300"
+                            title={replied.subject ?? undefined}
+                          >
+                            replied {timeAgo(replied.received_at)}
+                          </span>
+                        ) : null}
                         <span className="ml-auto text-xs text-neutral-500">
                           {timeAgo(req.created_at)}
                         </span>
@@ -1444,7 +1503,49 @@ export function InboxPage() {
                           {req.message}
                         </blockquote>
                       ) : null}
+                      {replyOpen ? (
+                        <div className="mt-3">
+                          <textarea
+                            value={requestReplyDraft}
+                            onChange={(e) => setRequestReplyDraft(e.target.value)}
+                            rows={5}
+                            autoFocus
+                            placeholder="Reply as orders@curiouserrecords.com…"
+                            aria-label={`Reply to ${req.buyer_name || req.buyer_email}`}
+                            className={`w-full ${inputClass}`}
+                          />
+                        </div>
+                      ) : null}
                       <div className="mt-3 flex flex-wrap gap-2">
+                        {canReply && replyOpen ? (
+                          <>
+                            <button
+                              type="button"
+                              className={buttonClass}
+                              disabled={!requestReplyDraft.trim() || replyBusy}
+                              onClick={() => sendRequestReply(req)}
+                            >
+                              {replyBusy ? "Sending…" : "Send reply"}
+                            </button>
+                            <button
+                              type="button"
+                              className={buttonClass}
+                              disabled={replyBusy}
+                              onClick={() => toggleRequestReply(req)}
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : canReply ? (
+                          <button
+                            type="button"
+                            className={buttonClass}
+                            onClick={() => toggleRequestReply(req)}
+                            title={`Email ${req.buyer_email} as orders@curiouserrecords.com`}
+                          >
+                            {replied ? "Reply again" : "Reply"}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className={buttonClass}
