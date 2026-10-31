@@ -36,7 +36,7 @@ function coverOf(r: DbRecord) {
 function describe(r: DbRecord) {
   const grade = `Media ${r.media}, sleeve ${r.sleeve}`;
   const note = r.notes ? ` ${r.notes.replace(/\s+/g, " ").trim()}` : "";
-  return `${cleanDiscogsName(r.pressing)}. ${grade}.${note} $${r.price} from a one-person shop in Phoenix, AZ.`.slice(0, 300);
+  return `${cleanDiscogsName(r.pressing)}. ${grade}.${note}${r.sold ? " Sold" : ` $${r.price}`} from a one-person shop in Phoenix, AZ.`.slice(0, 300);
 }
 
 export async function generateMetadata({
@@ -54,7 +54,7 @@ export async function generateMetadata({
     description: describe(r),
     alternates: { canonical: path },
     openGraph: {
-      title: `${name} · $${r.price}${r.sold ? " (sold)" : ""}`,
+      title: `${name} · ${r.sold ? "Sold" : `$${r.price}`}`,
       description: describe(r),
       url: path,
       siteName: "Curiouser Records",
@@ -63,7 +63,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: cover ? "summary_large_image" : "summary",
-      title: `${name} · $${r.price}`,
+      title: `${name} · ${r.sold ? "Sold" : `$${r.price}`}`,
       description: describe(r),
       images: cover ? [cover] : undefined,
     },
@@ -74,11 +74,9 @@ function jsonLd(r: DbRecord) {
   const url = `${SITE}${recordPath(r)}`;
   const images = (r.photo_urls?.length ? r.photo_urls : [r.cover_image]).filter(Boolean);
   const name = `${cleanDiscogsName(r.artist)} — ${r.title}`;
-  const availability = r.sold
-    ? "https://schema.org/SoldOut"
-    : isOnHold(r)
-      ? "https://schema.org/LimitedAvailability"
-      : "https://schema.org/InStock";
+  const availability = isOnHold(r)
+    ? "https://schema.org/LimitedAvailability"
+    : "https://schema.org/InStock";
   const data = {
     "@context": "https://schema.org",
     "@graph": [
@@ -93,24 +91,29 @@ function jsonLd(r: DbRecord) {
         ...(r.barcode ? { gtin: r.barcode } : {}),
         category: "Media > Music & Sound Recordings > Vinyl",
         subjectOf: { "@id": `${url}#album` },
-        offers: {
-          "@type": "Offer",
-          url,
-          price: r.price.toFixed(2),
-          priceCurrency: "USD",
-          availability,
-          // Mint means sealed here; everything else has been played.
-          itemCondition:
-            r.media === "M"
-              ? "https://schema.org/NewCondition"
-              : "https://schema.org/UsedCondition",
-          seller: { "@type": "Organization", name: "Curiouser Records", url: SITE },
-          shippingDetails: {
-            "@type": "OfferShippingDetails",
-            shippingRate: { "@type": "MonetaryAmount", value: "6.00", currency: "USD" },
-            shippingDestination: { "@type": "DefinedRegion", addressCountry: "US" },
-          },
-        },
+        // Sold records carry no offer, so search results don't show a price.
+        ...(r.sold
+          ? {}
+          : {
+              offers: {
+                "@type": "Offer",
+                url,
+                price: r.price.toFixed(2),
+                priceCurrency: "USD",
+                availability,
+                // Mint means sealed here; everything else has been played.
+                itemCondition:
+                  r.media === "M"
+                    ? "https://schema.org/NewCondition"
+                    : "https://schema.org/UsedCondition",
+                seller: { "@type": "Organization", name: "Curiouser Records", url: SITE },
+                shippingDetails: {
+                  "@type": "OfferShippingDetails",
+                  shippingRate: { "@type": "MonetaryAmount", value: "6.00", currency: "USD" },
+                  shippingDestination: { "@type": "DefinedRegion", addressCountry: "US" },
+                },
+              },
+            }),
       },
       {
         "@type": "MusicAlbum",
