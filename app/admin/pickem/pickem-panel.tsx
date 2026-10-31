@@ -354,7 +354,7 @@ function Spend({ league }: { league: League }) {
     let live = true;
     supabase
       .from("pickem_job_runs")
-      .select("league, job, dry, started_at, calls, failed, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, web_searches, cost_usd")
+      .select("league, job, dry, started_at, calls, failed, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, web_searches, cost_usd, detail")
       .eq("league", league)
       .gte("started_at", weekWindow(league, 1).start.toISOString())
       .order("started_at", { ascending: false })
@@ -377,6 +377,7 @@ function Spend({ league }: { league: League }) {
         {fmtUsd(total.cost_usd)} this season over {total.runs} runs, {fmtUsd(total.house_usd)} on house picks and {fmtUsd(total.research_usd)} on research
         digests. Estimated at list prices (Opus 5.5: $4 in and $20 out per million tokens, a cent a search), not the invoice. Previews count,
         and the Dry column is their share.
+        {total.failed_runs ? ` ${total.failed_runs} run${total.failed_runs === 1 ? "" : "s"} failed before making a call; the error is in the row's detail.` : ""}
       </p>
       <table className="mt-2 text-left text-xs text-neutral-300">
         <thead className="text-neutral-500">
@@ -390,7 +391,10 @@ function Spend({ league }: { league: League }) {
           {weeks.map((w) => (
             <tr key={w.week}>
               <td className={cell}>{w.week}</td>
-              <td className={cell}>{w.runs}</td>
+              <td className={cell}>
+                {w.runs}
+                {w.failed_runs ? <span className="text-red-400"> ({w.failed_runs} failed)</span> : null}
+              </td>
               <td className={cell}>{w.calls}</td>
               <td className={cell}>{w.web_searches}</td>
               <td className={cell}>{fmtTokens(w.input_tokens)}</td>

@@ -920,6 +920,55 @@ async function recordJobRun(
   return spend;
 }
 
+/**
+ * The row for a run that threw before it could count its calls (a failed
+ * games read, a crash in the route): no calls, the error in detail.error, so
+ * a cron that ran and failed is told apart from one that never ran. Never
+ * throws; the route's error response carries `recorded`.
+ */
+export async function recordJobFailure(
+  run: { league: League; job: "house" | "research"; started_at: Date; dry: boolean; params: unknown },
+  error: unknown
+): Promise<boolean> {
+  const house = run.job === "house";
+  try {
+    const { error: iErr } = await serviceSupabase()
+      .from("pickem_job_runs")
+      .insert({
+        league: run.league,
+        job: run.job,
+        started_at: run.started_at.toISOString(),
+        finished_at: new Date().toISOString(),
+        dry: run.dry,
+        model: house ? HOUSE_MODEL : RESEARCH_MODEL,
+        effort: house ? HOUSE_EFFORT : RESEARCH_EFFORT,
+        params: run.params,
+        calls: 0,
+        detail: { error: errorMessage(error) },
+      });
+    return !iErr;
+  } catch {
+    return false;
+  }
+}
+
+const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * One line per run for the function log, which otherwise shows nothing for
+ * these routes: "[pickem] nfl research: 13 calls, 0 failed, 52 searches,
+ * $5.33 (97s)", or "... failed after 2s: <message>".
+ */
+export function jobLogLine(league: League, job: "house" | "research", started: Date, outcome: { spend?: JobSpend } | { error: unknown }): string {
+  const secs = ((Date.now() - started.getTime()) / 1000).toFixed(0);
+  const head = `[pickem] ${league} ${job}`;
+  if ("error" in outcome) return `${head} failed after ${secs}s: ${errorMessage(outcome.error)}`;
+  const s = outcome.spend;
+  if (!s) return `${head}: no Claude call (${secs}s)`;
+  const cost = s.cost_usd == null ? "unpriced" : `$${s.cost_usd.toFixed(2)}`;
+  return `${head}: ${s.calls} calls, ${s.failed} failed, ${s.web_searches} searches, ${cost} (${secs}s)${s.recorded === false ? ", job row not written" : ""}`;
+}
+
 /** Run fn over items with at most `limit` in flight. fn must not throw. */
 async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
@@ -1439,9 +1488,11 @@ export async function researchGames(league: League, now = new Date(), opts: { dr
 
   const stamp = now.toISOString();
   const store = Object.entries(digests).map(([game_id, digest]) => ({ game_id, source: "news", taken_at: stamp, data: digest }));
+  // A failed insert still spent the calls: record the run, then throw.
+  let insertError: string | undefined;
   if (!opts.dry && store.length) {
     const { error: iErr } = await db.from("pickem_game_signals").insert(store);
-    if (iErr) throw new Error(`insert news: ${iErr.message}`);
+    if (iErr) insertError = `insert news: ${iErr.message}`;
   }
   const spend = await recordJobRun(
     db,
@@ -1453,11 +1504,18 @@ export async function researchGames(league: League, now = new Date(), opts: { dr
       model: RESEARCH_MODEL,
       effort: RESEARCH_EFFORT,
       params: opts.games ? { games: opts.games } : {},
-      detail: { candidates: candidates.length, researched: store.length, skipped_fresh: candidates.length - todo.length, missing: missing.length },
+      detail: {
+        candidates: candidates.length,
+        researched: insertError ? 0 : store.length,
+        skipped_fresh: candidates.length - todo.length,
+        missing: missing.length,
+        ...(insertError ? { error: insertError } : {}),
+      },
     },
     calls,
     calls.length
   );
+  if (insertError) throw new Error(insertError);
   const result: ResearchResult = {
     league,
     candidates: candidates.length,
