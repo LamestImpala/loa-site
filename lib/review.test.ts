@@ -3,11 +3,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   adminReviewNotificationEmail,
+  boughtPhrase,
   buyerFirstName,
   ordersToInvite,
   parseReviewBody,
   ratingLine,
   reviewMonth,
+  reviewDmText,
   reviewRequestEmail,
   stars,
   toReviewSummary,
@@ -148,4 +150,25 @@ test("buyer first name: PayPal ship-to name, else an email buyer's typed name, n
   assert.equal(buyerFirstName({ ...base, buyer_email: "j@x.co", buyer_username: "Jane Doe" }), "Jane");
   const shipTo = { name: " Sam  Kim ", line1: null, line2: null, city: null, state: null, postal_code: null, country_code: null };
   assert.equal(buyerFirstName({ ...base, ship_to: shipTo }), "Sam");
+});
+
+const pj = { artist: "Pearl Jam", title: "Benaroya Hall" };
+const ts = { artist: "Taylor Swift", title: "Lover" };
+
+test("bought phrase: one by name, two joined, more counted", () => {
+  assert.equal(boughtPhrase([pj]), "Pearl Jam – Benaroya Hall");
+  assert.equal(boughtPhrase([pj, ts]), "Pearl Jam – Benaroya Hall and Taylor Swift – Lover");
+  assert.equal(boughtPhrase([pj, ts, pj]), "your 3 records");
+  assert.equal(boughtPhrase([ts, ts, ts]), "your 3 Taylor Swift records");
+  assert.equal(boughtPhrase([]), "your records");
+});
+
+test("review DM: first name, the record, the link, and an out", () => {
+  const url = `https://curiouserrecords.com/review/${token}`;
+  const one = reviewDmText({ firstName: "Nicholas", records: [pj], url });
+  assert.match(one, /^Hey Nicholas, hope Pearl Jam – Benaroya Hall arrived safely and sounds great!/);
+  assert.ok(one.includes(`\n\n${url}\n\n`));
+  assert.match(one, /reply here and I'll make it right/);
+  const many = reviewDmText({ firstName: null, records: [pj, ts, pj], url });
+  assert.match(many, /^Hey there, hope your 3 records arrived safely and sound great!/);
 });
