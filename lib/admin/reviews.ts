@@ -1,4 +1,4 @@
-import type { Order, ReviewInvite, ReviewSource, Shipment, ShopReview } from "../supabase.ts";
+import type { DbRecord, Order, ReviewInvite, ReviewSource, Shipment, ShopReview } from "../supabase.ts";
 import { INVITE_AFTER_DAYS, MAX_REVIEW_BODY, MAX_REVIEWER_NAME } from "../review.ts";
 
 // The Inbox's Reviews section: which recent buyers can still be asked for
@@ -54,6 +54,24 @@ export function askableOrders(
     out.push({ order, lastSent: sent, invite, autoEmailOn });
   }
   return out.sort((a, b) => b.lastSent.localeCompare(a.lastSent));
+}
+
+// Each order's records, artist then title, so a review row can say what
+// the buyer bought.
+export function recordsByOrder(
+  records: Pick<DbRecord, "id" | "artist" | "title" | "order_id">[]
+): Map<number, Pick<DbRecord, "id" | "artist" | "title">[]> {
+  const out = new Map<number, Pick<DbRecord, "id" | "artist" | "title">[]>();
+  for (const r of records) {
+    if (r.order_id == null) continue;
+    const list = out.get(r.order_id) ?? [];
+    list.push(r);
+    out.set(r.order_id, list);
+  }
+  for (const list of out.values()) {
+    list.sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title));
+  }
+  return out;
 }
 
 export type ImportedReviewInput = {

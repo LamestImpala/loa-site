@@ -2,8 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeSupabase } from "./fake-supabase.ts";
-import { DAY, iso, order, shipment } from "./fixtures.ts";
-import { askableOrders, parseImportedReview } from "./reviews.ts";
+import { DAY, iso, order, rec, shipment } from "./fixtures.ts";
+import { askableOrders, parseImportedReview, recordsByOrder } from "./reviews.ts";
 import { addImportedReview, ensureReviewInvite, updateReview } from "./reviews-db.ts";
 import type { ReviewInvite } from "../supabase.ts";
 
@@ -113,4 +113,15 @@ test("review writes: publish, feature, import as published", async () => {
     assert.equal(db.tables.shop_reviews.length, 2);
   }
   await assert.rejects(updateReview(client, 99, { status: "hidden" }));
+});
+
+test("records by order: grouped, sorted by artist then title, loose records skipped", () => {
+  const map = recordsByOrder([
+    rec({ id: 1, order_id: 7, artist: "Neu!", title: "Neu! 2" }),
+    rec({ id: 2, order_id: 7, artist: "Can", title: "Tago Mago" }),
+    rec({ id: 3, order_id: 7, artist: "Can", title: "Ege Bamyasi" }),
+    rec({ id: 4, order_id: null }),
+  ]);
+  assert.deepEqual(map.get(7)?.map((r) => r.id), [3, 2, 1]);
+  assert.equal(map.size, 1);
 });

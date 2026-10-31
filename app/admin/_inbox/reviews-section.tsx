@@ -3,7 +3,12 @@
 import { useMemo, useState } from "react";
 import type { ReviewStatus, ShopReview } from "@/lib/supabase";
 import { reviewUrl, SOURCE_LABELS, stars } from "@/lib/review";
-import { askableOrders, IMPORT_SOURCES, parseImportedReview } from "@/lib/admin/reviews";
+import {
+  askableOrders,
+  IMPORT_SOURCES,
+  parseImportedReview,
+  recordsByOrder,
+} from "@/lib/admin/reviews";
 import {
   addImportedReview,
   ensureReviewInvite,
@@ -45,6 +50,7 @@ export function ReviewsSection() {
     setReviewInvites,
     orders,
     shipments,
+    records,
     pushToast,
     copyText,
   } = useAdmin();
@@ -70,6 +76,22 @@ export function ReviewsSection() {
     () => askableOrders(orders, shipments, reviewInvites, reviews),
     [orders, shipments, reviewInvites, reviews]
   );
+  const bought = useMemo(() => recordsByOrder(records), [records]);
+
+  // What the buyer bought, one "Artist — Title" per line.
+  function boughtList(orderId: number | null) {
+    const list = orderId == null ? [] : bought.get(orderId) ?? [];
+    if (list.length === 0) return null;
+    return (
+      <ul className="mt-1 basis-full text-xs text-neutral-400">
+        {list.map((r) => (
+          <li key={r.id}>
+            {r.artist} — {r.title}
+          </li>
+        ))}
+      </ul>
+    );
+  }
 
   async function save(r: ShopReview, patch: ReviewPatch, done?: string) {
     setBusyId(r.id);
@@ -173,6 +195,7 @@ export function ReviewsSection() {
           </span>
         </div>
         <p className="mt-2 whitespace-pre-line text-sm text-neutral-200">{r.body}</p>
+        {boughtList(r.order_id)}
         {r.owner_reply && !replying ? (
           <p className="mt-2 border-l border-white/20 pl-3 text-sm text-neutral-400">
             Your reply: {r.owner_reply}
@@ -289,35 +312,54 @@ export function ReviewsSection() {
         <p className="mt-3 text-sm text-neutral-400">Nobody to ask right now.</p>
       ) : (
         <ul className="mt-3 grid gap-2">
-          {askable.map((a) => (
-            <li
-              key={a.order.id}
-              className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm"
-            >
-              <span className="font-medium text-white">
-                {buyerLabel(a.order.buyer_username, a.order.buyer_email)}
-              </span>
-              <span className="text-xs text-neutral-500">
-                order #{a.order.id} · dropped off {timeAgo(a.lastSent)}
-              </span>
-              <span className="text-xs text-neutral-400">
-                {a.invite?.sent_at
-                  ? `emailed ${timeAgo(a.invite.sent_at)}`
-                  : a.invite
-                    ? "link copied"
-                    : a.autoEmailOn
-                      ? `emails ${new Date(a.autoEmailOn).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-                      : "no email on file"}
-              </span>
-              <button
-                type="button"
-                className={`ml-auto ${smallButtonClass}`}
-                onClick={() => copyLink(a.order.id)}
+          {askable.map((a) => {
+            // Asked already: the link was copied (made then) or emailed.
+            // Copying again is fine — it's the same link.
+            const asked = a.invite
+              ? a.invite.sent_at
+                ? `emailed ${timeAgo(a.invite.sent_at)}`
+                : `link copied ${timeAgo(a.invite.created_at)}`
+              : null;
+            return (
+              <li
+                key={a.order.id}
+                className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
+                  asked ? "border-emerald-500/20 bg-emerald-500/5" : "border-white/10 bg-white/5"
+                }`}
               >
-                {isCopied(`review-${a.order.id}`) ? "Copied!" : "Copy review link"}
-              </button>
-            </li>
-          ))}
+                <span className="font-medium text-white">
+                  {buyerLabel(a.order.buyer_username, a.order.buyer_email)}
+                </span>
+                <span className="text-xs text-neutral-500">
+                  order #{a.order.id} · dropped off {timeAgo(a.lastSent)}
+                </span>
+                {asked ? (
+                  <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-300">
+                    ✓ Asked · {asked}
+                  </span>
+                ) : (
+                  <span className="text-xs text-neutral-400">
+                    {a.autoEmailOn
+                      ? `emails ${new Date(a.autoEmailOn).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                      : "not asked yet · no email on file"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className={`ml-auto ${smallButtonClass}`}
+                  onClick={() => copyLink(a.order.id)}
+                  title={asked ? "Same link as before — copy it again" : undefined}
+                >
+                  {isCopied(`review-${a.order.id}`)
+                    ? "Copied!"
+                    : asked
+                      ? "Copy link again"
+                      : "Copy review link"}
+                </button>
+                {boughtList(a.order.id)}
+              </li>
+            );
+          })}
         </ul>
       )}
 
