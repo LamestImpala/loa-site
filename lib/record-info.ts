@@ -235,7 +235,8 @@ export function relatedGroups<R extends DbRecord>(
     );
     if (sameGenre.length) {
       groups.push({
-        title: `More ${genre} around $${current.price}`,
+        // A sold record's price stays off the page, heading included.
+        title: current.sold ? `More ${genre}` : `More ${genre} around $${current.price}`,
         href: `/?genre=${encodeURIComponent(genre)}`,
         records: sameGenre,
       });

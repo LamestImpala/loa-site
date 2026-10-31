@@ -374,7 +374,7 @@ export default function RecordsClient({
           {reduced ? (
             <span className="record-prev-price">${r.prev_price}</span>
           ) : null}
-          <span className="record-price">${r.price}</span>
+          {r.sold ? null : <span className="record-price">${r.price}</span>}
           <Link href={recordPath(r)}>
             Details<span className="visually-hidden"> for {r.artist} — {r.title}</span> →
           </Link>
@@ -428,8 +428,8 @@ export default function RecordsClient({
           className={`card elev-sm record-compact ${r.sold ? "is-sold" : ""} ${
             inBundle ? "is-selected" : ""
           } ${highlightId === r.id ? "is-highlighted" : ""}`}
-          aria-label={`${r.artist} — ${r.title}, $${r.price}${
-            r.sold ? ", sold" : held ? ", on hold" : ""
+          aria-label={`${r.artist} — ${r.title}, ${
+            r.sold ? "sold" : `$${r.price}${held ? ", on hold" : ""}`
           }`}
         >
           <span
@@ -471,7 +471,7 @@ export default function RecordsClient({
             {r.artist} — {r.title}
           </span>
           <span className="record-compact-price">
-            ${r.price}
+            {r.sold ? null : `$${r.price}`}
             <span className="record-compact-grade">
               {r.media}/{r.sleeve}
             </span>

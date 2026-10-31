@@ -135,7 +135,7 @@ export function RecordBuyBox({
   return (
     <div className="rp-buy">
       <div className="rp-price-row">
-        {reduced ? (
+        {r.sold ? null : reduced ? (
           <>
             <span className="record-prev-price">${r.prev_price}</span>
             <span className="record-price">${r.price}</span>
