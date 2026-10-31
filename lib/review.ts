@@ -203,9 +203,12 @@ export function reviewMonth(isoDate: string): string {
 
 // The greeting name: the PayPal shipping name, or the name an email buyer
 // typed. Never a Reddit handle. Matches review_invite_info() in SQL.
+// PayPal sometimes stores "Neal, Hallett", so punctuation around the first
+// word is dropped ("Neal", not "Neal,"); inner hyphens and apostrophes stay.
 export function buyerFirstName(o: Pick<Order, "ship_to" | "buyer_email" | "buyer_username">): string | null {
   const full = o.ship_to?.name?.trim() || (o.buyer_email ? o.buyer_username.trim() : "");
-  return full.split(/\s+/)[0] || null;
+  const first = full.split(/\s+/)[0].replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+  return first || null;
 }
 
 // What the buyer bought, as a DM would say it: one record by name, two

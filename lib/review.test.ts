@@ -150,6 +150,9 @@ test("buyer first name: PayPal ship-to name, else an email buyer's typed name, n
   assert.equal(buyerFirstName({ ...base, buyer_email: "j@x.co", buyer_username: "Jane Doe" }), "Jane");
   const shipTo = { name: " Sam  Kim ", line1: null, line2: null, city: null, state: null, postal_code: null, country_code: null };
   assert.equal(buyerFirstName({ ...base, ship_to: shipTo }), "Sam");
+  assert.equal(buyerFirstName({ ...base, ship_to: { ...shipTo, name: "Neal, Hallett" } }), "Neal");
+  assert.equal(buyerFirstName({ ...base, ship_to: { ...shipTo, name: "Jean-Luc O'Neil" } }), "Jean-Luc");
+  assert.equal(buyerFirstName({ ...base, ship_to: { ...shipTo, name: ", ." } }), null);
 });
 
 const pj = { artist: "Pearl Jam", title: "Benaroya Hall" };
