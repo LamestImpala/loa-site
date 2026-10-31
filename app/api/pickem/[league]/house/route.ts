@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { parseLeague } from "@/lib/pickem";
-import { authorizeJob, generateHousePicks } from "@/lib/pickem-server";
+import { authorizeJob, generateHousePicks, jobLogLine, recordJobFailure } from "@/lib/pickem-server";
 import { parseRepickScope } from "@/lib/pickem-repick";
 
 // Asks Claude for house picks (spread, total, moneyline with confidence) on
@@ -15,7 +15,10 @@ import { parseRepickScope } from "@/lib/pickem-repick";
 // house locks early numbers. College runs again Saturday morning and the NFL on Thursday for
 // games that reached the board late. The news pass is scheduled too (vercel.json):
 // `?since=call` at 15:00 UTC Saturday for college and 15:30 UTC Thursday for the
-// NFL, after that week's research runs (README, "Two-pass week").
+// NFL, after that week's research runs (README, "Two-pass week"). Every run
+// prints one line to the function log; a run that throws also writes a job
+// row with the error (recordJobFailure), so a silent cron is never mistaken
+// for a successful one.
 export const maxDuration = 300;
 
 async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/house">) {
@@ -28,11 +31,15 @@ async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/hou
   const scope = parseRepickScope(q);
   if ("error" in scope) return Response.json({ error: scope.error }, { status: 400 });
   const opts = { force: q.get("force") === "1", dry: q.get("dry") === "1", onlyParlays: q.get("only") === "parlays", scope };
+  const now = new Date();
   try {
-    const result = await generateHousePicks(league, new Date(), opts);
+    const result = await generateHousePicks(league, now, opts);
+    console.log(jobLogLine(league, "house", now, { spend: result.spend }));
     return Response.json(result);
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 500 });
+    console.error(jobLogLine(league, "house", now, { error: e }));
+    const recorded = await recordJobFailure({ league, job: "house", started_at: now, dry: opts.dry, params: { force: opts.force, only_parlays: opts.onlyParlays, scope } }, e);
+    return Response.json({ error: (e as Error).message, recorded }, { status: 500 });
   }
 }
 

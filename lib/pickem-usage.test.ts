@@ -85,6 +85,19 @@ test("spendByWeek groups one league's runs by season week, newest first, and spl
   assert.equal(spendByWeek([row("2026-10-20T14:00:00Z", "house", 1, { cache_read_tokens: 500, cache_write_tokens: 20 })], "ncaaf")[0].input_tokens, 1520);
 });
 
+test("spendByWeek counts a run that failed before its first call; it costs nothing", () => {
+  const weeks = spendByWeek(
+    [
+      row("2026-10-28T21:00:00Z", "research", null, { league: "nfl", calls: 0, input_tokens: 0, output_tokens: 0, web_searches: 0, detail: { error: "fetch failed" } }),
+      row("2026-10-29T14:00:00Z", "research", 5, { league: "nfl", detail: null }),
+    ],
+    "nfl"
+  );
+  assert.equal(weeks.length, 1);
+  assert.deepEqual([weeks[0].runs, weeks[0].failed_runs, weeks[0].calls, weeks[0].cost_usd], [2, 1, 1, 5]);
+  assert.equal(spendTotal(weeks).failed_runs, 1);
+});
+
 test("fmtTokens", () => {
   assert.equal(fmtTokens(950), "950");
   assert.equal(fmtTokens(2_400), "2.4k");

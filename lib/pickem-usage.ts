@@ -120,11 +120,15 @@ export type JobRunRow = {
   web_searches: number;
   /** numeric comes back from PostgREST as a string. */
   cost_usd: number | string | null;
+  /** What the run did. A run that threw before it could count its calls has no calls and only `error`. */
+  detail?: { error?: string } | null;
 };
 
 export type WeekSpend = {
   week: number;
   runs: number;
+  /** Runs that threw before making a call (detail.error): inside runs, cost nothing. */
+  failed_runs: number;
   calls: number;
   web_searches: number;
   input_tokens: number;
@@ -144,9 +148,10 @@ export function spendByWeek(rows: JobRunRow[], league: League): WeekSpend[] {
   for (const r of rows) {
     if (r.league !== league) continue;
     const week = seasonWeek(league, new Date(r.started_at));
-    const w = weeks.get(week) ?? { week, runs: 0, calls: 0, web_searches: 0, input_tokens: 0, output_tokens: 0, house_usd: 0, research_usd: 0, dry_usd: 0, cost_usd: 0 };
+    const w = weeks.get(week) ?? { week, runs: 0, failed_runs: 0, calls: 0, web_searches: 0, input_tokens: 0, output_tokens: 0, house_usd: 0, research_usd: 0, dry_usd: 0, cost_usd: 0 };
     const cost = num(r.cost_usd);
     w.runs++;
+    if (r.detail?.error) w.failed_runs++;
     w.calls += r.calls;
     w.web_searches += r.web_searches;
     w.input_tokens += r.input_tokens + r.cache_read_tokens + r.cache_write_tokens;
@@ -162,9 +167,10 @@ export function spendByWeek(rows: JobRunRow[], league: League): WeekSpend[] {
 
 /** Every week added together; week is 0. */
 export function spendTotal(weeks: WeekSpend[]): WeekSpend {
-  const t: WeekSpend = { week: 0, runs: 0, calls: 0, web_searches: 0, input_tokens: 0, output_tokens: 0, house_usd: 0, research_usd: 0, dry_usd: 0, cost_usd: 0 };
+  const t: WeekSpend = { week: 0, runs: 0, failed_runs: 0, calls: 0, web_searches: 0, input_tokens: 0, output_tokens: 0, house_usd: 0, research_usd: 0, dry_usd: 0, cost_usd: 0 };
   for (const w of weeks) {
     t.runs += w.runs;
+    t.failed_runs += w.failed_runs;
     t.calls += w.calls;
     t.web_searches += w.web_searches;
     t.input_tokens += w.input_tokens;

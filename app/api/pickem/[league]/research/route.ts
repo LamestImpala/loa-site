@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { parseLeague } from "@/lib/pickem";
-import { authorizeJob, researchGames } from "@/lib/pickem-server";
+import { authorizeJob, jobLogLine, recordJobFailure, researchGames } from "@/lib/pickem-server";
 
 // Researches the news for one league's games that matter and kick off within
 // four days (one Claude call with web search per game; researchGames in
@@ -11,7 +11,10 @@ import { authorizeJob, researchGames } from "@/lib/pickem-server";
 // Claude calls, skips Pinnacle); `?games=id1,id2` limits the run to those
 // games. Same auth as the house route. Scheduled (vercel.json): college 14:00 and
 // 20:00 UTC Friday, the NFL 21:00 UTC Wednesday and 14:00 UTC Thursday, ahead of
-// each league's news pass (README, "Two-pass week").
+// each league's news pass (README, "Two-pass week"). Every run prints one
+// line to the function log; a run that throws also writes a job row with the
+// error (recordJobFailure), so a silent cron is never mistaken for a
+// successful one.
 export const maxDuration = 300;
 
 async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/research">) {
@@ -22,11 +25,16 @@ async function run(req: NextRequest, ctx: RouteContext<"/api/pickem/[league]/res
   }
   const q = req.nextUrl.searchParams;
   const games = q.get("games")?.split(",").map((s) => s.trim()).filter(Boolean);
+  const dry = q.get("dry") === "1";
+  const now = new Date();
   try {
-    const result = await researchGames(league, new Date(), { dry: q.get("dry") === "1", games: games?.length ? games : undefined });
+    const result = await researchGames(league, now, { dry, games: games?.length ? games : undefined });
+    console.log(jobLogLine(league, "research", now, { spend: result.spend }));
     return Response.json(result);
   } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 500 });
+    console.error(jobLogLine(league, "research", now, { error: e }));
+    const recorded = await recordJobFailure({ league, job: "research", started_at: now, dry, params: games?.length ? { games } : {} }, e);
+    return Response.json({ error: (e as Error).message, recorded }, { status: 500 });
   }
 }
 

@@ -233,7 +233,13 @@ charged at its own rate). The route's JSON carries the same numbers as `spend`, 
 them back ("$0.84 · 9 calls · 18 searches · 240k in, 61k out"), and the admin page adds the rows up by
 season week under "Claude spend". A run with nothing to pick, or `?only=parlays`, writes no row. The cost
 is an estimate at list prices, not the invoice; a call that timed out or was refused reports no usage and is
-counted under `failed` only.
+counted under `failed` only. A run that threw before it could count its calls (a failed games read, a crash
+in the route) writes a row with no calls and the error in `detail.error` (`recordJobFailure`), so a cron that
+ran and failed is told apart from one that never ran; the admin table shows those as failed runs. A research
+run whose digest insert failed records its calls first, with the error in `detail.error`, then fails. Every
+run also prints one line to the function log on Vercel, since the routes are otherwise silent there:
+`[pickem] nfl research: 13 calls, 0 failed, 52 searches, $5.33 (97s)`, or `[pickem] nfl research failed
+after 2s: <message>`. A run the platform kills at its 300 s limit leaves neither.
 
 ### House prompt experiments
 
