@@ -3,7 +3,12 @@
 import { useMemo, useState } from "react";
 import type { ReviewStatus, ShopReview } from "@/lib/supabase";
 import { reviewUrl, SOURCE_LABELS, stars } from "@/lib/review";
-import { askableOrders, IMPORT_SOURCES, parseImportedReview } from "@/lib/admin/reviews";
+import {
+  askableOrders,
+  IMPORT_SOURCES,
+  parseImportedReview,
+  recordsByOrder,
+} from "@/lib/admin/reviews";
 import {
   addImportedReview,
   ensureReviewInvite,
@@ -45,6 +50,7 @@ export function ReviewsSection() {
     setReviewInvites,
     orders,
     shipments,
+    records,
     pushToast,
     copyText,
   } = useAdmin();
@@ -70,6 +76,22 @@ export function ReviewsSection() {
     () => askableOrders(orders, shipments, reviewInvites, reviews),
     [orders, shipments, reviewInvites, reviews]
   );
+  const bought = useMemo(() => recordsByOrder(records), [records]);
+
+  // What the buyer bought, one "Artist — Title" per line.
+  function boughtList(orderId: number | null) {
+    const list = orderId == null ? [] : bought.get(orderId) ?? [];
+    if (list.length === 0) return null;
+    return (
+      <ul className="mt-1 basis-full text-xs text-neutral-400">
+        {list.map((r) => (
+          <li key={r.id}>
+            {r.artist} — {r.title}
+          </li>
+        ))}
+      </ul>
+    );
+  }
 
   async function save(r: ShopReview, patch: ReviewPatch, done?: string) {
     setBusyId(r.id);
@@ -173,6 +195,7 @@ export function ReviewsSection() {
           </span>
         </div>
         <p className="mt-2 whitespace-pre-line text-sm text-neutral-200">{r.body}</p>
+        {boughtList(r.order_id)}
         {r.owner_reply && !replying ? (
           <p className="mt-2 border-l border-white/20 pl-3 text-sm text-neutral-400">
             Your reply: {r.owner_reply}
@@ -316,6 +339,7 @@ export function ReviewsSection() {
               >
                 {isCopied(`review-${a.order.id}`) ? "Copied!" : "Copy review link"}
               </button>
+              {boughtList(a.order.id)}
             </li>
           ))}
         </ul>
