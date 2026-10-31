@@ -207,3 +207,37 @@ export function buyerFirstName(o: Pick<Order, "ship_to" | "buyer_email" | "buyer
   const full = o.ship_to?.name?.trim() || (o.buyer_email ? o.buyer_username.trim() : "");
   return full.split(/\s+/)[0] || null;
 }
+
+// What the buyer bought, as a DM would say it: one record by name, two
+// joined with "and", more as a count ("your 3 Taylor Swift records" when
+// they're all one artist).
+export function boughtPhrase(records: { artist: string; title: string }[]): string {
+  const name = (r: { artist: string; title: string }) => `${r.artist} – ${r.title}`;
+  if (records.length === 0) return "your records";
+  if (records.length === 1) return name(records[0]);
+  if (records.length === 2) return `${name(records[0])} and ${name(records[1])}`;
+  const artist = records[0].artist;
+  return records.every((r) => r.artist === artist)
+    ? `your ${records.length} ${artist} records`
+    : `your ${records.length} records`;
+}
+
+// The Reddit DM asking for a review, ready to paste: greets by first name,
+// names the records, says how little it takes and why it matters, gives
+// the link, and invites a private word if anything was wrong.
+export function reviewDmText(a: {
+  firstName: string | null;
+  records: { artist: string; title: string }[];
+  url: string;
+}): string {
+  const one = a.records.length === 1;
+  return [
+    `Hey ${a.firstName || "there"}, hope ${boughtPhrase(a.records)} arrived safely and ${one ? "sounds" : "sound"} great!`,
+    "",
+    "If you've got a minute, would you leave a quick review for Curiouser Records? It's just a star rating and a sentence or two, and it really helps other collectors trust a one-person shop:",
+    "",
+    a.url,
+    "",
+    "And if anything wasn't right, just reply here and I'll make it right. Thanks again!",
+  ].join("\n");
+}

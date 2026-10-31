@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ReviewStatus, ShopReview } from "@/lib/supabase";
-import { reviewUrl, SOURCE_LABELS, stars } from "@/lib/review";
+import type { Order, ReviewStatus, ShopReview } from "@/lib/supabase";
+import { buyerFirstName, reviewDmText, reviewUrl, SOURCE_LABELS, stars } from "@/lib/review";
 import {
   askableOrders,
   IMPORT_SOURCES,
@@ -108,14 +108,26 @@ export function ReviewsSection() {
     }
   }
 
-  async function copyLink(orderId: number) {
+  // Copies the ready-to-paste DM (name, records, link), or just the link.
+  // The link is made on first copy, which is what marks the buyer asked.
+  async function copyAsk(order: Order, what: "dm" | "link") {
     try {
-      const invite = await ensureReviewInvite(supabase, orderId);
+      const invite = await ensureReviewInvite(supabase, order.id);
       setReviewInvites((prev) =>
         prev.some((i) => i.id === invite.id) ? prev : [invite, ...prev]
       );
       const url = reviewUrl(invite.token);
-      if (await copyText(url, "Review link")) flash(`review-${orderId}`);
+      const text =
+        what === "dm"
+          ? reviewDmText({
+              firstName: buyerFirstName(order),
+              records: bought.get(order.id) ?? [],
+              url,
+            })
+          : url;
+      if (await copyText(text, what === "dm" ? "Review request DM" : "Review link")) {
+        flash(`review-${what}-${order.id}`);
+      }
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Couldn't make the review link");
     }
@@ -305,8 +317,8 @@ export function ReviewsSection() {
       <h3 className="mt-6 text-lg font-medium">Ask for a review</h3>
       <p className="mt-1 text-sm text-neutral-400">
         Buyers whose boxes went out in the last 60 days. Email buyers get their
-        link automatically 10 days after drop-off; copy a link to paste into a
-        Reddit DM.
+        link automatically 10 days after drop-off. For Reddit buyers, copy a
+        ready-to-paste DM with their name, records and link (or just the link).
       </p>
       {askable.length === 0 ? (
         <p className="mt-3 text-sm text-neutral-400">Nobody to ask right now.</p>
@@ -347,14 +359,22 @@ export function ReviewsSection() {
                 <button
                   type="button"
                   className={`ml-auto ${smallButtonClass}`}
-                  onClick={() => copyLink(a.order.id)}
-                  title={asked ? "Same link as before — copy it again" : undefined}
+                  onClick={() => copyAsk(a.order, "dm")}
+                  title="Copies a ready-to-paste DM with their name, records and review link"
                 >
-                  {isCopied(`review-${a.order.id}`)
+                  {isCopied(`review-dm-${a.order.id}`)
                     ? "Copied!"
                     : asked
-                      ? "Copy link again"
-                      : "Copy review link"}
+                      ? "Copy DM again"
+                      : "Copy review DM"}
+                </button>
+                <button
+                  type="button"
+                  className={smallButtonClass}
+                  onClick={() => copyAsk(a.order, "link")}
+                  title={asked ? "Same link as before" : "Just the review link"}
+                >
+                  {isCopied(`review-link-${a.order.id}`) ? "Copied!" : "Link only"}
                 </button>
                 {boughtList(a.order.id)}
               </li>
