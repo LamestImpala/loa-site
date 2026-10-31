@@ -46,6 +46,12 @@ export function NextUp() {
       href: "#open-orders",
       text: plural(waiting, "order awaiting payment", "orders awaiting payment"),
     },
+    {
+      key: "reviews",
+      n: w.pendingReviews,
+      href: "#reviews",
+      text: plural(w.pendingReviews, "review to publish", "reviews to publish"),
+    },
     { key: "pull", n: w.toPull, href: "/admin/pick", text: `${w.toPull} to pull →` },
     { key: "pack", n: w.toPack, href: "/admin/pack", text: `${w.toPack} to pack →` },
     {

@@ -33,6 +33,7 @@ test("nothing to do is all zeros", () => {
   assert.deepEqual(w, {
     newRequests: 0,
     newMessages: 0,
+    pendingReviews: 0,
     openOrders: 0,
     expiredHolds: 0,
     staleInvoices: 0,
@@ -243,4 +244,11 @@ test("shipped records still on Discogs are counted once their order is fully tra
     worklist({ ...empty, orders, records, shipments: [{ ...box, tracking_code: "9400" }] }, NOW).toUnlist,
     1
   );
+});
+
+test("pending reviews count toward the Inbox badge; published and hidden don't", () => {
+  const reviews = [{ status: "pending" as const }, { status: "published" as const }, { status: "hidden" as const }];
+  const w = worklist({ ...empty, reviews }, NOW);
+  assert.equal(w.pendingReviews, 1);
+  assert.equal(inboxCount(w), 1);
 });

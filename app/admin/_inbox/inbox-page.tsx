@@ -43,6 +43,7 @@ import type { PhotoAttachment } from "@/lib/admin/attachments";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { NextUp } from "./next-up";
 import { PhotoPicker } from "./photo-picker";
+import { ReviewsSection } from "./reviews-section";
 import { BuyerField } from "../_shell/buyer-field";
 import { MoneyField, NoteField } from "../_shell/inline-fields";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
@@ -2074,6 +2075,8 @@ export function InboxPage() {
                 })}
               </div>
             )}
+
+            <ReviewsSection />
 
             <h2 id="paste-dm" className="mt-10 scroll-mt-24 text-xl font-medium">Paste a DM</h2>
             <p className="mt-1 text-sm text-neutral-400">

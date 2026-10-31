@@ -6,9 +6,9 @@ import { useAdmin } from "./admin-provider";
 
 // What's waiting on the seller, from the tables the provider always holds.
 export function useWorklist(): Worklist {
-  const { records, shipments, invoices, orders, orderRequests, messages } = useAdmin();
+  const { records, shipments, invoices, orders, orderRequests, messages, reviews } = useAdmin();
   return useMemo(
-    () => worklist({ records, shipments, invoices, orders, orderRequests, messages }),
-    [records, shipments, invoices, orders, orderRequests, messages]
+    () => worklist({ records, shipments, invoices, orders, orderRequests, messages, reviews }),
+    [records, shipments, invoices, orders, orderRequests, messages, reviews]
   );
 }
