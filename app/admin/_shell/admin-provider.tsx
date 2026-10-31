@@ -23,8 +23,10 @@ import type {
   RecordInterest,
   RedditPost,
   RequestChannel,
+  ReviewInvite,
   Shipment,
   ShopMessage,
+  ShopReview,
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
 import { holdActive, invoiceHold } from "@/lib/admin/records";
@@ -94,6 +96,11 @@ type AdminContextValue = {
   // Replies the Inbox sent against a request, so its card can say so.
   sentMessages: ShopMessage[];
   setSentMessages: Setter<ShopMessage[]>;
+  // Shop reviews (newest first) and review links, for the Inbox's Reviews.
+  reviews: ShopReview[];
+  setReviews: Setter<ShopReview[]>;
+  reviewInvites: ReviewInvite[];
+  setReviewInvites: Setter<ReviewInvite[]>;
   interest: Record<number, RecordInterest>;
   events: RecordEventRow[];
   market: MarketMap;
@@ -261,6 +268,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [orderRequests, setOrderRequests] = useState<OrderRequest[]>([]);
   const [messages, setMessages] = useState<ShopMessage[]>([]);
   const [sentMessages, setSentMessages] = useState<ShopMessage[]>([]);
+  const [reviews, setReviews] = useState<ShopReview[]>([]);
+  const [reviewInvites, setReviewInvites] = useState<ReviewInvite[]>([]);
   const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
   // Raw shopper events for the last 60 days, newest first (capped at 5000).
   const [events, setEvents] = useState<RecordEventRow[]>([]);
@@ -476,6 +485,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       ordersRes,
       messagesRes,
       sentRes,
+      reviewsRes,
+      invitesRes,
     ] = await Promise.all([
         supabase.from("records").select("*").order("artist").order("title"),
         supabase
@@ -511,6 +522,16 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .not("request_id", "is", null)
           .order("received_at", { ascending: false })
           .limit(100),
+        supabase
+          .from("shop_reviews")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("review_invites")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(200),
       ]);
     setLoading(false);
     if (recordsRes.error || requestsRes.error) {
@@ -539,6 +560,14 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       pushToast("error", `Sent replies didn't load: ${sentRes.error.message}`);
     }
     setSentMessages((sentRes.data ?? []) as ShopMessage[]);
+    if (reviewsRes.error || invitesRes.error) {
+      pushToast(
+        "error",
+        `Reviews didn't load: ${reviewsRes.error?.message ?? invitesRes.error?.message}`
+      );
+    }
+    setReviews((reviewsRes.data ?? []) as ShopReview[]);
+    setReviewInvites((invitesRes.data ?? []) as ReviewInvite[]);
     setShipments((shipmentsRes.data ?? []) as Shipment[]);
     setInvoices((invoicesRes.data ?? []) as Invoice[]);
     setOrders((ordersRes.data ?? []) as Order[]);
@@ -1138,6 +1167,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setMessages,
     sentMessages,
     setSentMessages,
+    reviews,
+    setReviews,
+    reviewInvites,
+    setReviewInvites,
     interest,
     events,
     market,

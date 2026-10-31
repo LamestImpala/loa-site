@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { SELLER_INFO } from "@/lib/records";
 import { trackRecordLine } from "@/lib/record-info";
-import { getListedRecords, getRedditPostUrl, getShopStats } from "../data";
+import { ratingLine, reviewMonth, SOURCE_LABELS, stars, type ReviewSummary } from "@/lib/review";
+import { getListedRecords, getRedditPostUrl, getReviewSummary, getShopStats } from "../data";
 import RecordsClient from "../records-client";
 
 export const metadata: Metadata = {
@@ -40,11 +41,60 @@ function SellerInfoLines({ trackRecord }: { trackRecord: string | null }) {
   );
 }
 
+// "★★★★★ 4.9 out of 5 from 23 reviews · Read them ↓", under the lede on
+// every screen size so the rating is seen before the buying details.
+function RatingLine({ summary }: { summary: ReviewSummary }) {
+  return (
+    <p className="shop-rating">
+      {summary.average != null ? (
+        <span className="shop-rating-stars" aria-hidden="true">
+          {stars(summary.average)}
+        </span>
+      ) : null}
+      <span>{ratingLine(summary)}</span>
+      <a href="#reviews">Read them ↓</a>
+    </p>
+  );
+}
+
+// Up to three published reviews, featured first — the buyer's own words.
+function ReviewQuotes({ summary }: { summary: ReviewSummary }) {
+  return (
+    <section className="shop-shell shop-reviews" id="reviews" aria-labelledby="reviews-title">
+      <h2 id="reviews-title">What buyers say</h2>
+      <ul className="shop-reviews-list">
+        {summary.quotes.map((q) => (
+          <li key={q.id} className="shop-quote">
+            {q.rating != null ? (
+              <span className="shop-quote-stars" aria-label={`${q.rating} out of 5 stars`}>
+                {stars(q.rating)}
+              </span>
+            ) : null}
+            <blockquote>{q.body}</blockquote>
+            {q.ownerReply ? (
+              <p className="shop-quote-reply">
+                <em>Reply:</em> {q.ownerReply}
+              </p>
+            ) : null}
+            <footer>
+              <strong>{q.reviewerName}</strong>
+              {" · "}
+              {reviewMonth(q.reviewedOn)}
+              {q.source !== "site" ? ` · via ${SOURCE_LABELS[q.source]}` : ""}
+            </footer>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default async function RecordsPage() {
-  const [{ records, error }, redditPostUrl, stats] = await Promise.all([
+  const [{ records, error }, redditPostUrl, stats, reviews] = await Promise.all([
     getListedRecords(),
     getRedditPostUrl(),
     getShopStats(),
+    getReviewSummary(),
   ]);
   const trackRecord = trackRecordLine(stats);
 
@@ -68,6 +118,7 @@ export default async function RecordsPage() {
             , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
             That&rsquo;s a real price drop since yesterday.
           </p>
+          {reviews ? <RatingLine summary={reviews} /> : null}
           {/* Same info twice: always open on desktop, a collapsed <details>
               on phones so records surface within ~1.5 screens. */}
           <div className="shop-hero-info shop-hero-info-static">
@@ -94,6 +145,8 @@ export default async function RecordsPage() {
           />
         </div>
       </header>
+
+      {reviews && reviews.quotes.length > 0 ? <ReviewQuotes summary={reviews} /> : null}
 
       {error ? (
         <div className="shop-shell shop-main">

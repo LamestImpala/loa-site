@@ -1731,3 +1731,176 @@ html:has(.shop) {
   height: 1px;
   overflow: hidden;
 }
+
+/* — shop reviews: the home page's rating line and quotes — */
+.shop-rating {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-2);
+  margin: 0 0 var(--space-4);
+  font-size: 15px;
+  color: var(--color-neutral-800);
+}
+.shop-rating-stars {
+  color: var(--color-accent-2-600);
+  letter-spacing: 0.08em;
+  font-size: 17px;
+}
+.shop-rating a {
+  color: var(--color-accent-700);
+}
+.shop-reviews {
+  margin-bottom: var(--space-8);
+}
+.shop .shop-reviews h2 {
+  font-size: 26px;
+  margin: 0 0 var(--space-3);
+  color: var(--color-ink);
+}
+.shop-reviews-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shop-quote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-4);
+  border-left: 3px solid var(--color-accent-2);
+  background: var(--color-accent-2-100);
+}
+.shop-quote-stars {
+  color: var(--color-accent-2-600);
+  letter-spacing: 0.08em;
+}
+.shop-quote blockquote {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+.shop-quote footer {
+  margin-top: auto;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.shop-quote footer strong {
+  font-family: var(--font-caps);
+  font-weight: 400;
+  font-size: 14.5px;
+  color: var(--color-accent-700);
+}
+.shop-quote-reply {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-accent-2-300);
+  font-size: 13.5px;
+  color: var(--color-neutral-800);
+  white-space: pre-line;
+}
+
+/* — /review/<token>: the buyer's review form — */
+.review-card {
+  max-width: 560px;
+  margin: var(--space-8) auto 0;
+  padding: var(--space-6);
+}
+.shop .review-title {
+  font-size: clamp(28px, 6vw, 38px);
+  line-height: 1.1;
+  margin: var(--space-2) 0 var(--space-3);
+  color: var(--color-ink);
+}
+.review-lede {
+  margin: 0 0 var(--space-6);
+  color: var(--color-neutral-800);
+}
+.review-form {
+  display: grid;
+  gap: var(--space-4);
+}
+.review-form textarea.input {
+  resize: vertical;
+}
+.review-stars {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.review-stars legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-size: 13.5px;
+  color: var(--color-neutral-700);
+}
+.review-stars-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.review-stars label {
+  cursor: pointer;
+  font-size: 34px;
+  line-height: 1;
+  padding: 2px;
+  color: var(--color-neutral-400);
+}
+.review-stars label.is-on {
+  color: var(--color-accent-2-500);
+}
+.review-stars input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.review-stars label:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.review-stars-word {
+  margin-left: var(--space-2);
+  font-family: var(--font-caps);
+  color: var(--color-accent-700);
+}
+.review-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.review-done {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.review-done p {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  /* One quote at a time, swiped sideways, so records still surface soon. */
+  .shop-reviews-list {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 85%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: var(--space-2);
+  }
+  .shop-quote {
+    scroll-snap-align: start;
+  }
+  .review-card {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+  }
+}

@@ -282,6 +282,38 @@ export type RedditPost = {
   created_at: string;
 };
 
+// What buyers thought of the shop. Site reviews come in through a review
+// link (review_invites) as pending; imports are added by the admin. Only
+// published reviews are public (via shop_review_summary()).
+export type ReviewSource = "site" | "discogs" | "ebay" | "reddit" | "other";
+export type ReviewStatus = "pending" | "published" | "hidden";
+
+export type ShopReview = {
+  id: number;
+  order_id: number | null; // the order a site review was left for; null for imports
+  source: ReviewSource;
+  source_url: string | null;
+  reviewer_name: string; // shown with the quote
+  rating: number | null; // 1-5; null for imported feedback without stars
+  body: string;
+  reviewed_on: string; // yyyy-mm-dd
+  status: ReviewStatus;
+  featured: boolean; // quoted first on the shop home
+  owner_reply: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewInvite = {
+  id: number;
+  order_id: number;
+  token: string;
+  email: string | null; // where it was emailed; null for a link copied into a DM
+  sent_at: string | null;
+  used_at: string | null;
+  created_at: string;
+};
+
 // Server-side client for the public /records page (anon role: RLS only
 // exposes listed records).
 export function createServerSupabase(): SupabaseClient {

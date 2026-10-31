@@ -5,6 +5,7 @@ import type {
   OrderRequest,
   Shipment,
   ShopMessage,
+  ShopReview,
 } from "../supabase.ts";
 import { discogsReady, groupOrders, pushable } from "./fulfillment.ts";
 import { openOrders } from "./orders.ts";
@@ -22,6 +23,7 @@ export const SYNC_WINDOW_DAYS = 21;
 export type Worklist = {
   newRequests: number; // shop requests nobody has loaded yet
   newMessages: number; // emails to orders@ nobody has read yet
+  pendingReviews: number; // buyer reviews waiting to be published or hidden
   openOrders: number; // held or invoiced, not yet paid
   expiredHolds: number; // held orders whose holds have all lapsed
   staleInvoices: number; // invoiced, unpaid for STALE_INVOICE_HOURS+
@@ -42,10 +44,11 @@ export function worklist(
     orders: Order[];
     orderRequests: OrderRequest[];
     messages?: ShopMessage[];
+    reviews?: Pick<ShopReview, "status">[];
   },
   now: number = Date.now()
 ): Worklist {
-  const { records, shipments, invoices, orders, orderRequests, messages = [] } = data;
+  const { records, shipments, invoices, orders, orderRequests, messages = [], reviews = [] } = data;
   const open = openOrders(orders, records, invoices, now);
   const invoiceById = new Map(invoices.map((i) => [i.paypal_invoice_id, i]));
   const syncAfter = now - SYNC_WINDOW_DAYS * 24 * 3600 * 1000;
@@ -63,6 +66,7 @@ export function worklist(
   return {
     newRequests: orderRequests.filter((r) => r.status === "new").length,
     newMessages: messages.filter((m) => m.direction === "in" && m.status === "new").length,
+    pendingReviews: reviews.filter((r) => r.status === "pending").length,
     openOrders: open.length,
     expiredHolds: open.filter((o) => o.expired).length,
     staleInvoices: open.filter((o) => o.stale).length,
@@ -81,7 +85,7 @@ export function worklist(
 
 // What the Inbox badge counts: the things only the Inbox can clear.
 export function inboxCount(w: Worklist) {
-  return w.newRequests + w.newMessages + w.expiredHolds + w.staleInvoices;
+  return w.newRequests + w.newMessages + w.pendingReviews + w.expiredHolds + w.staleInvoices;
 }
 
 // What the Send badge counts: every job after the label — drop off, push

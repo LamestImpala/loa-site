@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createServerSupabase, type DbRecord } from "@/lib/supabase";
+import { toReviewSummary } from "@/lib/review";
 
 // Columns the catalog grid needs. Every column named here must be granted to
 // anon (see the records_anon_column_grants migrations) or the query fails.
@@ -37,4 +38,13 @@ export const getShopStats = cache(async () => {
   if (error || !data) return null;
   const row = data as { sold_count: number | string; first_sale: string | null };
   return { soldCount: Number(row.sold_count), firstSale: row.first_sale };
+});
+
+// Published shop reviews from shop_review_summary(): the average, the
+// count, and up to three quotes. Null when none are published or the call
+// fails — the shop leaves the section out.
+export const getReviewSummary = cache(async () => {
+  const { data, error } = await createServerSupabase().rpc("shop_review_summary");
+  if (error) return null;
+  return toReviewSummary(data);
 });
