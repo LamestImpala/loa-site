@@ -1302,7 +1302,7 @@ export async function generateHousePicks(league: League, now = new Date(), opts:
       model: HOUSE_MODEL,
       effort: HOUSE_EFFORT,
       params: { force: Boolean(opts.force), only_parlays: Boolean(opts.onlyParlays), ...(scope ? { scope } : {}) },
-      detail: { week, picks: picks.size, written: picked, missing: missing.length, variants: counts, ...(scoped ? { repicked: scoped.repicked.length } : {}) },
+      detail: { week, picks: picks.size, written: picked, missing: missing.length, variants: counts, parlays: drafts.length, ...(scoped ? { repicked: scoped.repicked.length } : {}) },
     },
     batches,
     batches.length

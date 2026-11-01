@@ -164,7 +164,20 @@ test("buildParlays: legs a losing record no longer backs drop out of the candida
   assert.ok(candidateLegs(games, NOW).length > 0);
   const losing = [cal(6, 100, 45, 55), cal(6, 100, 45, 55, { market: "total" })];
   assert.deepEqual(candidateLegs(games, NOW, losing), []);
-  assert.deepEqual(buildParlays(games, NOW, losing), []);
   // Another league's record is ignored.
   assert.ok(candidateLegs(games, NOW, losing.map((r) => ({ ...r, league: "nfl" as const }))).length > 0);
+});
+
+test("buildParlays: with no edge on the board the best legs still post, at a negative expected value", () => {
+  const games = ["a", "b", "c"].map((id) => game(id, { conf: [6, 6, 5] }));
+  const losing = [cal(6, 100, 45, 55), cal(6, 100, 45, 55, { market: "total" })];
+  const parlays = buildParlays(games, NOW, losing);
+  assert.deepEqual(parlays.map((p) => p.leg_count), [2, 3]);
+  for (const p of parlays) assert.match(p.note, /-\d+% expected value/);
+});
+
+test("buildParlays: legs with edge rank ahead of legs without", () => {
+  const games = [game("a", { conf: [5, 5, 5] }), game("b", { conf: [8, 5, 5] }), game("c", { conf: [5, 5, 5] }), game("d", { conf: [9, 5, 5] })];
+  const [two] = buildParlays(games, NOW);
+  assert.deepEqual(two.legs.map((l) => l.game_id).sort(), ["b", "d"]);
 });
