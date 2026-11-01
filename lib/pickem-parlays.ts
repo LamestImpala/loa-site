@@ -89,6 +89,11 @@ export function recordFor(calibration: CalibrationRow[]): (g: Pick<PickemGame, "
 
 /** One leg per pending game with picks: the market with the most edge, if it has any. Sorted best first. */
 export function candidateLegs(games: PickemGame[], now: number, calibration: CalibrationRow[] = []): CandidateLeg[] {
+  return rankedLegs(games, now, calibration).filter((l) => l.score > 1 + MIN_EDGE);
+}
+
+/** One leg per pending game with picks, its best-scoring market, edge or not. Sorted best first. */
+export function rankedLegs(games: PickemGame[], now: number, calibration: CalibrationRow[] = []): CandidateLeg[] {
   const out: CandidateLeg[] = [];
   const record = recordFor(calibration);
   for (const g of games) {
@@ -119,7 +124,7 @@ export function candidateLegs(games: PickemGame[], now: number, calibration: Cal
       };
       if (!top || score > top.score || (score === top.score && p > top.p)) top = leg;
     }
-    if (top && top.score > 1 + MIN_EDGE) out.push(top);
+    if (top) out.push(top);
   }
   return out.sort((a, b) => b.score - a.score || b.p - a.p || a.game_id.localeCompare(b.game_id));
 }
@@ -152,12 +157,15 @@ export function parlayNote(k: number, hitProbability: number, ev: number): strin
 }
 
 /**
- * One ticket per leg count, 2 through 7, each the top legs by edge. Skips
- * counts the slate cannot fill. calibration is pickem_house_calibration's
- * rows; without it every confidence is valued at CONF_LOGIT_STEP.
+ * One ticket per leg count, 2 through 7, each the top legs by edge. Legs
+ * that clear MIN_EDGE come first; when too few do (the observed record can
+ * leave none) the best of the rest fill in, and the note's expected value
+ * says so. Skips counts the slate cannot fill. calibration is
+ * pickem_house_calibration's rows; without it every confidence is valued at
+ * CONF_LOGIT_STEP.
  */
 export function buildParlays(games: PickemGame[], now: number, calibration: CalibrationRow[] = []): ParlayDraft[] {
-  const legs = candidateLegs(games, now, calibration);
+  const legs = rankedLegs(games, now, calibration);
   const out: ParlayDraft[] = [];
   for (const k of LEG_COUNTS) {
     if (legs.length < k) break;
