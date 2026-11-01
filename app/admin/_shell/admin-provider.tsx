@@ -220,6 +220,9 @@ type AdminContextValue = {
   setSaleCredit: Setter<string>;
   saleCreditNote: string;
   setSaleCreditNote: Setter<string>;
+  // Shipping quoted for the equipment on the desk, added to the invoice.
+  saleGearShipping: string;
+  setSaleGearShipping: Setter<string>;
   toggleSelected: (id: number) => void;
   clearSelection: () => void;
 };
@@ -315,6 +318,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [salePrices, setSalePrices] = useState<Record<number, string>>({});
   const [saleCredit, setSaleCredit] = useState("");
   const [saleCreditNote, setSaleCreditNote] = useState("");
+  const [saleGearShipping, setSaleGearShipping] = useState("");
 
   const pushToast = useCallback(
     (kind: Toast["kind"], text: string, action?: Toast["action"]) => {
@@ -1163,6 +1167,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSalePrices({});
     setSaleCredit("");
     setSaleCreditNote("");
+    setSaleGearShipping("");
   }
 
   const value: AdminContextValue = {
@@ -1255,6 +1260,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSaleCredit,
     saleCreditNote,
     setSaleCreditNote,
+    saleGearShipping,
+    setSaleGearShipping,
     toggleSelected,
     clearSelection,
   };

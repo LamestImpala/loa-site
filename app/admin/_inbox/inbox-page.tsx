@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bundleBreakdown, makeRefCode } from "@/lib/records";
-import { itemSpecShort, itemSubtitle } from "@/lib/items";
+import { bundleKindSummary, itemSpecShort, itemSubtitle } from "@/lib/items";
 import type {
   DbRecord,
   Invoice,
@@ -106,6 +106,8 @@ export function InboxPage() {
     setSaleCredit,
     saleCreditNote,
     setSaleCreditNote,
+    saleGearShipping,
+    setSaleGearShipping,
     clearSelection,
     confirm,
   } = useAdmin();
@@ -169,23 +171,41 @@ export function InboxPage() {
   ).length;
   const creditParsed = parseMoney(saleCredit);
   const deskCredit = creditParsed ?? 0;
-  const saleTotals = useMemo(
-    () =>
-      bundleBreakdown(
-        saleRecords.map((r) => saleItem(r, deskPrices.get(r.id))),
-        deskCredit
-      ),
-    [saleRecords, deskPrices, deskCredit]
-  );
+  // Equipment ships at a quoted rate the desk types in; the shop charged
+  // $0 for it on the request. It rides on top of the per-kind shipping.
+  const gearParsed = parseMoney(saleGearShipping);
+  const deskGear = gearParsed ?? 0;
+  const saleTotals = useMemo(() => {
+    const b = bundleBreakdown(
+      saleRecords.map((r) => saleItem(r, deskPrices.get(r.id))),
+      deskCredit
+    );
+    if (!b.gearQuoted || deskGear === 0) return b;
+    const q = b.shippingQuote;
+    const parts = [
+      q.counts.record > 0 ? (q.records === 0 ? "free on 3+ records" : `$${q.records} records`) : "",
+      q.counts.poster > 0 ? `$${q.posters} poster tube` : "",
+      `$${deskGear} equipment`,
+    ].filter(Boolean);
+    return {
+      ...b,
+      shipping: b.shipping + deskGear,
+      total: b.total + deskGear,
+      shippingDetail: parts.length > 1 ? parts.join(" + ") : "",
+      shippingNote: null,
+    };
+  }, [saleRecords, deskPrices, deskCredit, deskGear]);
   const creditTooBig = deskCredit > saleTotals.subtotal;
   const termsError =
     badPriceCount > 0
       ? `${badPriceCount} negotiated price${badPriceCount === 1 ? " isn't" : "s aren't"} a valid amount.`
       : creditParsed === undefined
         ? "The credit isn't a valid amount."
-        : creditTooBig
-          ? `A $${deskCredit} credit is more than the $${saleTotals.subtotal} subtotal.`
-          : "";
+        : gearParsed === undefined
+          ? "The equipment shipping isn't a valid amount."
+          : creditTooBig
+            ? `A $${deskCredit} credit is more than the $${saleTotals.subtotal} subtotal.`
+            : "";
   // A desk record already on a live PayPal invoice: holding would cut its
   // until-paid hold to 48h, and a second invoice would orphan the first.
   // Mark sold stays open (paid some other way).
@@ -200,8 +220,9 @@ export function InboxPage() {
       prices: deskPrices,
       credit: deskCredit,
       creditNote: saleCreditNote.trim(),
+      gearShipping: deskGear,
     }),
-    [deskPrices, deskCredit, saleCreditNote]
+    [deskPrices, deskCredit, saleCreditNote, deskGear]
   );
   const saleSoldCount = selectedRecords.length - saleRecords.length;
   function setSalePrice(id: number, raw: string) {
@@ -409,6 +430,7 @@ export function InboxPage() {
           prices: Object.fromEntries(deskPrices),
           credit: saleTerms.credit,
           creditNote: saleTerms.creditNote,
+          gearShipping: saleTerms.gearShipping,
         }),
       });
       const body = await res.json();
@@ -1166,14 +1188,12 @@ export function InboxPage() {
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-white">
-                <span className="font-medium">
-                  {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
-                </span>{" "}
+                <span className="font-medium">{bundleKindSummary(saleRecords) || "0 items"}</span>{" "}
                 <span className="text-neutral-400">
                   · Subtotal ${saleTotals.subtotal}
                   {saleTotals.credit > 0 ? ` · Credit −$${saleTotals.credit}` : ""}
                   {" "}· Shipping ${saleTotals.shipping}
-                  {saleTotals.shipping === 0 ? " (free)" : ""} ·{" "}
+                  {saleTotals.shippingDetail ? ` (${saleTotals.shippingDetail})` : saleTotals.shipping === 0 && !saleTotals.gearQuoted ? " (free)" : ""} ·{" "}
                 </span>
                 <span className="font-semibold">Total ${saleTotals.total}</span>
               </p>
@@ -1255,6 +1275,26 @@ export function InboxPage() {
                 className={`w-64 ${inputClass}`}
               />
             </div>
+            {saleTotals.gearQuoted ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-neutral-400">Equipment shipping</span>
+                <span className="inline-flex items-center gap-0.5">
+                  <span className="text-xs text-neutral-500">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={saleGearShipping}
+                    onChange={(e) => setSaleGearShipping(e.target.value)}
+                    placeholder="0"
+                    title="What you quoted the buyer to ship the equipment (the shop charged $0 on the request). Added to the invoice's shipping. Leave blank for local pickup."
+                    className={`w-20 ${inputClass} ${gearParsed === undefined ? "border-red-400/60" : ""}`}
+                  />
+                </span>
+                <span className="text-xs text-neutral-500">
+                  quoted for the gear on the desk · blank = local pickup
+                </span>
+              </div>
+            ) : null}
             {termsError ? (
               <p className="mt-2 text-xs text-red-400">{termsError}</p>
             ) : null}

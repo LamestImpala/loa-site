@@ -79,6 +79,7 @@ export function bundleBreakdown(items: BundleItem[], credit = 0) {
     credit: applied,
     parcels,
     shipping: quote.shipping,
+    shippingQuote: quote,
     shippingDetail: shippingDetail(quote),
     shippingNote: shippingNote(quote),
     gearQuoted: quote.gearQuoted,

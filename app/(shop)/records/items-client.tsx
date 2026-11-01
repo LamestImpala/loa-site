@@ -14,7 +14,6 @@ import Link from "next/link";
 import { PRICE_BANDS, inPriceBand, isNew, isOnHold } from "@/lib/record-info";
 import { SELLER_INFO } from "@/lib/records";
 import {
-  KIND_LABELS,
   KIND_PLURALS,
   itemPath,
   itemSpecShort,
@@ -56,6 +55,8 @@ type KindConfig = {
   sorts: SortDef[]; // first is the default
   tags: (r: DbRecord) => string[];
   shippingNote: string;
+  emptyTitle: string; // when nothing of this kind is listed at all
+  count: (n: number) => string; // "2 posters", "2 pieces of equipment"
 };
 
 const byPriceAsc = (a: DbRecord, b: DbRecord) => a.price - b.price;
@@ -104,6 +105,8 @@ const CONFIG: Record<Exclude<ItemKind, "record">, KindConfig> = {
       ].filter(Boolean);
     },
     shippingNote: SELLER_INFO.posterShipping,
+    emptyTitle: "Nothing on the wall just yet.",
+    count: (n) => `${n} poster${n === 1 ? "" : "s"}`,
   },
   gear: {
     searchPlaceholder: "Brand, model, category…",
@@ -122,8 +125,11 @@ const CONFIG: Record<Exclude<ItemKind, "record">, KindConfig> = {
       { value: "price-desc", label: "Price: high → low", compare: byPriceDesc },
       { value: "newest", label: "Newest arrivals", compare: byNewest },
     ],
-    tags: (r) => [r.condition ? `Condition: ${r.condition}` : "", r.details?.category ?? ""].filter(Boolean),
+    // The category is already the card's meta line.
+    tags: (r) => [r.condition ? `Condition: ${r.condition}` : ""].filter(Boolean),
     shippingNote: SELLER_INFO.gearShipping,
+    emptyTitle: "Nothing on the rack just yet.",
+    count: (n) => `${n} piece${n === 1 ? "" : "s"} of equipment`,
   },
 };
 
@@ -225,9 +231,9 @@ export default function ItemsClient({
   }
 
   const countLabel = hasFilters
-    ? `${visible.length} of ${items.length} ${noun}`
+    ? `${visible.length} of ${cfg.count(items.length)}`
     : available === items.length
-      ? `${items.length} ${items.length === 1 ? KIND_LABELS[kind].toLowerCase() : noun}`
+      ? cfg.count(items.length)
       : `${available} available · ${items.length - available} sold`;
 
   function scrollToItem(id: number) {
@@ -659,7 +665,7 @@ export default function ItemsClient({
           </div>
         ) : items.length === 0 ? (
           <div className="card shop-empty">
-            <div className="shop-empty-title">Nothing on the wall just yet.</div>
+            <div className="shop-empty-title">{cfg.emptyTitle}</div>
             <p className="shop-muted" style={{ margin: 0 }}>
               Check back soon, or email{" "}
               <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a> to ask
