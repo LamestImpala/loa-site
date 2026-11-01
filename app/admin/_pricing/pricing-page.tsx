@@ -6,9 +6,22 @@ import {
   approvalBlock,
   forSaleById as forSaleFromRuns,
   isActionable as actionable,
+  pendingReason,
+  reasonByPending,
+  type PriceReason,
 } from "@/lib/admin/pricing";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { buttonClass, pct } from "../_shell/ui";
+
+// Short tag for why the run queued a change.
+const PENDING_REASON: Record<PriceReason, string> = {
+  decay: "time decay · unsold 45+ days",
+  lowest: "$1 under cheapest listing (+3%)",
+  ebay: "eBay median for this pressing",
+  suggestion: "market suggestion (+3%)",
+  stocked: "stocked release suggestion (+3%)",
+  scarce: "scarce & wanted suggestion (+3%)",
+};
 
 // Pricing: approve or reject the daily run's flagged moves, and read the
 // run history behind them.
@@ -36,9 +49,11 @@ export function PricingPage() {
   // copies-for-sale per record, from the most recent run summaries — used
   // to split pending cuts the same way the email report does.
   const forSaleById = useMemo(() => forSaleFromRuns(runs), [runs]);
+  const reasons = useMemo(() => reasonByPending(runs), [runs]);
   const isActionable = useCallback(
-    (p: PendingPriceChange) => actionable(p, forSaleById),
-    [forSaleById]
+    (p: PendingPriceChange) =>
+      actionable(p, forSaleById, pendingReason(p, reasons)),
+    [forSaleById, reasons]
   );
 
   const visiblePending = useMemo(
@@ -181,8 +196,8 @@ export function PricingPage() {
         <h2 className="mt-10 text-xl font-medium">
           Pending price changes{" "}
           <span className="text-sm text-neutral-400">
-            ({pending.length} waiting · moves over ±5% from the daily Discogs
-            run)
+            ({pending.length} waiting · moves over ±5%, time decay and
+            undercuts from the daily Discogs run)
           </span>
         </h2>
         {pending.length === 0 ? (
@@ -266,6 +281,11 @@ export function PricingPage() {
                         </span>
                       ) : null}
                     </p>
+                    {pendingReason(p, reasons) ? (
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {PENDING_REASON[pendingReason(p, reasons)!]}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -385,7 +405,7 @@ export function PricingPage() {
                                   : s.reason === "scarce"
                                     ? " · scarce & wanted, full suggestion"
                                     : s.reason === "decay"
-                                      ? " · unsold 30+ days, 5% time decay"
+                                      ? " · unsold shelf-sitter, time decay"
                                       : s.reason === "ebay"
                                         ? " · capped at eBay median for this pressing"
                                         : s.reason === "lowest"

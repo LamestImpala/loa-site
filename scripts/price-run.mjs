@@ -8,25 +8,28 @@
  *   - Tier factor on the grade suggestion. Scarce-and-wanted releases
  *     (≤SCARCE_MAX_FOR_SALE copies, want/have ≥ SCARCE_MIN_DEMAND) ask the
  *     full suggestion; stocked releases (STOCKED_MIN+ copies) ask
- *     STOCKED_FACTOR; everything else asks PRICE_FACTOR.
+ *     STOCKED_FACTOR; everything else asks PRICE_FACTOR. On top of that,
+ *     Discogs-derived prices carry DISCOGS_ADDER: a Discogs buyer also pays
+ *     about $5 shipping plus tax, so matching their sticker undersells us.
  *   - Cheapest listing, gated. Discogs' lowest_price is condition-blind,
  *     country-blind and FX-converted, so a $9 "listing" on a $54 record is
  *     usually a junk copy or a seller who won't ship to the US. It only
  *     counts when it is at least COMPARABLE_FACTOR of the grade suggestion
  *     (Discogs' own Fair-grade suggestion is far too low a bar — about 14%
  *     of NM), and even then never below the tier floor. A comparable
- *     listing caps the target at lowest − UNDERCUT_BY.
+ *     listing caps the target at lowest (+ DISCOGS_ADDER) − UNDERCUT_BY.
  *   - Ratchet: outside the scarce tier the run never proposes a raise on a
  *     priced record. Hand markdowns are the strategy; only scarce-and-wanted
  *     records track the suggestion back up.
  *   - eBay: when the exact pressing (UPC match) has EBAY_MIN_EXACT+ used
  *     listings, their median asking price caps the target (floored too).
  *   - Time decay: a record unsold for DECAY_AFTER_DAYS with no price change
- *     in DECAY_QUIET_DAYS comes down DECAY_STEP, to the tier floor. Applied
- *     directly — the daily "Drink me" drops on the site come from here.
+ *     (or rejected decay) in DECAY_QUIET_DAYS comes down DECAY_STEP, to the
+ *     tier floor. Queued for approval like any other cut.
  *
- * Moves within ±THRESHOLD (and decay steps) apply automatically; bigger
- * moves are queued in pending_price_changes for approval on /admin. Each run
+ * Market moves within ±THRESHOLD apply automatically; bigger moves, every
+ * decay step and every undercut of a cheaper listing are queued in
+ * pending_price_changes for approval on /admin. Each run
  * is logged to price_runs, and an email report is sent via Resend when
  * anything was flagged (if RESEND_API_KEY is set).
  *
@@ -43,9 +46,12 @@ const REPORT_EMAIL = "brandoncgillihan@gmail.com";
 export const PRICE_FACTOR = 0.85; // normal releases: ask 85% of the grade suggestion
 export const SCARCE_FACTOR = 1.0; // scarce and wanted: the full suggestion
 export const STOCKED_FACTOR = 0.7; // stocked releases: commodity copies only move cheap
+// Discogs buyers pay ~$5 shipping plus tax on top of the sticker, so prices
+// taken from Discogs (suggestion targets, the cheapest-listing undercut) ask
+// a little more. Floors and the eBay cap don't carry it.
+export const DISCOGS_ADDER = 0.03;
 const THRESHOLD = 0.05; // auto-apply suggestion moves within ±5%
 export const UNDERCUT_BY = 1; // competitive price = $1 below a comparable cheapest listing
-const MAX_AUTO_CUT = 0.1; // auto-apply competitive cuts up to 10%
 // Scarce = few copies for sale AND real demand (wants per existing copy).
 export const SCARCE_MAX_FOR_SALE = 5;
 export const SCARCE_MIN_DEMAND = 0.4;
@@ -57,9 +63,9 @@ export const FLOOR = { scarce: 0.85, normal: 0.55, stocked: 0.4 };
 // same kind of copy we're selling (junk grade, non-US seller, FX artefact).
 export const COMPARABLE_FACTOR = 0.5;
 // Time decay for shelf-sitters.
-export const DECAY_AFTER_DAYS = 30;
-export const DECAY_QUIET_DAYS = 14;
-export const DECAY_STEP = 0.05;
+export const DECAY_AFTER_DAYS = 45;
+export const DECAY_QUIET_DAYS = 30;
+export const DECAY_STEP = 0.03;
 // Only exact-pressing (UPC) eBay matches are trusted as a price cap —
 // fuzzy title matches mix every pressing of an album together.
 const EBAY_MIN_EXACT = 3;
@@ -124,7 +130,7 @@ export function planPrice({
   const lowestPlausible =
     lowest != null && lowest > 0 && lowest >= suggestion * COMPARABLE_FACTOR;
   const rawCompetitive = lowestPlausible
-    ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
+    ? Math.max(Math.round(lowest * (1 + DISCOGS_ADDER)) - UNDERCUT_BY, 1)
     : null;
   // Below the tier floor even a comparable listing is treated as noise.
   const competitive =
@@ -135,7 +141,7 @@ export function planPrice({
       ? Math.max(floor, Math.round(ebay.median))
       : null;
 
-  let target = Math.round(suggestion * factor);
+  let target = Math.round(suggestion * factor * (1 + DISCOGS_ADDER));
   let reason = tier === "normal" ? "suggestion" : tier;
   if (competitive !== null && competitive < target) {
     target = competitive;
@@ -461,18 +467,31 @@ async function main() {
   const hasPending = new Set(pendingRows.map((p) => p.record_id));
 
   // Rejections should stick: don't re-flag a record when a suggestion
-  // within 5% of the same price was rejected in the last 14 days.
+  // within 5% of the same price was rejected in the last 14 days. The
+  // newest rejection also restarts the decay clock, so saying no to a decay
+  // step holds it off for a full DECAY_QUIET_DAYS — hence the longer fetch.
+  const DAY = 24 * 3600 * 1000;
+  const REJECT_MEMORY_DAYS = 14;
   const { data: rejectedRows, error: rejectedErr } = await supabase
     .from("pending_price_changes")
-    .select("record_id, suggested_price")
+    .select("record_id, suggested_price, resolved_at")
     .eq("status", "rejected")
     .gte(
       "resolved_at",
-      new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString()
+      new Date(
+        Date.now() - Math.max(REJECT_MEMORY_DAYS, DECAY_QUIET_DAYS) * DAY
+      ).toISOString()
     );
   if (rejectedErr) throw rejectedErr;
   const recentlyRejected = new Map();
+  const lastRejected = new Map();
   for (const p of rejectedRows) {
+    if (!p.resolved_at) continue;
+    const prev = lastRejected.get(p.record_id);
+    if (!prev || p.resolved_at > prev) lastRejected.set(p.record_id, p.resolved_at);
+    if (Date.now() - new Date(p.resolved_at).getTime() > REJECT_MEMORY_DAYS * DAY) {
+      continue;
+    }
     const list = recentlyRejected.get(p.record_id) ?? [];
     list.push(Number(p.suggested_price));
     recentlyRejected.set(p.record_id, list);
@@ -483,7 +502,8 @@ async function main() {
     );
 
   // Last price change per record (price_history is trigger-fed on every
-  // change) — the decay rule waits DECAY_QUIET_DAYS after any move.
+  // change) — the decay rule waits DECAY_QUIET_DAYS after any move or
+  // rejected suggestion.
   const { data: historyRows, error: historyErr } = await supabase
     .from("price_history")
     .select("record_id, changed_at")
@@ -494,15 +514,18 @@ async function main() {
   for (const h of historyRows) {
     if (!lastChange.has(h.record_id)) lastChange.set(h.record_id, h.changed_at);
   }
-  const DAY = 24 * 3600 * 1000;
   const daysSince = (iso) => (iso ? (Date.now() - new Date(iso).getTime()) / DAY : 0);
+  const quietSince = (r) => {
+    const changed = lastChange.get(r.id) ?? r.created_at;
+    const rejected = lastRejected.get(r.id);
+    return rejected && new Date(rejected) > new Date(changed) ? rejected : changed;
+  };
 
   const summary = [];
   let checked = 0;
   let autoApplied = 0;
   let flagged = 0;
   let aboveLowest = 0;
-  let undercuts = 0;
   let decays = 0;
   let implausible = 0;
   let errors = 0;
@@ -599,7 +622,7 @@ async function main() {
             have,
             ebay,
             daysListed: daysSince(r.created_at),
-            daysSinceChange: daysSince(lastChange.get(r.id) ?? r.created_at),
+            daysSinceChange: daysSince(quietSince(r)),
           })
         : null;
       if (lowest != null && plan && !plan.lowestPlausible) implausible++;
@@ -670,35 +693,31 @@ async function main() {
           summary.push({ ...entry, pct: 0, action: "applied" });
         } else {
           const pct = Number(((target - price) / price).toFixed(4));
-          if (Math.abs(pct) <= THRESHOLD || reason === "decay") {
+          // Decay steps always wait for approval, however small.
+          if (reason !== "decay" && Math.abs(pct) <= THRESHOLD) {
             await setPrice(r.id, { price: target });
             autoApplied++;
-            if (reason === "decay") decays++;
             price = target;
             summary.push({ ...entry, pct, action: "applied" });
           } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
             await queueChange(r.id, price, target, pct);
             hasPending.add(r.id);
             flagged++;
+            if (reason === "decay") decays++;
             summary.push({ ...entry, pct, action: "flagged" });
           }
         }
       }
 
       // Competitive check: are we still above a comparable cheapest Discogs
-      // listing? Undercut it by $1 — automatically when the cut is small
-      // (≤MAX_AUTO_CUT); otherwise queue it for approval. competitive is
-      // already null when the listing isn't comparable or the cut would
-      // breach the tier floor.
+      // listing (plus the Discogs adder)? Queue the $1 undercut for approval
+      // — never applied automatically. competitive is already null when the
+      // listing isn't comparable or the cut would breach the tier floor.
       if (price > 0 && competitive !== null && competitive < price) {
         aboveLowest++;
         const cutPct = Number(((competitive - price) / price).toFixed(4));
         const entry = { ...base, old_price: price, new_price: competitive, pct: cutPct };
-        if (Math.abs(cutPct) <= MAX_AUTO_CUT) {
-          await setPrice(r.id, { price: competitive, prev_price: price });
-          undercuts++;
-          summary.push({ ...entry, action: "undercut" });
-        } else if (!hasPending.has(r.id) && !wasRejected(r.id, competitive)) {
+        if (!hasPending.has(r.id) && !wasRejected(r.id, competitive)) {
           await queueChange(r.id, price, competitive, cutPct);
           hasPending.add(r.id);
           summary.push({ ...entry, action: "above-lowest" });
@@ -728,7 +747,7 @@ async function main() {
         auto_applied: autoApplied,
         flagged,
         above_lowest: aboveLowest,
-        undercuts,
+        undercuts: 0, // undercuts are queued, never auto-applied
         errors,
         summary,
       })
@@ -736,22 +755,22 @@ async function main() {
   }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied (${decays} decay steps), ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied, ${flagged} flagged (${decays} decay steps), ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
   if (
     !DRY_RUN &&
-    (flagged > 0 || undercuts > 0 || pendingCuts.length > 0) &&
+    (flagged > 0 || pendingCuts.length > 0) &&
     process.env.RESEND_API_KEY
   ) {
     const REASON_LABEL = {
-      suggestion: "85% of grade suggestion",
-      scarce: "scarce & wanted — full suggestion",
-      stocked: "stocked release (30+ copies) — 70% of suggestion",
-      lowest: "$1 under a comparable cheapest listing",
+      suggestion: "85% of grade suggestion +3%",
+      scarce: "scarce & wanted — full suggestion +3%",
+      stocked: "stocked release (30+ copies) — 70% of suggestion +3%",
+      lowest: "$1 under a comparable cheapest listing +3%",
       ebay: "capped at eBay median for this pressing",
-      decay: "unsold 30+ days — 5% time decay",
+      decay: "unsold 45+ days — 3% time decay",
     };
     const suggestionRows = (action) =>
       summary
@@ -771,7 +790,7 @@ async function main() {
 
     const flaggedSection =
       flagged > 0
-        ? `<p>These moved more than ±5% and are waiting for your approval at
+        ? `<p>These moved more than ±5% (or are time-decay steps) and are waiting for your approval at
 <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th><th>Why</th><th>Lowest listing</th><th>Copies for sale</th><th>eBay median (used)</th></tr>
@@ -785,17 +804,8 @@ ${suggestionRows("flagged")}
         ? `<p>These are priced <strong>above a comparable cheapest Discogs listing</strong>
 (at least half the grade suggestion — junk-grade and foreign-only listings are already filtered out).
 One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>
-sets the suggested price ($1 under that listing).</p>
+sets the suggested price (that listing +3%, less $1).</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`
-        : "";
-
-    const undercutSection =
-      undercuts > 0
-        ? `<p>Auto-undercut to $1 below a comparable cheapest listing (cut ≤10% and above the tier floor):</p>
-<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${summary
-            .filter((s) => s.action === "undercut")
-            .map(cutRow)
-            .join("")}</table>`
         : "";
 
     const res = await fetch("https://api.resend.com/emails", {
@@ -807,11 +817,11 @@ sets the suggested price ($1 under that listing).</p>
       body: JSON.stringify({
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
-        subject: `Price run: ${undercuts} auto-undercut, ${decays} decay steps, ${flagged + pendingCuts.length} awaiting approval`,
-        html: `<p>${checked} records checked, ${autoApplied} changes auto-applied (${decays} of them time-decay steps), ${undercuts} competitive undercuts applied, ${implausible} cheapest listings ignored as not comparable.</p>
+        subject: `Price run: ${flagged + pendingCuts.length} awaiting approval (${decays} decay, ${pendingCuts.length} undercut)`,
+        html: `<p>${checked} records checked, ${autoApplied} market moves within ±5% auto-applied, ${implausible} cheapest listings ignored as not comparable.
+Decay steps and undercuts are never applied automatically. Prices taken from Discogs (suggestions and undercuts) include a +3% adder, since Discogs buyers also pay shipping and tax.</p>
 ${flaggedSection}
-${cutsSection}
-${undercutSection}`,
+${cutsSection}`,
       }),
     });
     if (!res.ok) {
