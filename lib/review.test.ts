@@ -7,11 +7,13 @@ import {
   buyerFirstName,
   ordersToInvite,
   parseReviewBody,
+  publishedReviewUrl,
   ratingLine,
   reviewMonth,
   reviewDmText,
   reviewRequestEmail,
   stars,
+  toReviewQuotes,
   toReviewSummary,
 } from "./review.ts";
 
@@ -137,6 +139,18 @@ test("review summary: nothing published is null; average over rated reviews", ()
   assert.equal(ratingLine(s), "4.5 out of 5 from 2 reviews");
   assert.equal(ratingLine({ ...s, ratedCount: 1, average: 5 }), "5.0 out of 5 from 1 review");
   assert.equal(ratingLine({ ...s, ratedCount: 0, average: null }), "3 reviews");
+});
+
+test("published reviews list: typed, empty on a failed call", () => {
+  assert.deepEqual(toReviewQuotes(null), []);
+  assert.deepEqual(toReviewQuotes({ error: "x" }), []);
+  const list = toReviewQuotes([
+    { id: 9, reviewer_name: "Ana", rating: null, body: "Packed well", source: "reddit", reviewed_on: "2026-10-30", owner_reply: "Thanks!" },
+  ]);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].rating, null);
+  assert.equal(list[0].ownerReply, "Thanks!");
+  assert.equal(publishedReviewUrl(9), "https://curiouserrecords.com/reviews#review-9");
 });
 
 test("review month", () => {

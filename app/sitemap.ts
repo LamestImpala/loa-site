@@ -5,7 +5,8 @@ import { SHOP_HOST, matchesHost } from "@/lib/hosts";
 import { recordPath } from "@/lib/record-info";
 
 // headers() makes this dynamic so each host serves its own sitemap: the shop
-// is the catalog plus one page per record; everything else is the LOA site.
+// is the catalog, its reviews page and one page per record; everything else
+// is the LOA site.
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const host = (await headers()).get("host")?.split(":")[0] ?? "";
 
@@ -19,6 +20,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         lastModified: new Date(),
         changeFrequency: "daily",
         priority: 1,
+      },
+      {
+        url: `https://${SHOP_HOST}/reviews`,
+        lastModified: new Date(),
+        changeFrequency: "weekly",
+        priority: 0.6,
       },
       ...records
         .filter((r) => !r.sold)

@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import type { Order, ReviewStatus, ShopReview } from "@/lib/supabase";
-import { buyerFirstName, reviewDmText, reviewUrl, SOURCE_LABELS, stars } from "@/lib/review";
+import {
+  buyerFirstName,
+  publishedReviewUrl,
+  reviewDmText,
+  reviewUrl,
+  SOURCE_LABELS,
+  stars,
+} from "@/lib/review";
 import {
   askableOrders,
   IMPORT_SOURCES,
@@ -253,6 +260,20 @@ export function ReviewsSection() {
               title="Featured reviews are quoted first on the shop home"
             >
               {r.featured ? "Unfeature" : "Feature"}
+            </button>
+          ) : null}
+          {r.status === "published" ? (
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={async () => {
+                if (await copyText(publishedReviewUrl(r.id), "Link to this review")) {
+                  flash(`review-public-${r.id}`);
+                }
+              }}
+              title="Its place on the shop's reviews page — send it to the buyer"
+            >
+              {isCopied(`review-public-${r.id}`) ? "Copied!" : "Copy link"}
             </button>
           ) : null}
           {replying ? (
