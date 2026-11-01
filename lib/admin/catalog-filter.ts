@@ -1,4 +1,5 @@
-import type { DbRecord, RecordInterest } from "../supabase.ts";
+import type { DbRecord, ItemKind, RecordInterest } from "../supabase.ts";
+import { KINDS, kindOf } from "../items.ts";
 import { artistLetter } from "../records.ts";
 import { holdActive } from "./records.ts";
 import type { MarketMap } from "./market.ts";
@@ -15,6 +16,7 @@ export const OFF_MARKET_LOW = 0.6;
 
 export type CatalogFilters = {
   search: string;
+  kind: "all" | ItemKind; // records, posters or equipment
   genre: string; // "all" or a genre
   collection: string; // "all", "none", or a series
   letter: string | null; // A–Z / "#"
@@ -25,6 +27,7 @@ export type CatalogFilters = {
 
 export const DEFAULT_FILTERS: CatalogFilters = {
   search: "",
+  kind: "all",
   genre: "all",
   collection: "all",
   letter: null,
@@ -41,6 +44,7 @@ export function filterRecords(
   const now = ctx.now ?? Date.now();
   const q = f.search.trim().toLowerCase();
   return records.filter((r) => {
+    if (f.kind !== "all" && kindOf(r) !== f.kind) return false;
     if (f.genre !== "all" && !(r.genres ?? []).includes(f.genre)) return false;
     if (f.collection === "none" && r.collection) return false;
     if (
@@ -72,7 +76,8 @@ export function filterRecords(
       if (ratio <= OFF_MARKET_HIGH && ratio >= OFF_MARKET_LOW) return false;
     }
     if (!q) return true;
-    return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""}`
+    const details = Object.values(r.details ?? {}).join(" ");
+    return `${r.artist} ${r.title} ${r.pressing} ${(r.genres ?? []).join(" ")} ${r.collection ?? ""} ${r.condition ?? ""} ${details}`
       .toLowerCase()
       .includes(q);
   });
@@ -118,7 +123,8 @@ const SORT_KEYS: SortKey[] = ["artist", "price-desc", "price-asc", "interest", "
 const INTEREST_KEYS: InterestFilter[] = ["all", "clicked-no-request", "manual-off-market"];
 const SHOWN_KEYS: CatalogFilters["shown"][] = ["all", "shown", "hidden"];
 const SOLD_KEYS: CatalogFilters["sold"][] = ["all", "sold", "unsold"];
-export const FILTER_PARAMS = ["q", "genre", "collection", "letter", "shown", "sold", "interest", "sort"];
+const KIND_KEYS: CatalogFilters["kind"][] = ["all", ...KINDS];
+export const FILTER_PARAMS = ["q", "kind", "genre", "collection", "letter", "shown", "sold", "interest", "sort"];
 
 const oneOf = <T extends string>(keys: T[], raw: string | null, fallback: T): T =>
   keys.includes(raw as T) ? (raw as T) : fallback;
@@ -129,6 +135,7 @@ export function filtersFromQuery(
   return {
     filters: {
       search: params.get("q") ?? "",
+      kind: oneOf(KIND_KEYS, params.get("kind"), "all"),
       genre: params.get("genre") || "all",
       collection: params.get("collection") || "all",
       letter: params.get("letter") || null,
@@ -143,6 +150,7 @@ export function filtersFromQuery(
 export function filtersToQuery(filters: CatalogFilters, sort: SortKey): URLSearchParams {
   const out = new URLSearchParams();
   if (filters.search) out.set("q", filters.search);
+  if (filters.kind !== "all") out.set("kind", filters.kind);
   if (filters.genre !== "all") out.set("genre", filters.genre);
   if (filters.collection !== "all") out.set("collection", filters.collection);
   if (filters.letter) out.set("letter", filters.letter);

@@ -13,7 +13,7 @@ import {
   sortRecords,
   type CatalogFilters,
 } from "./catalog-filter.ts";
-import { DAY, iso, rec } from "./fixtures.ts";
+import { DAY, gear, iso, poster, rec } from "./fixtures.ts";
 
 const NOW = Date.parse("2026-09-13T12:00:00Z");
 const ctx = { interest: {}, market: {}, now: NOW };
@@ -26,6 +26,20 @@ const catalog = [
   rec({ id: 3, artist: "2Pac", title: "All Eyez", pressing: "1996 · Death Row", genres: ["Hip Hop"], sold: true }),
   rec({ id: 4, artist: "beach house", title: "Bloom", genres: ["Rock"], collection: "MoFi" }),
 ];
+
+test("kind filter: records, posters or equipment; search reaches a poster's details", () => {
+  const mixed = [...catalog, poster({ id: 5, details: { venue: "Wrigley Field", city: "Chicago" } }), gear({ id: 6 })];
+  assert.deepEqual(ids(filterRecords(mixed, DEFAULT_FILTERS, ctx)), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(ids(filterRecords(mixed, withF({ kind: "record" }), ctx)), [1, 2, 3, 4]);
+  assert.deepEqual(ids(filterRecords(mixed, withF({ kind: "poster" }), ctx)), [5]);
+  assert.deepEqual(ids(filterRecords(mixed, withF({ kind: "gear" }), ctx)), [6]);
+  assert.deepEqual(ids(filterRecords(mixed, withF({ search: "wrigley" }), ctx)), [5]);
+  assert.deepEqual(ids(filterRecords(mixed, withF({ search: "very good" }), ctx)), [6]);
+  const q = filtersToQuery(withF({ kind: "poster" }), "artist");
+  assert.equal(q.get("kind"), "poster");
+  assert.equal(filtersFromQuery(q).filters.kind, "poster");
+  assert.equal(filtersFromQuery(new URLSearchParams("kind=bogus")).filters.kind, "all");
+});
 
 test("the default filters pass everything through untouched", () => {
   assert.deepEqual(ids(filterRecords(catalog, DEFAULT_FILTERS, ctx)), [1, 2, 3, 4]);
@@ -120,6 +134,7 @@ test("the catalog view round-trips through the URL, defaults left out", () => {
   assert.equal(filtersToQuery(DEFAULT_FILTERS, "artist").toString(), "");
   const view: CatalogFilters = {
     search: "pink floyd",
+    kind: "record",
     genre: "Rock",
     collection: "none",
     letter: "P",
@@ -130,7 +145,7 @@ test("the catalog view round-trips through the URL, defaults left out", () => {
   const query = filtersToQuery(view, "price-desc");
   assert.equal(
     query.toString(),
-    "q=pink+floyd&genre=Rock&collection=none&letter=P&shown=hidden&sold=unsold&interest=clicked-no-request&sort=price-desc"
+    "q=pink+floyd&kind=record&genre=Rock&collection=none&letter=P&shown=hidden&sold=unsold&interest=clicked-no-request&sort=price-desc"
   );
   assert.deepEqual(filtersFromQuery(query), { filters: view, sort: "price-desc" });
 });

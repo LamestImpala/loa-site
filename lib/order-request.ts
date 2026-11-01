@@ -1,6 +1,7 @@
 import { ADMIN_EMAIL } from "./supabase.ts";
 import { bundleBreakdown, type BundleItem } from "./records.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
+import { bundleKindSummary, countKinds, itemSpecShort, shippingSentence } from "./items.ts";
 
 // The shop's email "Request to buy": what the form may send, and the two
 // emails that go out when it lands — a notification to the admin and a
@@ -74,21 +75,36 @@ export function escapeHtml(s: string): string {
 }
 
 function quoteLines(items: BundleItem[]) {
-  const { lines, subtotal, shipping, total } = bundleBreakdown(items);
+  const b = bundleBreakdown(items);
+  const { lines, subtotal, shipping, total, shippingDetail, shippingNote } = b;
   const text = [
     ...lines,
     "",
     `Subtotal: $${subtotal}`,
-    `Shipping: $${shipping}${shipping === 0 ? " (free on 3+ records)" : ""}`,
+    `Shipping: $${shipping}${shippingDetail ? ` (${shippingDetail})` : ""}`,
+    ...(shippingNote ? [shippingNote] : []),
     `Total: $${total}`,
   ].join("\n");
-  const html = `<ol>${items
-    .map(
-      (r) =>
-        `<li>${escapeHtml(r.artist)} — ${escapeHtml(r.title)} <span style="color:#666">(${escapeHtml(r.media)}/${escapeHtml(r.sleeve)})</span> — $${r.price}</li>`
-    )
-    .join("")}</ol><p>Subtotal $${subtotal} · Shipping $${shipping}${shipping === 0 ? " (free on 3+)" : ""} · <strong>Total $${total}</strong></p>`;
+  const html = `<ol>${b.items
+    .map((r) => {
+      const spec = itemSpecShort(r);
+      return `<li>${escapeHtml(r.artist)} — ${escapeHtml(r.title)}${
+        spec ? ` <span style="color:#666">(${escapeHtml(spec)})</span>` : ""
+      } — $${r.price}</li>`;
+    })
+    .join("")}</ol><p>Subtotal $${subtotal} · Shipping $${shipping}${
+    shippingDetail ? ` (${escapeHtml(shippingDetail)})` : ""
+  } · <strong>Total $${total}</strong></p>${shippingNote ? `<p style="color:#666">${escapeHtml(shippingNote)}</p>` : ""}`;
   return { text, html, total };
+}
+
+// "record" when the request is all records, "poster"/"equipment" when it's
+// all one of those, "" for a mix — so the subject line reads naturally.
+function requestNoun(items: BundleItem[]): string {
+  const n = countKinds(items);
+  const kinds = (["record", "poster", "gear"] as const).filter((k) => n[k] > 0);
+  if (kinds.length !== 1) return "";
+  return kinds[0] === "gear" ? "equipment" : kinds[0];
 }
 
 export function buyerDisplay(name: string | null, email: string): string {
@@ -100,9 +116,11 @@ export function buyerDisplay(name: string | null, email: string): string {
 export function adminNotificationEmail(a: RequestEmailArgs) {
   const q = quoteLines(a.items);
   const who = buyerDisplay(a.buyerName, a.buyerEmail);
-  const subject = `New record request ${a.refCode} from ${a.buyerName || a.buyerEmail} — $${q.total}`;
+  const noun = requestNoun(a.items);
+  const subject = `New ${noun ? `${noun} ` : ""}request ${a.refCode} from ${a.buyerName || a.buyerEmail} — $${q.total}`;
+  const what = bundleKindSummary(a.items);
   const text = [
-    `${who} wants to buy ${a.items.length} record${a.items.length === 1 ? "" : "s"} (Ref: ${a.refCode}).`,
+    `${who} wants to buy ${what} (Ref: ${a.refCode}).`,
     "",
     q.text,
     "",
@@ -112,7 +130,7 @@ export function adminNotificationEmail(a: RequestEmailArgs) {
   ]
     .filter((l) => l !== "")
     .join("\n");
-  const html = `<p><strong>${escapeHtml(who)}</strong> wants to buy ${a.items.length} record${a.items.length === 1 ? "" : "s"} (Ref: <code>${a.refCode}</code>).</p>${q.html}${
+  const html = `<p><strong>${escapeHtml(who)}</strong> wants to buy ${what} (Ref: <code>${a.refCode}</code>).</p>${q.html}${
     a.message ? `<p><em>Their note:</em></p><blockquote>${escapeHtml(a.message).replace(/\n/g, "<br>")}</blockquote>` : ""
   }<p><a href="${ADMIN_REQUESTS_URL}">Load it into the sale desk</a></p><p style="color:#666">Reply to this email to answer ${escapeHtml(a.buyerEmail)}, or reply from the Inbox as ${ORDERS_ADDRESS}.</p>`;
   return { to: ADMIN_EMAIL, subject, text, html, replyTo: a.buyerEmail };
@@ -123,7 +141,9 @@ export function adminNotificationEmail(a: RequestEmailArgs) {
 export function buyerConfirmationEmail(a: RequestEmailArgs) {
   const q = quoteLines(a.items);
   const hi = a.buyerName ? `Hi ${a.buyerName}!` : "Hi!";
-  const subject = `Got your record request (Ref ${a.refCode})`;
+  const noun = requestNoun(a.items);
+  const subject = `Got your ${noun ? `${noun} ` : ""}request (Ref ${a.refCode})`;
+  const ships = shippingSentence(a.items);
   const text = [
     hi,
     "",
@@ -133,14 +153,14 @@ export function buyerConfirmationEmail(a: RequestEmailArgs) {
     "",
     `Ref: ${a.refCode}`,
     "",
-    "I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods & Services invoice (I cover the fee), sent to this email once we've settled the list. Records ship USPS Media Mail from Phoenix, AZ.",
+    `I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods & Services invoice (I cover the fee), sent to this email once we've settled the list. ${ships}`,
     "",
     a.message ? `Your note: ${a.message}\n` : "",
     "— Curiouser Records",
   ]
     .filter((l) => l !== "")
     .join("\n");
-  const html = `<p>${escapeHtml(hi)}</p><p>Thanks for your request from <a href="${SHOP_URL}">curiouserrecords.com</a>. Here's what you asked about:</p>${q.html}<p>Ref: <code>${a.refCode}</code></p><p>I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods &amp; Services invoice (I cover the fee), sent to this email once we've settled the list. Records ship USPS Media Mail from Phoenix, AZ.</p>${
+  const html = `<p>${escapeHtml(hi)}</p><p>Thanks for your request from <a href="${SHOP_URL}">curiouserrecords.com</a>. Here's what you asked about:</p>${q.html}<p>Ref: <code>${a.refCode}</code></p><p>I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods &amp; Services invoice (I cover the fee), sent to this email once we've settled the list. ${escapeHtml(ships)}</p>${
     a.message ? `<p style="color:#666">Your note: ${escapeHtml(a.message).replace(/\n/g, "<br>")}</p>` : ""
   }<p>— Curiouser Records</p>`;
   return { to: a.buyerEmail, subject, text, html, replyTo: ORDERS_ADDRESS };

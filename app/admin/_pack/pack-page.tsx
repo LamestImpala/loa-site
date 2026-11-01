@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { KIND_LABELS, isRecord, itemSpecShort, itemSubtitle, kindOf } from "@/lib/items";
 import Link from "next/link";
 import type { DbRecord, Shipment } from "@/lib/supabase";
 import {
@@ -472,10 +473,13 @@ function PackRow({
           {r.artist} — {r.title}
         </span>
         <span className="flex flex-wrap items-center gap-1.5 text-xs text-neutral-400">
-          {r.pressing ? <span className="truncate">{r.pressing}</span> : null}
-          <span>
-            {r.media} / {r.sleeve}
-          </span>
+          {!isRecord(r) ? (
+            <span className="rounded-full border border-amber-400/40 px-2 text-amber-300">
+              {KIND_LABELS[kindOf(r)]}
+            </span>
+          ) : null}
+          {itemSubtitle(r) ? <span className="truncate">{itemSubtitle(r)}</span> : null}
+          <span>{itemSpecShort(r)}</span>
           {r.picked_at ? (
             <span className="text-emerald-400" title="Pulled from the shelf (pick list)">
               pulled ✓

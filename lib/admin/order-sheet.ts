@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { itemSpecShort } from "../items.ts";
 import type { OrderSheetOrder } from "./pack-list.ts";
 import { buyerLabel } from "./buyers.ts";
 import { fit, pdfSafe, THERMAL } from "./packing-slips.ts";
@@ -185,9 +186,9 @@ export async function orderSheetPdf(
       y + (small ? 3 : 4)
     );
     y -= small ? 11 : 14;
-    const counts = `${orders.length} order${orders.length === 1 ? "" : "s"} · ${recordCount} record${recordCount === 1 ? "" : "s"}`;
+    const counts = `${orders.length} order${orders.length === 1 ? "" : "s"} · ${recordCount} item${recordCount === 1 ? "" : "s"}`;
     page.drawText(
-      pdfSafe(sheet.hint ? `${counts} · tick each record as it goes in the mailer, then the order` : counts),
+      pdfSafe(sheet.hint ? `${counts} · tick each item as it goes in the mailer, then the order` : counts),
       { x: margin, y, size: small ? 8 : 9, font: regular, color: GREY }
     );
     y -= small ? 5 : 7;
@@ -257,7 +258,7 @@ export async function orderSheetPdf(
       const box = 7 * scale;
       const indent = x + 12 * scale;
       checkbox(page, indent, baseline, box, size);
-      const tail = [owner && oneBox(owner) ? "" : boxLabel(r), `${r.media}/${r.sleeve}`]
+      const tail = [owner && oneBox(owner) ? "" : boxLabel(r), itemSpecShort(r)]
         .filter(Boolean)
         .join(" · ");
       const tailSize = 7.5 * scale;

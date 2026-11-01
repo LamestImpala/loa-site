@@ -1,5 +1,6 @@
 import type { DbRecord, Order, OrderRequest, Shipment } from "../supabase.ts";
 import type { BundleItem } from "../records.ts";
+import { kindOf } from "../items.ts";
 
 // The sale side of the admin: what a mark-sold writes and what it
 // finishes. Pure — no React, no Supabase. Order grouping is in orders.ts.
@@ -25,10 +26,13 @@ export function salePrice(r: DbRecord, override?: number | null): number {
 // The quote line for a record, listed price alongside when it differs.
 export function saleItem(r: DbRecord, override?: number | null): BundleItem {
   return {
+    kind: kindOf(r),
     artist: r.artist,
     title: r.title,
     media: r.media,
     sleeve: r.sleeve,
+    condition: r.condition ?? null,
+    details: r.details ?? null,
     price: salePrice(r, override),
     listedPrice: Number(r.price),
   };
@@ -150,6 +154,8 @@ export function saleReplyText(a: {
   credit: number;
   creditNote?: string;
   shipping: number;
+  shippingDetail?: string; // "free on 3+ records", "$6 records + $12 poster tube"
+  shippingNote?: string | null; // the equipment "quoted separately" sentence
   total: number;
 }): string {
   const byEmail = Boolean(a.email?.trim());
@@ -161,9 +167,10 @@ export function saleReplyText(a: {
   const pay = byEmail
     ? "Payment is a PayPal G&S invoice — I cover the fee. I'll send it to this email address once you confirm the list."
     : "Payment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.";
-  return `${hi} Here's the breakdown for the records you asked about:\n\n${a.lines.join(
+  const detail = a.shippingDetail ?? (a.shipping === 0 ? "free on 3+ records" : "");
+  return `${hi} Here's the breakdown for what you asked about:\n\n${a.lines.join(
     "\n"
   )}\n\nSubtotal: $${a.subtotal}${creditLine}\nShipping: $${a.shipping}${
-    a.shipping === 0 ? " (free on 3+ records)" : ""
-  }\nTotal: $${a.total}\n\n${pay}`;
+    detail ? ` (${detail})` : ""
+  }${a.shippingNote ? `\n${a.shippingNote}` : ""}\nTotal: $${a.total}\n\n${pay}`;
 }

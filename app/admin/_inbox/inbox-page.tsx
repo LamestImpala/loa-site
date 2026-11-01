@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bundleBreakdown, makeRefCode } from "@/lib/records";
+import { itemSpecShort, itemSubtitle } from "@/lib/items";
 import type {
   DbRecord,
   Invoice,
@@ -231,6 +232,8 @@ export function InboxPage() {
       credit: saleTotals.credit,
       creditNote: saleCreditNote,
       shipping: saleTotals.shipping,
+      shippingDetail: saleTotals.shippingDetail,
+      shippingNote: saleTotals.shippingNote,
       total: saleTotals.total,
     });
   }
@@ -1200,7 +1203,7 @@ export function InboxPage() {
                     <span className="min-w-0 flex-1 truncate">
                       {r.artist} — {r.title}{" "}
                       <span className="text-neutral-500">
-                        {r.media}/{r.sleeve}
+                        {itemSpecShort(r)}
                       </span>
                     </span>
                     <span
@@ -1529,7 +1532,7 @@ export function InboxPage() {
                             <li key={it.id}>
                               {it.artist} — {it.title}{" "}
                               <span className="text-neutral-500">
-                                {it.media}/{it.sleeve}
+                                {itemSpecShort(it)}
                               </span>{" "}
                               — ${it.price}
                               {flags.length > 0 ? (
@@ -1758,7 +1761,7 @@ export function InboxPage() {
                                     <span className="min-w-0 flex-1">
                                       {r.artist} — {r.title}{" "}
                                       <span className="text-neutral-500">
-                                        {r.media}/{r.sleeve}
+                                        {itemSpecShort(r)}
                                       </span>
                                     </span>
                                     {invoiced ? (
@@ -2244,7 +2247,7 @@ export function InboxPage() {
                                   <span>
                                     {c.artist} — {c.title}{" "}
                                     <span className="text-neutral-500">
-                                      {c.pressing}
+                                      {itemSubtitle(c)}
                                     </span>{" "}
                                     — ${c.price}
                                     {flags.length > 0 ? (

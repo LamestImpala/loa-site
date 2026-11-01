@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { createServerSupabase, type ItemDetails, type ItemKind } from "@/lib/supabase";
 import { makeRefCode } from "@/lib/records";
 import {
   adminNotificationEmail,
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     // The same snapshot the trigger took: listed, unsold, in catalog order.
     const { data, error: readError } = await supabase
       .from("records")
-      .select("id, artist, title, media, sleeve, price")
+      .select("id, kind, artist, title, media, sleeve, condition, details, price")
       .in("id", recordIds)
       .eq("listed", true)
       .eq("sold", false)
@@ -70,10 +70,13 @@ export async function POST(req: NextRequest) {
       return;
     }
     const items = data.map((r) => ({
+      kind: r.kind as ItemKind,
       artist: r.artist as string,
       title: r.title as string,
       media: r.media as string,
       sleeve: r.sleeve as string,
+      condition: r.condition as string | null,
+      details: r.details as ItemDetails | null,
       price: Number(r.price),
     }));
     const args = { refCode, buyerName, buyerEmail, message, items };

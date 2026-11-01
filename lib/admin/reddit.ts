@@ -1,5 +1,6 @@
 import type { DbRecord, RedditPost } from "../supabase.ts";
 import { FREE_SHIPPING_MIN, SELLER_INFO } from "../records.ts";
+import { kindOf } from "../items.ts";
 import { reserved } from "./records.ts";
 import type { MarketMap, MarketStats } from "./market.ts";
 
@@ -39,8 +40,9 @@ function topCollections(list: DbRecord[], n: number) {
 
 // What a new post may offer: on the shop and not reserved — a record held
 // for a buyer or on a live invoice would read as available for weeks.
+// Posters and equipment never go in the r/VinylCollectors post.
 export const offerable = (r: DbRecord, now: number = Date.now()) =>
-  r.listed && !reserved(r, now);
+  kindOf(r) === "record" && r.listed && !reserved(r, now);
 
 export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
   const list = records

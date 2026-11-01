@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { KIND_LABELS, isRecord, itemSpecShort, itemSubtitle, kindOf } from "@/lib/items";
 import Link from "next/link";
 import type { DbRecord } from "@/lib/supabase";
 import {
@@ -250,13 +251,16 @@ function PickRowButton({
         <span className="block truncate font-medium">
           {r.artist} — {r.title}
         </span>
-        {r.pressing ? (
-          <span className="block truncate text-xs text-neutral-400">{r.pressing}</span>
+        {itemSubtitle(r) ? (
+          <span className="block truncate text-xs text-neutral-400">{itemSubtitle(r)}</span>
         ) : null}
         <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-neutral-400">
-          <span>
-            {r.media} / {r.sleeve}
-          </span>
+          {!isRecord(r) ? (
+            <span className="rounded-full border border-amber-400/40 px-2 text-amber-300">
+              {KIND_LABELS[kindOf(r)]}
+            </span>
+          ) : null}
+          <span>{itemSpecShort(r)}</span>
           {showBuyer ? (
             <span className="rounded-full border border-white/15 px-2 text-neutral-300">
               {buyerLabel(row.buyer, row.buyerEmail)}

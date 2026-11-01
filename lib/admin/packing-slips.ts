@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { bundleKindSummary, itemSpecShort, itemSubtitle } from "../items.ts";
 import type { ManifestRow, PackingSlip } from "./pack-list.ts";
 import { buyerLabel } from "./buyers.ts";
 
@@ -153,12 +154,11 @@ export async function packingSlips(slips: PackingSlip[]): Promise<Uint8Array> {
 
     c.rule();
 
-    const n = slip.records.length;
-    c.para(`${n} record${n === 1 ? "" : "s"}`, 9, regular, GREY);
+    c.para(bundleKindSummary(slip.records), 9, regular, GREY);
     c.y -= 2;
     slip.records.forEach((r, i) => {
       c.para(`${i + 1}. ${r.artist} — ${r.title}`, 11, bold);
-      const detail = [r.pressing, `${r.media} / ${r.sleeve}`].filter(Boolean).join(" · ");
+      const detail = [itemSubtitle(r), itemSpecShort(r)].filter(Boolean).join(" · ");
       c.para(detail, 8, regular, GREY);
       c.y -= 3;
     });
@@ -216,7 +216,7 @@ export async function shipManifest(
     c.right(pages.length > 1 ? `${date} · page ${p + 1} of ${pages.length}` : date, 9, regular, c.y + 4);
     c.y -= 6;
     c.text(
-      `${boxes} package${boxes === 1 ? "" : "s"} · ${records} record${records === 1 ? "" : "s"} · tick as each is ready to go`,
+      `${boxes} package${boxes === 1 ? "" : "s"} · ${records} item${records === 1 ? "" : "s"} · tick as each is ready to go`,
       9,
       regular,
       { color: GREY }

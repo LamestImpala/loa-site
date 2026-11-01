@@ -9,6 +9,9 @@ export function rec(over: Partial<DbRecord> = {}): DbRecord {
   const id = over.id ?? nextId++;
   return {
     id,
+    kind: "record",
+    condition: null,
+    details: {},
     artist: "Artist",
     title: `Title ${id}`,
     pressing: "2020 · Label CAT-1 · US",
@@ -33,6 +36,39 @@ export function rec(over: Partial<DbRecord> = {}): DbRecord {
     updated_at: "2026-09-01T00:00:00.000Z",
     ...over,
   };
+}
+
+// A concert poster: no pressing or Goldmine grades, one condition word,
+// and the show details in `details`.
+export function poster(over: Partial<DbRecord> = {}): DbRecord {
+  return rec({
+    kind: "poster",
+    artist: "Pearl Jam",
+    title: `Poster ${over.id ?? nextId}`,
+    pressing: "",
+    media: "",
+    sleeve: "",
+    condition: "Excellent",
+    details: { venue: "Wrigley Field", city: "Chicago", show_date: "2016-08-20", dimensions: "18 × 24 in" },
+    price: 120,
+    ...over,
+  });
+}
+
+// A piece of audio equipment: brand in artist, model in title.
+export function gear(over: Partial<DbRecord> = {}): DbRecord {
+  return rec({
+    kind: "gear",
+    artist: "Technics",
+    title: `SL-${over.id ?? nextId}`,
+    pressing: "",
+    media: "",
+    sleeve: "",
+    condition: "Very Good",
+    details: { category: "Turntable", included: "Dust cover" },
+    price: 400,
+    ...over,
+  });
 }
 
 export function invoice(over: Partial<Invoice> = {}): Invoice {
