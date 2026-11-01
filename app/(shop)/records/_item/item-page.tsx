@@ -478,7 +478,11 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
 
         {related.length ? (
           <h2 className="rp-related-heading">
-            {actualKind === "record" ? "More from the shelves" : "Also on the wall"}
+            {actualKind === "record"
+              ? "More from the shelves"
+              : actualKind === "poster"
+                ? "Also on the wall"
+                : "Also on the rack"}
           </h2>
         ) : null}
         {related.map((g, i) => (

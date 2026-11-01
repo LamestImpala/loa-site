@@ -30,7 +30,7 @@ import {
 // directly. Supabase writes go through the caller's own token, so RLS
 // still enforces the admin policy.
 //
-//   POST   { ids, buyer, email?, prices?, credit?, creditNote? } — create +
+//   POST   { ids, buyer, email?, prices?, credit?, creditNote?, gearShipping? } — create +
 //     send an invoice for a set of records, put them in an order
 //     (invoiced), hold them for the buyer until the invoice is paid or
 //     cancelled, and save a pending `invoices`
@@ -38,7 +38,9 @@ import {
 //     desk. `prices` maps record id → negotiated price: the line shows the
 //     listed price with the difference as a discount. `credit` comes off
 //     the whole invoice as an invoice-level discount, `creditNote` in the
-//     note to the buyer.
+//     note to the buyer. `gearShipping` is the rate quoted for any
+//     equipment on the order (the shop charged $0 for it on the request),
+//     added to the per-kind shipping.
 //   GET    ?id=INV2-…              — read the invoice's status from PayPal
 //     and mirror it (status, payment link, paid_at) onto the row. While
 //     it's still payable, its unsold records are (re)held until resolved;
@@ -133,6 +135,11 @@ export async function POST(req: NextRequest) {
   }
   const creditNote =
     typeof body.creditNote === "string" ? body.creditNote.trim().slice(0, 200) : "";
+  const gearShipping =
+    body.gearShipping == null ? 0 : Math.round(Number(body.gearShipping) * 100) / 100;
+  if (!Number.isFinite(gearShipping) || gearShipping < 0 || gearShipping > 2000) {
+    return NextResponse.json({ error: "Invalid equipment shipping" }, { status: 400 });
+  }
 
   const { data: recs, error: fetchError } = await supabase
     .from("records")
@@ -213,6 +220,15 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  // Quoted equipment shipping only applies when there is equipment to ship.
+  const quotedGear = breakdown.gearQuoted ? gearShipping : 0;
+  const shipping = breakdown.shipping + quotedGear;
+  const total = breakdown.total + quotedGear;
+  const shippingNote = quotedGear > 0
+    ? ` Equipment shipping is the $${quotedGear.toFixed(2)} we agreed.`
+    : breakdown.shippingNote
+      ? ` ${breakdown.shippingNote}`
+      : "";
 
   try {
     const result = await createAndSendInvoice({
@@ -222,12 +238,12 @@ export async function POST(req: NextRequest) {
         value: (sale < listed ? listed : sale).toFixed(2),
         discount: sale < listed ? (listed - sale).toFixed(2) : undefined,
       })),
-      shippingValue: breakdown.shipping.toFixed(2),
+      shippingValue: shipping.toFixed(2),
       discountValue: breakdown.credit > 0 ? breakdown.credit.toFixed(2) : undefined,
       terms: invoiceTerms(recs),
       note:
         `Order for ${buyerName} — thanks! ${shippingSentence(recs)}` +
-        (breakdown.shippingNote ? ` ${breakdown.shippingNote}` : "") +
+        shippingNote +
         (breakdown.credit > 0
           ? ` A $${breakdown.credit.toFixed(2)} credit is applied as the discount${creditNote ? ` (${creditNote})` : ""}.`
           : ""),
@@ -291,7 +307,7 @@ export async function POST(req: NextRequest) {
       recipient_view_url: result.recipientViewUrl,
       status: result.status,
       record_ids: ids,
-      total: breakdown.total,
+      total,
       updated_at: now,
     };
     const { data: saved, error: rowError } = await supabase
@@ -326,8 +342,8 @@ export async function POST(req: NextRequest) {
       placed,
       subtotal: breakdown.subtotal,
       credit: breakdown.credit,
-      shipping: breakdown.shipping,
-      total: breakdown.total,
+      shipping,
+      total,
     });
   } catch (e) {
     // Surfaces PayPal's response body in the Vercel runtime logs

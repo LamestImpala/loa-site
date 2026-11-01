@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SHOP_PATH_PREFIX } from "@/lib/hosts";
 
-// Records | Posters (| Equipment, once it has a page). Each link is "current"
+// Records | Posters | Equipment. Each link is "current"
 // on its list page and on its items' detail pages, so the shopper always
 // sees which wall they're looking at.
 const LINKS: { href: string; label: string; match: RegExp }[] = [
   { href: "/", label: "Records", match: /^\/(r\/|$)/ },
   { href: "/posters", label: "Posters", match: /^\/(posters|p\/)/ },
+  { href: "/equipment", label: "Equipment", match: /^\/(equipment|e\/)/ },
 ];
 
 export default function ShopNavLinks() {

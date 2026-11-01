@@ -1,4 +1,11 @@
-import { ADMIN_EMAIL, type Order, type ReviewInvite, type ReviewSource, type Shipment } from "./supabase.ts";
+import {
+  ADMIN_EMAIL,
+  type ItemKind,
+  type Order,
+  type ReviewInvite,
+  type ReviewSource,
+  type Shipment,
+} from "./supabase.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
 import { escapeHtml, SHOP_URL } from "./order-request.ts";
 
@@ -234,15 +241,21 @@ export function buyerFirstName(o: Pick<Order, "ship_to" | "buyer_email" | "buyer
 // What the buyer bought, as a DM would say it: one record by name, two
 // joined with "and", more as a count ("your 3 Taylor Swift records" when
 // they're all one artist).
-export function boughtPhrase(records: { artist: string; title: string }[]): string {
+export function boughtPhrase(
+  records: { artist: string; title: string; kind?: ItemKind | null }[]
+): string {
   const name = (r: { artist: string; title: string }) => `${r.artist} – ${r.title}`;
   if (records.length === 0) return "your records";
   if (records.length === 1) return name(records[0]);
   if (records.length === 2) return `${name(records[0])} and ${name(records[1])}`;
   const artist = records[0].artist;
+  // "records" only when they all are; a poster or an amp in the box makes it "items".
+  const kinds = new Set(records.map((r) => r.kind ?? "record"));
+  const noun =
+    kinds.size > 1 ? "items" : kinds.has("poster") ? "posters" : kinds.has("gear") ? "pieces of gear" : "records";
   return records.every((r) => r.artist === artist)
-    ? `your ${records.length} ${artist} records`
-    : `your ${records.length} records`;
+    ? `your ${records.length} ${artist} ${noun}`
+    : `your ${records.length} ${noun}`;
 }
 
 // The Reddit DM asking for a review, ready to paste: greets by first name,

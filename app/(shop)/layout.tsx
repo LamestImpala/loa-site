@@ -129,7 +129,7 @@ export default function ShopLayout({
         </div>
         <div className="shop-footer-bottom">
           <Link href="/">Records</Link> · <Link href="/posters">Posters</Link> ·{" "}
-          <Link href="/reviews">Reviews</Link>
+          <Link href="/equipment">Equipment</Link> · <Link href="/reviews">Reviews</Link>
           <br />
           curiouserrecords.com ·{" "}
           <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>{" "}

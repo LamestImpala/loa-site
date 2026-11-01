@@ -177,6 +177,9 @@ test("bought phrase: one by name, two joined, more counted", () => {
   assert.equal(boughtPhrase([pj, ts]), "Pearl Jam – Benaroya Hall and Taylor Swift – Lover");
   assert.equal(boughtPhrase([pj, ts, pj]), "your 3 records");
   assert.equal(boughtPhrase([ts, ts, ts]), "your 3 Taylor Swift records");
+  const poster = { artist: "Pearl Jam", title: "Wrigley", kind: "poster" as const };
+  assert.equal(boughtPhrase([pj, ts, poster]), "your 3 items");
+  assert.equal(boughtPhrase([poster, poster, poster]), "your 3 Pearl Jam posters");
   assert.equal(boughtPhrase([]), "your records");
 });
 
