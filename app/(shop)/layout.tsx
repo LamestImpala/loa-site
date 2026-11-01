@@ -5,6 +5,7 @@ import Link from "next/link";
 import { GRADES } from "@/lib/record-info";
 import { SELLER_INFO } from "@/lib/records";
 import "./shop.css";
+import VisitTracker from "./visit-tracker";
 
 // IM Fell: 17th-century English types, close kin to the Tenniel-era books
 // the Wonderland look borrows from. Roman and italic for display, the
@@ -99,6 +100,7 @@ export default function ShopLayout({
       <div className="shop-checker" aria-hidden />
 
       <main>{children}</main>
+      <VisitTracker />
 
       <div className="shop-checker" aria-hidden />
       <footer className="shop-footer">

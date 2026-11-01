@@ -27,6 +27,7 @@ import type {
   Shipment,
   ShopMessage,
   ShopReview,
+  ShopVisitRow,
 } from "@/lib/supabase";
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
 import { holdActive, invoiceHold } from "@/lib/admin/records";
@@ -59,6 +60,7 @@ export type SliceName =
   | "runs"
   | "interest"
   | "events"
+  | "visits"
   | "market"
   | "redditPosts";
 export type SliceStatus = "idle" | "loading" | "loaded" | "error";
@@ -67,6 +69,7 @@ const SLICE_NAMES: SliceName[] = [
   "runs",
   "interest",
   "events",
+  "visits",
   "market",
   "redditPosts",
 ];
@@ -103,6 +106,7 @@ type AdminContextValue = {
   setReviewInvites: Setter<ReviewInvite[]>;
   interest: Record<number, RecordInterest>;
   events: RecordEventRow[];
+  visits: ShopVisitRow[];
   market: MarketMap;
   redditPosts: RedditPost[];
   setRedditPosts: Setter<RedditPost[]>;
@@ -273,6 +277,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [interest, setInterest] = useState<Record<number, RecordInterest>>({});
   // Raw shopper events for the last 60 days, newest first (capped at 5000).
   const [events, setEvents] = useState<RecordEventRow[]>([]);
+  // Shop page loads for the last 60 days, newest first (capped at 10000).
+  const [visits, setVisits] = useState<ShopVisitRow[]>([]);
   const [market, setMarket] = useState<MarketMap>({});
   const [redditPosts, setRedditPosts] = useState<RedditPost[]>([]);
   const [postUrl, setPostUrl] = useState("");
@@ -436,6 +442,20 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             .limit(5000);
           if (res.error) return fail("Interest history", res.error.message);
           setEvents((res.data ?? []) as RecordEventRow[]);
+          return ok();
+        }
+        case "visits": {
+          const res = await supabase
+            .from("shop_visits")
+            .select("session_id,path,record_id,referrer_host,created_at")
+            .gte(
+              "created_at",
+              new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+            )
+            .order("created_at", { ascending: false })
+            .limit(10000);
+          if (res.error) return fail("Shop visits", res.error.message);
+          setVisits((res.data ?? []) as ShopVisitRow[]);
           return ok();
         }
         case "market": {
@@ -1173,6 +1193,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setReviewInvites,
     interest,
     events,
+    visits,
     market,
     redditPosts,
     setRedditPosts,

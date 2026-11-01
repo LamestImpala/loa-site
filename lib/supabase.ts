@@ -267,6 +267,16 @@ export type RecordEventRow = {
   created_at: string;
 };
 
+// One shop page load (shop_visits table), logged by the shop's VisitTracker;
+// admin-read only. Counts browsing that never produced a record_events click.
+export type ShopVisitRow = {
+  session_id: string;
+  path: string; // under /records, e.g. /records/r/118-eric-clapton-…
+  record_id: number | null;
+  referrer_host: string | null; // landing page only
+  created_at: string;
+};
+
 // One generated Reddit sale post, archived at copy time (r/vinylcollectors
 // forbids deleting posts, so old ones get retired with a pointer to the
 // newest post instead). Update repastes are child rows via parent_id.
