@@ -18,7 +18,7 @@ import {
   redditWeeklyMarkdown,
   shuffle,
 } from "./reddit.ts";
-import { DAY, iso, rec } from "./fixtures.ts";
+import { DAY, iso, poster, rec } from "./fixtures.ts";
 import { INVOICE_HOLD_UNTIL } from "./records.ts";
 
 const NOW = Date.parse("2026-09-13T12:00:00Z");
@@ -44,6 +44,16 @@ test("full-catalog post lists only listed, unsold, unheld records, alphabeticall
   assert.equal(lines(md)[0], "[For Sale] 3 vinyl records — collection sale, audiophile pressings — PayPal G&S");
   assert.ok(md.includes(SHOP_URL));
   assert.ok(md.includes(`bundles of ${FREE_SHIPPING_MIN}+ records`));
+});
+
+test("posters and equipment stay out of the vinyl post", () => {
+  const md = redditMarkdown([
+    rec({ id: 1, artist: "Zappa", title: "Hot Rats" }),
+    poster({ id: 2, artist: "Pearl Jam", title: "Wrigley Night 1" }),
+  ], NOW);
+  const rows = tableRows(md);
+  assert.equal(rows.length, 1);
+  assert.ok(!md.includes("Wrigley"));
 });
 
 test("full-catalog cells escape pipes, collapse whitespace, and link photos", () => {

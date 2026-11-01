@@ -85,7 +85,10 @@ export type PackingSlip = {
   boxIndex: number; // 1-based position among the order's boxes
   boxCount: number;
   packedAt: string | null;
-  records: Pick<DbRecord, "artist" | "title" | "pressing" | "media" | "sleeve">[];
+  records: Pick<
+    DbRecord,
+    "kind" | "artist" | "title" | "pressing" | "media" | "sleeve" | "condition" | "details"
+  >[];
 };
 
 export function slipsForParcels(
@@ -230,7 +233,10 @@ export function manifestRows(
 // "tracked" isn't "gone" — only the drop-off is. Buyer A→Z, like the Pack
 // cards. Loose records first (shelf order), then each box's records
 // tagged with its Box # and whether it's labeled yet.
-export type OrderSheetRecord = Pick<DbRecord, "artist" | "title" | "media" | "sleeve"> & {
+export type OrderSheetRecord = Pick<
+  DbRecord,
+  "kind" | "artist" | "title" | "media" | "sleeve" | "condition" | "details"
+> & {
   boxId: number | null;
   labeled: boolean;
 };
@@ -249,10 +255,13 @@ export function orderSheet(
   orders: Order[]
 ): OrderSheetOrder[] {
   const line = (r: DbRecord, s: Shipment | null): OrderSheetRecord => ({
+    kind: r.kind,
     artist: r.artist,
     title: r.title,
     media: r.media,
     sleeve: r.sleeve,
+    condition: r.condition,
+    details: r.details,
     boxId: s?.id ?? null,
     labeled: !!s?.tracking_code,
   });

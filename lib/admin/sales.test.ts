@@ -43,6 +43,9 @@ test("sold price: the desk's price beats the negotiated price beats the listed p
   assert.equal(salePrice(rec({ price: 40 })), 40);
   assert.equal(salePrice(rec({ price: 40, negotiated_price: "35" as unknown as number })), 35);
   assert.deepEqual(saleItem(rec({ artist: "A", title: "T", media: "M", sleeve: "S", price: 40 }), 33), {
+    kind: "record",
+    condition: null,
+    details: {},
     artist: "A",
     title: "T",
     media: "M",

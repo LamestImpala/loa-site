@@ -340,6 +340,7 @@ async function backfillReleaseDetails() {
   const { data: missing, error } = await supabase
     .from("records")
     .select("id, discogs_release_id")
+    .eq("kind", "record")
     .is("tracklist", null)
     .not("discogs_release_id", "is", null);
   if (error) throw error;
@@ -383,6 +384,7 @@ async function backfillCoverImages() {
   const { data: missing, error } = await supabase
     .from("records")
     .select("id, discogs_release_id")
+    .eq("kind", "record")
     .eq("cover_image", "")
     .not("discogs_release_id", "is", null);
   if (error) throw error;
@@ -442,6 +444,7 @@ async function main() {
   let query = supabase
     .from("records")
     .select("id, artist, title, media, price, discogs_release_id, created_at, hold_until")
+    .eq("kind", "record")
     .eq("listed", true)
     .eq("sold", false)
     .not("discogs_release_id", "is", null);

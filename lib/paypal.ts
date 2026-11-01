@@ -6,6 +6,8 @@
  */
 
 import type { ShipTo } from "./supabase.ts";
+import type { ItemKind } from "./supabase.ts";
+import { FREE_SHIPPING_MIN, POSTER_TUBE_RATE, SHIPPING_PER_PARCEL, countKinds } from "./items.ts";
 
 const PAYPAL_ENVS: Record<string, string> = {
   sandbox: "https://api-m.sandbox.paypal.com",
@@ -72,11 +74,32 @@ const INVOICER = {
     "https://pics.paypal.com/00/s/NjQ3YjkyYmUtNDJhNS00NjI3LTk4NDYtYmFiYWIzNzBjYmYw/file.PNG",
 };
 
-const TERMS =
-  "All records are graded to the Goldmine standard — media and sleeve grades are listed per item. " +
-  "Shipped via USPS Media Mail from Phoenix, AZ, outside the jacket in a proper LP mailer. " +
-  "Shipping is $6 for 1–2 records and free on 3 or more. " +
-  "Questions? Reply to this invoice or PM u/ShroomHog on Reddit.";
+// Terms on the invoice, one sentence per kind of item it carries.
+export function invoiceTerms(items: { kind?: ItemKind | null }[]): string {
+  const n = countKinds(items);
+  const parts: string[] = [];
+  if (n.record || (!n.poster && !n.gear)) {
+    parts.push(
+      "All records are graded to the Goldmine standard — media and sleeve grades are listed per item. " +
+        "Shipped via USPS Media Mail from Phoenix, AZ, outside the jacket in a proper LP mailer. " +
+        `Shipping is $${SHIPPING_PER_PARCEL} for 1–2 records and free on ${FREE_SHIPPING_MIN} or more.`
+    );
+  }
+  if (n.poster) {
+    parts.push(
+      `Posters ship rolled together in a sturdy tube for a flat $${POSTER_TUBE_RATE}; condition is described per item.`
+    );
+  }
+  if (n.gear) {
+    parts.push(
+      "Equipment is tested and described per item and ships boxed; shipping is quoted per order."
+    );
+  }
+  parts.push("Questions? Reply to this invoice or PM u/ShroomHog on Reddit.");
+  return parts.join(" ");
+}
+
+const TERMS = invoiceTerms([]);
 
 export type InvoiceResult = {
   invoiceId: string;
@@ -494,6 +517,7 @@ export async function createAndSendInvoice(args: {
   discountValue?: string; // "10.00" — an order credit, shown as an invoice-level discount
   note: string;
   memo: string;
+  terms?: string;
   recipientEmail?: string;
 }): Promise<InvoiceResult> {
   const token = await getPayPalAccessToken();
@@ -511,7 +535,7 @@ export async function createAndSendInvoice(args: {
         currency_code: "USD",
         note: args.note,
         memo: args.memo,
-        terms_and_conditions: TERMS,
+        terms_and_conditions: args.terms ?? TERMS,
         payment_term: { term_type: "DUE_ON_RECEIPT" },
       },
       invoicer: INVOICER,

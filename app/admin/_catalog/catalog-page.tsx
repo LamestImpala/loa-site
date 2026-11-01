@@ -18,11 +18,15 @@ import {
   filtersFromQuery,
   filtersToQuery,
   sortRecords,
+  type CatalogFilters,
   type InterestFilter,
   type SortKey,
 } from "@/lib/admin/catalog-filter";
 import { discogsStatusText, useAdmin, useSlice } from "../_shell/admin-provider";
 import { CatalogRow } from "./catalog-row";
+import { ConditionSelect, DetailsEditor, DetailsInputs } from "./item-fields";
+import { KINDS, KIND_LABELS, isRecord, itemSubtitle, kindOf } from "@/lib/items";
+import type { ItemDetails, ItemKind } from "@/lib/supabase";
 import { blurOnEnter, buttonClass, inputClass, pct } from "../_shell/ui";
 
 const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
@@ -40,6 +44,28 @@ type NewRecordDraft = {
   collection: string;
   details: ReleaseDetails; // tracklist, country, barcode, styles for the record page
 };
+
+// A poster or a piece of equipment typed in by hand — nothing on Discogs
+// to fetch. Brand goes in artist and model in title for gear.
+type NewItemDraft = {
+  kind: Exclude<ItemKind, "record">;
+  artist: string;
+  title: string;
+  price: string;
+  condition: string;
+  notes: string;
+  details: ItemDetails;
+};
+
+const emptyItemDraft = (kind: NewItemDraft["kind"]): NewItemDraft => ({
+  kind,
+  artist: kind === "poster" ? "Pearl Jam" : "",
+  title: "",
+  price: "0",
+  condition: "",
+  notes: "",
+  details: {},
+});
 
 
 // The catalog: every record, with filters, the listings table, per-record
@@ -108,6 +134,7 @@ export function CatalogPage() {
   const [genreRowEdits, setGenreRowEdits] = useState<Record<number, string>>({});
   const [collectionRowEdits, setCollectionRowEdits] = useState<Record<number, string>>({});
   const [notesEdits, setNotesEdits] = useState<Record<number, string>>({});
+  const [kindFilter, setKindFilter] = useState<CatalogFilters["kind"]>(initialView.filters.kind);
   const [genreFilter, setGenreFilter] = useState(initialView.filters.genre);
   const [collectionFilter, setCollectionFilter] = useState(
     initialView.filters.collection
@@ -129,6 +156,7 @@ export function CatalogPage() {
       filtersToQuery(
         {
           search,
+          kind: kindFilter,
           genre: genreFilter,
           collection: collectionFilter,
           letter: letterFilter,
@@ -138,7 +166,7 @@ export function CatalogPage() {
         },
         sortBy
       ).toString(),
-    [search, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, sortBy]
+    [search, kindFilter, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, sortBy]
   );
   // history.replaceState keeps useSearchParams in sync without a
   // navigation, so typing in the search box never re-routes.
@@ -516,6 +544,7 @@ export function CatalogPage() {
           records,
           {
             search,
+            kind: kindFilter,
             genre: genreFilter,
             collection: collectionFilter,
             letter: letterFilter,
@@ -528,7 +557,7 @@ export function CatalogPage() {
         sortBy,
         interest
       ),
-    [records, search, sortBy, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]
+    [records, search, sortBy, kindFilter, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]
   );
 
   // From records, not filteredRecords — selection survives filter changes.
@@ -590,6 +619,74 @@ export function CatalogPage() {
   const [draft, setDraft] = useState<NewRecordDraft | null>(null);
   const [addError, setAddError] = useState("");
   const [addingRecord, setAddingRecord] = useState(false);
+  // What the add form is for: a record (fetched from Discogs) or a
+  // poster / piece of equipment typed in by hand.
+  const [addKind, setAddKind] = useState<ItemKind>("record");
+  const [itemDraft, setItemDraft] = useState<NewItemDraft>(() => emptyItemDraft("poster"));
+
+  function pickAddKind(kind: ItemKind) {
+    setAddKind(kind);
+    setAddError("");
+    if (kind !== "record" && itemDraft.kind !== kind) setItemDraft(emptyItemDraft(kind));
+  }
+
+  // Insert the poster or gear row, then open its drawer: photos upload
+  // against the row's id, so they're added there.
+  async function addItem() {
+    const d = itemDraft;
+    const price = Number(d.price);
+    if (!d.artist.trim() || !d.title.trim() || !Number.isFinite(price) || price < 0) {
+      setAddError(
+        d.kind === "gear"
+          ? "Brand, model, and a valid price (0 is fine) are required."
+          : "Band, poster title, and a valid price (0 is fine) are required."
+      );
+      return;
+    }
+    setAddError("");
+    setAddingRecord(true);
+    const details: ItemDetails = {};
+    for (const [k, v] of Object.entries(d.details) as [keyof ItemDetails, string | undefined][]) {
+      if (v && v.trim()) details[k] = v.trim();
+    }
+    const { data, error } = await supabase
+      .from("records")
+      .insert({
+        kind: d.kind,
+        artist: d.artist.trim(),
+        title: d.title.trim(),
+        price,
+        condition: d.condition || null,
+        details,
+        notes: d.notes.trim(),
+        pressing: "",
+        media: "",
+        sleeve: "",
+        cover_image: "",
+        genres: [],
+        collection: null,
+        discogs_release_id: null,
+        manual_price: true, // nothing on Discogs to price it from
+        tracklist: [],
+        country: "",
+        barcode: "",
+        styles: [],
+      })
+      .select()
+      .single();
+    setAddingRecord(false);
+    if (error) {
+      setAddError(error.message);
+      return;
+    }
+    const added = data as DbRecord;
+    setRecords((prev) =>
+      [...prev, added].sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title))
+    );
+    setItemDraft(emptyItemDraft(d.kind));
+    pushToast("success", `Added ${added.artist} — ${added.title}. Add photos in the drawer.`);
+    openDrawer(added.id);
+  }
 
   async function fetchReleaseDetails() {
     setAddError("");
@@ -745,6 +842,18 @@ export function CatalogPage() {
             placeholder="Search artist, title, label, genre…"
             className={`w-full max-w-md ${inputClass}`}
           />
+          <select
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value as CatalogFilters["kind"])}
+            className={`${inputClass} [&>option]:bg-neutral-900`}
+          >
+            <option value="all">Kind: All</option>
+            {KINDS.map((k) => (
+              <option key={k} value={k}>
+                {k === "record" ? "Records" : k === "poster" ? "Posters" : "Equipment"}
+              </option>
+            ))}
+          </select>
           <select
             value={genreFilter}
             onChange={(e) => setGenreFilter(e.target.value)}
@@ -1095,8 +1204,13 @@ export function CatalogPage() {
                       <div className="min-w-0">
                         <p className="font-medium text-white">
                           {r.artist} — {r.title}
+                          {!isRecord(r) ? (
+                            <span className="ml-2 rounded-full border border-amber-400/40 px-2 text-xs font-normal text-amber-300">
+                              {KIND_LABELS[kindOf(r)]}
+                            </span>
+                          ) : null}
                         </p>
-                        <p className="text-xs text-neutral-500">{r.pressing}</p>
+                        <p className="text-xs text-neutral-500">{itemSubtitle(r)}</p>
                       </div>
                     </div>
                     <button
@@ -1113,6 +1227,13 @@ export function CatalogPage() {
                   <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
                     Listing
                   </h3>
+                      {!isRecord(r) ? (
+                        <DetailsEditor
+                          r={r}
+                          disabled={savingIds.has(r.id)}
+                          onSave={(patch) => updateRecord(r.id, patch)}
+                        />
+                      ) : (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <input
                           type="text"
@@ -1175,6 +1296,7 @@ export function CatalogPage() {
                           </select>
                         </label>
                       </div>
+                      )}
                       <textarea
                         value={notesEdits[r.id] ?? (r.notes ?? "")}
                         onChange={(e) =>
@@ -1629,21 +1751,23 @@ export function CatalogPage() {
                           </a>
                         ) : null}
                         <a
-                          href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${r.artist} ${r.title} vinyl`)}&LH_Sold=1&LH_Complete=1`}
+                          href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(`${r.artist} ${r.title}${isRecord(r) ? " vinyl" : kindOf(r) === "poster" ? " poster" : ""}`)}&LH_Sold=1&LH_Complete=1`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
                         >
                           eBay solds
                         </a>
-                        <a
-                          href={`https://www.popsike.com/php/quicksearch.php?searchtext=${encodeURIComponent(`${r.artist} ${r.title}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
-                        >
-                          Popsike
-                        </a>
+                        {isRecord(r) ? (
+                          <a
+                            href={`https://www.popsike.com/php/quicksearch.php?searchtext=${encodeURIComponent(`${r.artist} ${r.title}`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-neutral-500 underline underline-offset-2 transition hover:text-white"
+                          >
+                            Popsike
+                          </a>
+                        ) : null}
                         <button
                           type="button"
                           disabled={savingIds.has(r.id)}
@@ -1660,8 +1784,87 @@ export function CatalogPage() {
             })()
           : null}
 
-        {/* Add record */}
-        <h2 className="mt-12 text-xl font-medium">Add a record</h2>
+        {/* Add record / poster / equipment */}
+        <h2 className="mt-12 text-xl font-medium">Add an item</h2>
+        <div className="mt-3 inline-flex rounded-lg border border-white/15 p-0.5 text-sm" role="tablist">
+          {KINDS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={addKind === k}
+              onClick={() => pickAddKind(k)}
+              className={`rounded-md px-3 py-1 transition ${
+                addKind === k ? "bg-white text-black" : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              {KIND_LABELS[k]}
+            </button>
+          ))}
+        </div>
+        {addKind !== "record" ? (
+          <>
+            <p className="mt-2 text-sm text-neutral-400">
+              {addKind === "poster"
+                ? "Band, poster title (the show or print name), price, condition and the show details. Photos go on after it's added."
+                : "Brand, model, price, condition, what works and what's in the box. Photos go on after it's added."}
+            </p>
+            <div className="mt-3 flex max-w-2xl flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  value={itemDraft.artist}
+                  onChange={(e) => setItemDraft({ ...itemDraft, artist: e.target.value })}
+                  placeholder={addKind === "poster" ? "Band" : "Brand"}
+                  className={`flex-1 ${inputClass}`}
+                />
+                <input
+                  type="text"
+                  value={itemDraft.title}
+                  onChange={(e) => setItemDraft({ ...itemDraft, title: e.target.value })}
+                  placeholder={addKind === "poster" ? "Poster title, e.g. Wrigley Field 2016 Night 1" : "Model"}
+                  className={`flex-[2] ${inputClass}`}
+                />
+              </div>
+              <DetailsInputs
+                kind={addKind}
+                values={itemDraft.details}
+                onChange={(key, value) =>
+                  setItemDraft((prev) => ({ ...prev, details: { ...prev.details, [key]: value } }))
+                }
+              />
+              <textarea
+                value={itemDraft.notes}
+                onChange={(e) => setItemDraft({ ...itemDraft, notes: e.target.value })}
+                placeholder="Notes shown to buyers"
+                rows={2}
+                className={`w-full max-w-md resize-y ${inputClass}`}
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <ConditionSelect
+                  kind={addKind}
+                  value={itemDraft.condition}
+                  onChange={(condition) => setItemDraft({ ...itemDraft, condition })}
+                />
+                <label className="flex items-center gap-2 text-sm text-neutral-400">
+                  $
+                  <input
+                    type="number"
+                    min="0"
+                    value={itemDraft.price}
+                    onChange={(e) => setItemDraft({ ...itemDraft, price: e.target.value })}
+                    className={`w-24 ${inputClass}`}
+                  />
+                </label>
+                <button type="button" onClick={addItem} disabled={addingRecord} className={buttonClass}>
+                  {addingRecord ? "Adding…" : `Add ${KIND_LABELS[addKind].toLowerCase()}`}
+                </button>
+              </div>
+              {addError ? <p className="text-sm text-red-400">{addError}</p> : null}
+            </div>
+          </>
+        ) : (
+          <>
         <p className="mt-1 text-sm text-neutral-400">
           Paste a Discogs release URL or ID and Fetch fills in the details and
           cover art. Leave the price at 0 and tonight&apos;s run will set it to
@@ -1799,6 +2002,8 @@ export function CatalogPage() {
             </div>
           </div>
         ) : null}
+          </>
+        )}
     </>
   );
 }

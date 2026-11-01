@@ -1,4 +1,5 @@
 import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
+import { kindOf } from "../items.ts";
 
 // Fulfillment rules: how sold records and parcels group per order, what
 // PayPal already knows about a parcel, and the r/VinylCollectors trade
@@ -217,7 +218,7 @@ export function discogsReady(
   orders: Order[]
 ): DbRecord[] {
   const onDiscogs = (r: DbRecord) =>
-    r.sold && !!r.discogs_release_id && !r.discogs_removed;
+    kindOf(r) === "record" && r.sold && !!r.discogs_release_id && !r.discogs_removed;
   const refunded = new Set(
     orders.filter((o) => o.status === "refunded").map((o) => o.id)
   );

@@ -13,13 +13,40 @@ export type Track = {
   duration: string; // "3:41", or "" when Discogs has none
 };
 
+// What a row in `records` is. Posters and audio equipment share the table
+// (same id space, so holds, orders, invoices and parcels work unchanged);
+// `kind` tells them apart and `details` holds the fields only that kind has.
+export type ItemKind = "record" | "poster" | "gear";
+
+export type PosterDetails = {
+  venue?: string;
+  city?: string;
+  show_date?: string; // YYYY-MM-DD
+  designer?: string; // poster artist, e.g. "Ames Bros"
+  edition?: string; // "142/300", "AP", "open edition"
+  dimensions?: string; // "18 × 24 in"
+  print_method?: string; // see PRINT_METHODS in lib/items.ts
+  condition_note?: string; // "flat, never hung"
+};
+
+export type GearDetails = {
+  category?: string; // see GEAR_CATEGORIES in lib/items.ts
+  working_note?: string; // "Fully working; new belt 2025"
+  included?: string; // "Dust cover, 45 adapter, original box"
+};
+
+export type ItemDetails = PosterDetails & GearDetails;
+
 export type DbRecord = {
   id: number;
-  artist: string;
-  title: string;
-  pressing: string;
-  media: string;
-  sleeve: string;
+  kind?: ItemKind; // absent/undefined reads as "record" (kindOf in lib/items.ts)
+  artist: string; // poster: the band; gear: the brand
+  title: string; // poster: the poster's name; gear: the model
+  pressing: string; // '' for posters and gear
+  media: string; // '' for posters and gear
+  sleeve: string; // '' for posters and gear
+  condition?: string | null; // posters and gear: one of ITEM_CONDITIONS; null for records
+  details?: ItemDetails | null; // kind-specific fields; {} for records
   price: number;
   prev_price?: number | null; // price before the most recent change
   notes: string;
@@ -148,10 +175,12 @@ export type PendingPriceChange = {
 // Snapshot of one record inside an order request, captured at request time.
 export type OrderRequestItem = {
   id: number;
+  kind?: ItemKind; // absent on requests saved before posters and gear existed
   artist: string;
   title: string;
   media: string;
   sleeve: string;
+  condition?: string | null;
   price: number;
 };
 

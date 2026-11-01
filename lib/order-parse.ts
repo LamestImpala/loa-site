@@ -7,9 +7,9 @@
  * results and let the admin confirm.
  */
 
-import type { DbRecord } from "./supabase";
-import { REF_LINE_RE } from "./records";
-import { buyerLabel } from "./admin/buyers";
+import type { DbRecord } from "./supabase.ts";
+import { REF_LINE_RE } from "./records.ts";
+import { buyerLabel } from "./admin/buyers.ts";
 
 export type ParsedLine = {
   raw: string;
@@ -17,6 +17,7 @@ export type ParsedLine = {
   title?: string;
   media?: string;
   sleeve?: string;
+  spec?: string; // a poster's or gear's "Cond: Excellent · 18 × 24 in" segment
   price?: number;
 };
 
@@ -46,6 +47,12 @@ const FULL_LINE = new RegExp(
   `^\\s*${INDEX}?(.+?)${SEP}(.+?)${SEP}media:\\s*([^/]+?)\\s*/\\s*sleeve:\\s*(.+?)${SEP}\\$?\\s*${PRICE}\\s*$`,
   "i"
 );
+// 2. Pearl Jam — Wrigley Night 1 — Cond: Excellent · 18 × 24 in — $120
+// (posters and gear: one condition segment that always starts "Cond:")
+const SPEC_LINE = new RegExp(
+  `^\\s*${INDEX}?(.+?)${SEP}(.+?)${SEP}(cond:\\s*.+?)${SEP}\\$?\\s*${PRICE}\\s*$`,
+  "i"
+);
 // Artist — Title — $63 (buyer deleted the grades)
 const PRICED_LINE = new RegExp(
   `^\\s*${INDEX}?(.+?)${SEP}(.+?)${SEP}\\$\\s*${PRICE}\\s*$`,
@@ -56,7 +63,7 @@ const PRICED_LINE = new RegExp(
 // anything that doesn't resemble inventory to "unmatched".
 const BARE_LINE = new RegExp(`^\\s*${INDEX}?(.+?)${SEP}(.+?)\\s*$`, "i");
 
-const SKIP_LINE = /^\s*(subtotal|shipping|total)\b\s*[:(]/i;
+const SKIP_LINE = /^\s*(subtotal|shipping|equipment shipping|total)\b\s*[:(]/i;
 
 function looksLikeItem(line: string) {
   return new RegExp(SEP).test(line) && line.trim().split(/\s+/).length >= 2;
@@ -78,6 +85,17 @@ export function parseOrderText(text: string): ParsedLine[] {
         media: m[3].trim(),
         sleeve: m[4].trim(),
         price: Number(m[5]),
+      });
+      continue;
+    }
+    m = raw.match(SPEC_LINE);
+    if (m) {
+      out.push({
+        raw,
+        artist: m[1].trim(),
+        title: m[2].trim(),
+        spec: m[3].trim(),
+        price: Number(m[4]),
       });
       continue;
     }

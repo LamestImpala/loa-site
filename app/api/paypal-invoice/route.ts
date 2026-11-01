@@ -9,6 +9,7 @@ import {
   type OrderRequest,
 } from "@/lib/supabase";
 import { bundleBreakdown } from "@/lib/records";
+import { KIND_LABELS, itemSpecLine, kindOf, shippingSentence } from "@/lib/items";
 import { liveInvoiceOn } from "@/lib/admin/orders";
 import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
 import { mirrorInvoice } from "@/lib/admin/invoices-db";
@@ -18,6 +19,7 @@ import {
   cancelInvoice,
   createAndSendInvoice,
   getInvoicePayment,
+  invoiceTerms,
   PAID_STATUSES,
   REFUNDED_STATUSES,
   paypalConfigured,
@@ -135,7 +137,7 @@ export async function POST(req: NextRequest) {
   const { data: recs, error: fetchError } = await supabase
     .from("records")
     .select(
-      "id, artist, title, media, sleeve, price, sold, order_id, hold_buyer, buyer_username, paypal_invoice_id"
+      "id, kind, artist, title, media, sleeve, condition, details, price, sold, order_id, hold_buyer, buyer_username, paypal_invoice_id"
     )
     .in("id", ids);
   if (fetchError) {
@@ -216,14 +218,16 @@ export async function POST(req: NextRequest) {
     const result = await createAndSendInvoice({
       items: lines.map(({ r, listed, sale }) => ({
         name: `${r.artist} — ${r.title}`.slice(0, 200),
-        description: `Media: ${r.media} / Sleeve: ${r.sleeve}`,
+        description: itemSpecLine(r) || KIND_LABELS[kindOf(r)],
         value: (sale < listed ? listed : sale).toFixed(2),
         discount: sale < listed ? (listed - sale).toFixed(2) : undefined,
       })),
       shippingValue: breakdown.shipping.toFixed(2),
       discountValue: breakdown.credit > 0 ? breakdown.credit.toFixed(2) : undefined,
+      terms: invoiceTerms(recs),
       note:
-        `Vinyl records for ${buyerName} — thanks! Shipped USPS Media Mail from Phoenix, AZ.` +
+        `Order for ${buyerName} — thanks! ${shippingSentence(recs)}` +
+        (breakdown.shippingNote ? ` ${breakdown.shippingNote}` : "") +
         (breakdown.credit > 0
           ? ` A $${breakdown.credit.toFixed(2)} credit is applied as the discount${creditNote ? ` (${creditNote})` : ""}.`
           : ""),

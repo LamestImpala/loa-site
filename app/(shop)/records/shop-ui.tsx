@@ -12,10 +12,18 @@ import {
   FREE_SHIPPING_MIN,
   SELLER_INFO,
   bundleBreakdown,
-  combinedShipping,
   makeRefCode,
 } from "@/lib/records";
 import { isOnHold } from "@/lib/record-info";
+import {
+  KIND_LABELS,
+  bundleKindSummary,
+  itemSpecLine,
+  itemSubtitle,
+  kindOf,
+  shippingFor,
+  type ShippingQuote,
+} from "@/lib/items";
 import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
 
 // ── Interest tracking ────────────────────────────────────────────────────
@@ -61,7 +69,7 @@ export function trackVisit(path: string) {
     if (sentVisits.has(path)) return;
     const first = sentVisits.size === 0;
     sentVisits.add(path);
-    const recordId = Number(/^\/records\/r\/(\d+)/.exec(path)?.[1]) || undefined;
+    const recordId = Number(/^\/records\/[rpe]\/(\d+)/.exec(path)?.[1]) || undefined;
     // Only the session's landing page carries where it came from.
     let referrerHost: string | undefined;
     if (first && document.referrer) {
@@ -233,20 +241,16 @@ export function BundleBar({
 }) {
   if (records.length === 0) return null;
   const subtotal = records.reduce((s, r) => s + r.price, 0);
-  const shipping = combinedShipping(records.length);
+  const quote = shippingFor(records);
+  const shipping = quote.shipping;
   return (
     <div className="shop-bundle-bar" role="region" aria-label="Your bundle">
       <div className="shop-shell shop-bundle-inner">
         <span className="shop-bundle-summary" aria-live="polite">
-          {records.length} record{records.length === 1 ? "" : "s"} · ${subtotal}
-          {shipping > 0 ? ` + $${shipping} shipping` : " + free shipping"}{" "}
-          <strong>= ${subtotal + shipping}</strong>
+          {bundleKindSummary(records)} · ${subtotal}
+          {shippingPhrase(quote)} <strong>= ${subtotal + shipping}</strong>
         </span>
-        <span className="shop-bundle-shipnote">
-          {records.length >= FREE_SHIPPING_MIN
-            ? "Free shipping unlocked"
-            : `Add ${FREE_SHIPPING_MIN - records.length} more for free shipping`}
-        </span>
+        <span className="shop-bundle-shipnote">{bundleShipNote(quote)}</span>
         <button type="button" className="btn btn-primary" onClick={onRequest}>
           Request to buy {records.length}
         </button>
@@ -258,17 +262,48 @@ export function BundleBar({
   );
 }
 
+// " + $6 shipping", " + free shipping", or the equipment caveat, for the
+// bundle bar and the buy sheet's total line.
+function shippingPhrase(q: ShippingQuote): string {
+  if (q.shipping > 0) return q.gearQuoted ? ` + $${q.shipping} shipping, equipment extra` : ` + $${q.shipping} shipping`;
+  return q.gearQuoted ? " + shipping quoted later" : " + free shipping";
+}
+
+// The nudge under the bundle total: records keep the "add N more" line;
+// posters and equipment say how they ship.
+function bundleShipNote(q: ShippingQuote): string {
+  const parts: string[] = [];
+  const n = q.counts.record;
+  if (n > 0) {
+    parts.push(
+      n >= FREE_SHIPPING_MIN
+        ? "Records ship free"
+        : `Add ${FREE_SHIPPING_MIN - n} more record${FREE_SHIPPING_MIN - n === 1 ? "" : "s"} for free record shipping`
+    );
+  }
+  if (q.counts.poster > 0) parts.push(`$${q.posters} tube covers every poster`);
+  if (q.counts.gear > 0) parts.push("Equipment shipping quoted after you request");
+  if (parts.length === 1 && n > 0 && n >= FREE_SHIPPING_MIN) return "Free shipping unlocked";
+  return parts.join(" · ");
+}
+
 // ── Request to buy ───────────────────────────────────────────────────────
 
 // DM for one record. The Ref line ties the DM to the order_requests row
 // saved when the buyer clicks send, same as the bundle flow.
 function singleRequestMessage(r: DbRecord, hasPost: boolean, refCode: string) {
-  const subject = `Record purchase: ${r.artist} — ${r.title}`;
+  const kind = kindOf(r);
+  const subject = `${KIND_LABELS[kind]} purchase: ${r.artist} — ${r.title}`;
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
-  const shipping = combinedShipping(1);
-  const message = `Hi! I am interested in purchasing this title from you:\n\n${r.artist} — ${r.title}\n${r.pressing}\nMedia: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}\n$${r.price} + $${shipping} shipping = $${r.price + shipping} total\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  const quote = shippingFor([r]);
+  const subtitle = itemSubtitle(r);
+  const spec = itemSpecLine(r);
+  const totalLine = quote.gearQuoted
+    ? `$${r.price} + shipping (quoted separately)`
+    : `$${r.price} + $${quote.shipping} shipping = $${r.price + quote.shipping} total`;
+  const message = `Hi! I am interested in purchasing this ${kind === "record" ? "title" : "item"} from you:\n\n${r.artist} — ${r.title}\n${subtitle ? `${subtitle}\n` : ""}${spec ? `${spec} — ` : ""}$${r.price}\n${totalLine}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
   return { subject, message };
 }
 
@@ -280,14 +315,17 @@ function combinedRequestMessage(
   hasPost: boolean,
   refCode: string
 ) {
-  const subject = `Record purchase: ${list.length} records from your list`;
-  const { lines, subtotal, shipping, total } = bundleBreakdown(list);
+  const allRecords = list.every((r) => kindOf(r) === "record");
+  const subject = allRecords
+    ? `Record purchase: ${list.length} records from your list`
+    : `Purchase request: ${bundleKindSummary(list)} from your list`;
+  const { lines, subtotal, shipping, shippingDetail, shippingNote, total } = bundleBreakdown(list);
   const commentLine = hasPost
     ? "\nI'll also comment on your Reddit post to confirm I sent this DM.\n"
     : "";
-  const message = `Hi! I am interested in purchasing these titles from you:\n\n${lines.join(
+  const message = `Hi! I am interested in purchasing these ${allRecords ? "titles" : "items"} from you:\n\n${lines.join(
     "\n"
-  )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shipping === 0 ? ` (free on ${FREE_SHIPPING_MIN}+ records)` : ""}\nTotal: $${total}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
+  )}\n\nSubtotal: $${subtotal}\nShipping: $${shipping}${shippingDetail ? ` (${shippingDetail})` : ""}\n${shippingNote ? `${shippingNote}\n` : ""}Total: $${total}\nRef: ${refCode}\n${commentLine}\n(Found on https://curiouserrecords.com)\n\n`;
   return { subject, message };
 }
 
@@ -324,7 +362,7 @@ function persistOrderRequest(
 // with the same list, which still reaches the admin's inbox.
 function mailtoFallback(list: DbRecord[]) {
   const { lines, total } = bundleBreakdown(list);
-  const subject = `Record request: ${list.length === 1 ? `${list[0].artist} — ${list[0].title}` : `${list.length} records`}`;
+  const subject = `${list.length === 1 ? KIND_LABELS[kindOf(list[0])] : "Purchase"} request: ${list.length === 1 ? `${list[0].artist} — ${list[0].title}` : bundleKindSummary(list)}`;
   const body = `Hi! I'd like to buy:\n\n${lines.join("\n")}\n\nTotal: $${total}\n\n(Found on https://curiouserrecords.com)\n`;
   return `mailto:${SELLER_INFO.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
@@ -464,7 +502,7 @@ export function BuyDialog({
     const comment =
       items.length === 1
         ? `Sent you a DM about ${titles[0]}!`
-        : `Sent you a DM about ${items.length} records: ${titles.slice(0, 3).join("; ")}${
+        : `Sent you a DM about ${bundleKindSummary(items)}: ${titles.slice(0, 3).join("; ")}${
             titles.length > 3 ? ` and ${titles.length - 3} more` : ""
           }!`;
     try {
@@ -504,6 +542,12 @@ export function BuyDialog({
               <li key={r.id}>
                 <span>
                   {r.artist} — {r.title}
+                  {kindOf(r) !== "record" ? (
+                    <>
+                      {" "}
+                      <span className="tag">{KIND_LABELS[kindOf(r)]}</span>
+                    </>
+                  ) : null}
                 </span>
                 <span>${r.price}</span>
               </li>
@@ -512,12 +556,13 @@ export function BuyDialog({
           <div className="shop-dialog-total">
             <span>
               ${quote.subtotal}
-              {quote.shipping > 0
-                ? ` + $${quote.shipping} shipping`
-                : " + free shipping"}
+              {shippingPhrase(shippingFor(items))}
             </span>
             <strong>= ${quote.total}</strong>
           </div>
+          {quote.shippingNote ? (
+            <p className="shop-dialog-hint">{quote.shippingNote}</p>
+          ) : null}
           {emailStatus.kind === "sent" ? (
             <div className="shop-dialog-success" role="status">
               <strong>Request sent — ref {emailStatus.refCode}</strong>

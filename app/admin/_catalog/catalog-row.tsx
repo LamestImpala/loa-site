@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { KIND_LABELS, isRecord, itemSpecShort, itemSubtitle, kindOf } from "@/lib/items";
 import type { DbRecord, RecordInterest } from "@/lib/supabase";
 import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
 import { buyerLabel } from "@/lib/admin/buyers";
@@ -76,10 +77,11 @@ export const CatalogRow = memo(function CatalogRow({
             {r.artist} — {r.title}
           </p>
         </button>
-        <p className="text-xs text-neutral-500">{r.pressing}</p>
+        <p className="text-xs text-neutral-500">{itemSubtitle(r)}</p>
         <p className="mt-0.5 text-xs text-neutral-600">
           {[
-            `${r.media}/${r.sleeve}`,
+            isRecord(r) ? null : KIND_LABELS[kindOf(r)],
+            itemSpecShort(r),
             (r.genres ?? []).join(", ") || null,
             r.collection || null,
             photoCount ? `${photoCount} photo${photoCount === 1 ? "" : "s"}` : null,

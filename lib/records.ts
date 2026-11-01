@@ -8,6 +8,17 @@
  * see lib/records.ts before commit "Add cover art, A-Z browser…".)
  */
 
+import type { ItemDetails, ItemKind } from "./supabase";
+import {
+  KIND_ORDER,
+  RECORDS_PER_PARCEL,
+  itemSpecLine,
+  kindOf,
+  shippingDetail,
+  shippingFor,
+  shippingNote,
+} from "./items.ts";
+
 // A–Z browser shared by /records and /admin
 export const LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
 
@@ -16,53 +27,62 @@ export function artistLetter(artist: string) {
   return first >= "A" && first <= "Z" ? first : "#";
 }
 
-// USA media mail: one parcel holds up to 3 records. Buyers pay $6 for one
-// or two records; a bundle of FREE_SHIPPING_MIN or more ships free — that is
-// the parcel boundary, so it costs one label and rewards the order size
-// that makes the packing worthwhile.
-export const SHIPPING_PER_PARCEL = 6;
-export const RECORDS_PER_PARCEL = 3;
-export const FREE_SHIPPING_MIN = 3;
-
-export function combinedShipping(count: number): number {
-  if (count <= 0) return 0;
-  if (count >= FREE_SHIPPING_MIN) return 0;
-  return Math.ceil(count / RECORDS_PER_PARCEL) * SHIPPING_PER_PARCEL;
-}
+// Shipping rules and the per-kind helpers live in lib/items.ts; the
+// constants stay importable from here for the pages that always did.
+export {
+  FREE_SHIPPING_MIN,
+  POSTER_TUBE_RATE,
+  RECORDS_PER_PARCEL,
+  SHIPPING_PER_PARCEL,
+  combinedShipping,
+} from "./items.ts";
 
 export type BundleItem = {
+  kind?: ItemKind; // absent = record
   artist: string;
   title: string;
   media: string;
   sleeve: string;
+  condition?: string | null; // posters and gear
+  details?: ItemDetails | null;
   price: number; // what the buyer pays for it
   listedPrice?: number; // the listed price, when the sale price was negotiated
 };
 
-// Itemized quote for a set of records — the one formatter for the shop's
+// Itemized quote for a set of items — the one formatter for the shop's
 // combined "Request to buy" DM, the admin sale-desk reply, and the PayPal
-// invoice route. The order_requests DB trigger (validate_order_request)
-// recomputes shipping with the same rule — a rate change must touch both.
-// A negotiated line shows the listed price beside it; a credit comes off
-// the subtotal (never more than the subtotal — that's the PayPal cap too).
+// invoice route. Records print first, then posters, then gear (the order
+// the DB trigger snapshots). The order_requests trigger
+// (validate_order_request) recomputes shipping with the same per-kind
+// rules as shippingFor — a rate change must touch both. A negotiated
+// line shows the listed price beside it; a credit comes off the subtotal
+// (never more than the subtotal — that's the PayPal cap too).
 export function bundleBreakdown(items: BundleItem[], credit = 0) {
-  const lines = items.map(
-    (r, i) =>
-      `${i + 1}. ${r.artist} — ${r.title} — Media: ${r.media} / Sleeve: ${r.sleeve} — $${r.price}${
-        r.listedPrice != null && r.listedPrice !== r.price ? ` (listed $${r.listedPrice})` : ""
-      }`
-  );
-  const subtotal = items.reduce((s, r) => s + r.price, 0);
+  const sorted = items
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => KIND_ORDER[kindOf(a.item)] - KIND_ORDER[kindOf(b.item)] || a.i - b.i)
+    .map((x) => x.item);
+  const lines = sorted.map((r, i) => {
+    const spec = itemSpecLine(r);
+    return `${i + 1}. ${r.artist} — ${r.title}${spec ? ` — ${spec}` : ""} — $${r.price}${
+      r.listedPrice != null && r.listedPrice !== r.price ? ` (listed $${r.listedPrice})` : ""
+    }`;
+  });
+  const subtotal = sorted.reduce((s, r) => s + r.price, 0);
   const applied = Math.min(Math.max(0, credit), subtotal);
-  const parcels = Math.ceil(items.length / RECORDS_PER_PARCEL);
-  const shipping = combinedShipping(items.length);
+  const quote = shippingFor(sorted);
+  const parcels = Math.ceil(quote.counts.record / RECORDS_PER_PARCEL);
   return {
+    items: sorted,
     lines,
     subtotal,
     credit: applied,
     parcels,
-    shipping,
-    total: subtotal - applied + shipping,
+    shipping: quote.shipping,
+    shippingDetail: shippingDetail(quote),
+    shippingNote: shippingNote(quote),
+    gearQuoted: quote.gearQuoted,
+    total: subtotal - applied + quote.shipping,
   };
 }
 
@@ -95,6 +115,8 @@ export type SellerInfo = {
   contact: string;
   payment: string;
   shipping: string;
+  posterShipping: string;
+  gearShipping: string;
   guarantee: string;
 };
 
@@ -106,5 +128,7 @@ export const SELLER_INFO: SellerInfo = {
   contact: "Request to buy by email or Reddit DM. First come, first served.",
   payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
   shipping: "$6 USPS Media Mail for 1–2 records (USA); free shipping on 3 or more. Records ship outside the jacket in a proper LP mailer.",
+  posterShipping: "$12 flat (USA) for any number of posters, rolled together in a sturdy tube.",
+  gearShipping: "Shipping is quoted per order — I'll reply with the rate before sending the invoice. Local pickup in Phoenix, AZ is always free.",
   guarantee: "Something not as described? Email me and I'll make it right.",
 };
