@@ -58,6 +58,7 @@ export function CatalogPage() {
     setPending,
     interest,
     events,
+    visits,
     market,
     pushToast,
     savingIds,
@@ -154,11 +155,12 @@ export function CatalogPage() {
   // be linked to (and survives a reload). Replaced, not pushed, so the
   // back button leaves the catalog rather than walking through records.
   const openId = Number(searchParams.get("record")) || null;
-  // Interest counts and Discogs context feed the table; raw events only
-  // matter once a drawer opens (its day-by-day history).
+  // Interest counts and Discogs context feed the table; raw events and
+  // page visits only matter once a drawer opens (its day-by-day history).
   useSlice("interest");
   useSlice("market");
   useSlice("events", openId != null);
+  useSlice("visits", openId != null);
   const openRecord = useMemo(
     () => (openId == null ? null : records.find((r) => r.id === openId) ?? null),
     [records, openId]
@@ -500,8 +502,11 @@ export function CatalogPage() {
     () =>
       openId == null
         ? []
-        : bucketEventsByDay(events.filter((e) => e.record_id === openId)),
-    [openId, events]
+        : bucketEventsByDay(
+            events.filter((e) => e.record_id === openId),
+            visits.filter((v) => v.record_id === openId)
+          ),
+    [openId, events, visits]
   );
 
   const filteredRecords = useMemo(
@@ -1592,6 +1597,9 @@ export function CatalogPage() {
                                       <span className="text-neutral-300">
                                         {d.label}
                                       </span>
+                                      {d.visited > 0
+                                        ? ` · ${d.visited} viewed`
+                                        : ""}
                                       {d.looked > 0
                                         ? ` · ${d.looked} looked (${d.clicks} click${d.clicks === 1 ? "" : "s"})`
                                         : ""}

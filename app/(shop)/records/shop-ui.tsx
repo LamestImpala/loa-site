@@ -43,23 +43,54 @@ export function track(recordId: number, event: TrackEvent) {
       if (sentEvents.has(key)) return;
       sentEvents.add(key);
     }
-    const payload = JSON.stringify({
-      record_id: recordId,
-      event,
-      session_id: trackingSessionId(),
-    });
-    // sendBeacon survives the new-tab navigation on "Request to buy".
-    const blob = new Blob([payload], { type: "application/json" });
-    if (!navigator.sendBeacon?.("/api/track", blob)) {
-      fetch("/api/track", {
-        method: "POST",
-        body: payload,
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-      }).catch(() => {});
-    }
+    sendTrack({ record_id: recordId, event, session_id: trackingSessionId() });
   } catch {
     // Tracking must never break the shop.
+  }
+}
+
+// Paths already logged this page load; client-side navigation back to a page
+// doesn't count it twice, a reload does (distinct sessions absorb that).
+const sentVisits = new Set<string>();
+
+// Logs one shop page load so "Interest by day" counts shoppers who browse
+// without clicking anything. `path` is under the /records namespace.
+export function trackVisit(path: string) {
+  try {
+    if (localStorage.getItem("cr_no_track")) return;
+    if (sentVisits.has(path)) return;
+    const first = sentVisits.size === 0;
+    sentVisits.add(path);
+    const recordId = Number(/^\/records\/r\/(\d+)/.exec(path)?.[1]) || undefined;
+    // Only the session's landing page carries where it came from.
+    let referrerHost: string | undefined;
+    if (first && document.referrer) {
+      const host = new URL(document.referrer).hostname;
+      if (host !== location.hostname) referrerHost = host;
+    }
+    sendTrack({
+      event: "visit",
+      path,
+      record_id: recordId,
+      referrer_host: referrerHost,
+      session_id: trackingSessionId(),
+    });
+  } catch {
+    // Tracking must never break the shop.
+  }
+}
+
+function sendTrack(body: Record<string, unknown>) {
+  const payload = JSON.stringify(body);
+  // sendBeacon survives the new-tab navigation on "Request to buy".
+  const blob = new Blob([payload], { type: "application/json" });
+  if (!navigator.sendBeacon?.("/api/track", blob)) {
+    fetch("/api/track", {
+      method: "POST",
+      body: payload,
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+    }).catch(() => {});
   }
 }
 

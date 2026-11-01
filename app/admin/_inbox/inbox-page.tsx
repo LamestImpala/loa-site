@@ -17,7 +17,7 @@ import {
   recordFlags,
   type LineMatch,
 } from "@/lib/order-parse";
-import { recentDays } from "@/lib/admin/interest";
+import { dayLabel, localDayKey, recentDays } from "@/lib/admin/interest";
 import {
   HOLD_HOURS,
   STALE_INVOICE_HOURS,
@@ -74,6 +74,7 @@ export function InboxPage() {
     sentMessages,
     setSentMessages,
     events,
+    visits,
     loading,
     loadData,
     pushToast,
@@ -109,8 +110,14 @@ export function InboxPage() {
   } = useAdmin();
 
   useSlice("events");
-  const dailyStrip = useMemo(() => recentDays(events), [events]);
-  const stripMax = Math.max(1, ...dailyStrip.map((d) => d.looked));
+  useSlice("visits");
+  const dailyStrip = useMemo(() => recentDays(events, visits), [events, visits]);
+  const stripMax = Math.max(1, ...dailyStrip.map((d) => d.visited));
+  // Oldest logged visit (visits load newest first), to flag days before
+  // visit tracking existed. Undefined until the slice loads.
+  const visitsSince = visits.length
+    ? localDayKey(new Date(visits[visits.length - 1].created_at))
+    : undefined;
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   // selectedIds / selectionMode / saleBuyer / saleEmail live in the admin
@@ -2364,16 +2371,19 @@ export function InboxPage() {
         </div>
         )}
 
-        {/* Interest by day — daily distinct shoppers across all listings */}
-        {events.length > 0 ? (
+        {/* Interest by day — daily distinct shoppers across the shop */}
+        {events.length > 0 || visits.length > 0 ? (
           <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm text-neutral-400">Interest by day</p>
               <p className="text-xs text-neutral-500">
-                {dailyStrip.reduce((n, d) => n + d.looked, 0)} looked ·{" "}
-                {dailyStrip.reduce((n, d) => n + d.asked, 0)} asked in the last
-                14 days · <span className="text-green-400">●</span> = buy
-                request
+                <span className="text-neutral-400">▮</span>{" "}
+                {dailyStrip.reduce((n, d) => n + d.visited, 0)} visited ·{" "}
+                <span className="text-neutral-200">▮</span>{" "}
+                {dailyStrip.reduce((n, d) => n + d.looked, 0)} clicked a record ·{" "}
+                <span className="text-green-400">●</span>{" "}
+                {dailyStrip.reduce((n, d) => n + d.asked, 0)} asked to buy · last
+                14 days
               </p>
             </div>
             <div className="mt-3 flex items-end gap-1.5">
@@ -2381,21 +2391,33 @@ export function InboxPage() {
                 <div
                   key={d.key}
                   className="flex min-w-0 flex-1 flex-col items-center gap-1"
-                  title={`${d.label} · ${d.looked} looked · ${d.clicks} clicks · ${d.asked} asked`}
+                  title={`${d.label} · ${d.visited} visited · ${d.looked} clicked a record (${d.clicks} clicks) · ${d.asked} asked${
+                    d.topReferrer ? ` · most from ${d.topReferrer}` : ""
+                  }`}
                 >
                   <div className="flex h-16 w-full max-w-8 items-end">
                     <div
-                      className={`w-full rounded-t ${
-                        d.looked > 0 ? "bg-neutral-300" : "bg-white/10"
+                      className={`flex w-full items-end overflow-hidden rounded-t ${
+                        d.visited > 0 ? "bg-neutral-500" : "bg-white/10"
                       }`}
                       style={{
                         height:
-                          d.looked > 0
-                            ? `${Math.max(10, (d.looked / stripMax) * 100)}%`
+                          d.visited > 0
+                            ? `${Math.max(10, (d.visited / stripMax) * 100)}%`
                             : "2px",
                       }}
-                    />
+                    >
+                      {d.looked > 0 ? (
+                        <div
+                          className="w-full bg-neutral-200"
+                          style={{ height: `${(d.looked / d.visited) * 100}%` }}
+                        />
+                      ) : null}
+                    </div>
                   </div>
+                  <p className="h-3 text-[10px] leading-none text-neutral-400">
+                    {d.visited > 0 ? d.visited : ""}
+                  </p>
                   <div className="h-1.5">
                     {d.asked > 0 ? (
                       <div className="mx-auto h-1.5 w-1.5 rounded-full bg-green-400" />
@@ -2407,6 +2429,14 @@ export function InboxPage() {
                 </div>
               ))}
             </div>
+            <p className="mt-3 text-[11px] text-neutral-500">
+              {visitsSince && visitsSince > dailyStrip[0].key
+                ? `Page visits are logged from ${dayLabel(visitsSince)}; earlier days only show people who clicked. `
+                : ""}
+              Counted per browser; your own browsing is skipped on any browser
+              you&rsquo;ve opened the admin in. Hover a day for where people came
+              from.
+            </p>
           </div>
         ) : null}
     </>
