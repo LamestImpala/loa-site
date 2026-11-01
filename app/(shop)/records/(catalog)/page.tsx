@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { SELLER_INFO } from "@/lib/records";
 import { trackRecordLine } from "@/lib/record-info";
-import { ratingLine, reviewMonth, SOURCE_LABELS, stars, type ReviewSummary } from "@/lib/review";
+import Link from "next/link";
+import { ratingLine, stars, type ReviewSummary } from "@/lib/review";
 import { getListedRecords, getRedditPostUrl, getReviewSummary, getShopStats } from "../data";
 import RecordsClient from "../records-client";
+import ReviewQuoteItem from "../review-quote";
 
 export const metadata: Metadata = {
   title: "Records for Sale — Curiouser Records",
@@ -41,8 +43,14 @@ function SellerInfoLines({ trackRecord }: { trackRecord: string | null }) {
   );
 }
 
+// More published than the three quoted here: link to the full list.
+function hasMoreReviews(s: ReviewSummary) {
+  return s.count > s.quotes.length;
+}
+
 // "★★★★★ 4.9 out of 5 from 23 reviews · Read them ↓", under the lede on
-// every screen size so the rating is seen before the buying details.
+// every screen size so the rating is seen before the buying details. When
+// some aren't quoted below, "Read them" goes to the full /reviews page.
 function RatingLine({ summary }: { summary: ReviewSummary }) {
   return (
     <p className="shop-rating">
@@ -52,39 +60,31 @@ function RatingLine({ summary }: { summary: ReviewSummary }) {
         </span>
       ) : null}
       <span>{ratingLine(summary)}</span>
-      <a href="#reviews">Read them ↓</a>
+      {hasMoreReviews(summary) ? (
+        <Link href="/reviews">Read them →</Link>
+      ) : (
+        <a href="#reviews">Read them ↓</a>
+      )}
     </p>
   );
 }
 
-// Up to three published reviews, featured first — the buyer's own words.
+// Up to three published reviews, featured first — the buyer's own words —
+// and a link to the rest.
 function ReviewQuotes({ summary }: { summary: ReviewSummary }) {
   return (
     <section className="shop-shell shop-reviews" id="reviews" aria-labelledby="reviews-title">
       <h2 id="reviews-title">What buyers say</h2>
       <ul className="shop-reviews-list">
         {summary.quotes.map((q) => (
-          <li key={q.id} className="shop-quote">
-            {q.rating != null ? (
-              <span className="shop-quote-stars" aria-label={`${q.rating} out of 5 stars`}>
-                {stars(q.rating)}
-              </span>
-            ) : null}
-            <blockquote>{q.body}</blockquote>
-            {q.ownerReply ? (
-              <p className="shop-quote-reply">
-                <em>Reply:</em> {q.ownerReply}
-              </p>
-            ) : null}
-            <footer>
-              <strong>{q.reviewerName}</strong>
-              {" · "}
-              {reviewMonth(q.reviewedOn)}
-              {q.source !== "site" ? ` · via ${SOURCE_LABELS[q.source]}` : ""}
-            </footer>
-          </li>
+          <ReviewQuoteItem key={q.id} quote={q} />
         ))}
       </ul>
+      {hasMoreReviews(summary) ? (
+        <Link className="btn btn-secondary shop-reviews-more" href="/reviews">
+          See all {summary.count} reviews →
+        </Link>
+      ) : null}
     </section>
   );
 }

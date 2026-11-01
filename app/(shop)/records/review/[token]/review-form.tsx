@@ -48,8 +48,9 @@ export default function ReviewForm({ token, defaultName }: { token: string; defa
     return (
       <div className="review-done" role="status">
         <p>
-          <strong>Thank you!</strong> Your review is in. It shows on the shop
-          once I&rsquo;ve had a look.
+          <strong>Thank you!</strong> Your review is in. Once I&rsquo;ve had a
+          look, it shows with the others on the{" "}
+          <Link href="/reviews">reviews page</Link>.
         </p>
         <Link className="btn btn-primary" href="/">
           Browse the records

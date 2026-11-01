@@ -38,9 +38,14 @@ export default async function ReviewPage({ params }: PageProps<"/records/review/
             {invite ? "Thank you — your review is in." : "That review link didn’t work."}
           </h1>
           <p className="shop-muted" style={{ margin: 0 }}>
-            {invite
-              ? "It shows on the shop once I’ve had a look. I appreciate you taking the time."
-              : "It may be mistyped. Reply to the email it came in and I’ll send a fresh one."}
+            {invite ? (
+              <>
+                Once I&rsquo;ve had a look, it shows with the others on the{" "}
+                <Link href="/reviews">reviews page</Link>. I appreciate you taking the time.
+              </>
+            ) : (
+              "It may be mistyped. Reply to the email it came in and I’ll send a fresh one."
+            )}
           </p>
           <Link className="btn btn-primary" href="/">
             Browse the records

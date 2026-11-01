@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { createServerSupabase, type DbRecord } from "@/lib/supabase";
-import { toReviewSummary } from "@/lib/review";
+import { toReviewQuotes, toReviewSummary } from "@/lib/review";
 
 // Columns the catalog grid needs. Every column named here must be granted to
 // anon (see the records_anon_column_grants migrations) or the query fails.
@@ -47,4 +47,12 @@ export const getReviewSummary = cache(async () => {
   const { data, error } = await createServerSupabase().rpc("shop_review_summary");
   if (error) return null;
   return toReviewSummary(data);
+});
+
+// Every published review, newest first, for the /reviews page. Empty when
+// none are published or the call fails.
+export const getPublishedReviews = cache(async () => {
+  const { data, error } = await createServerSupabase().rpc("shop_reviews_published");
+  if (error) return [];
+  return toReviewQuotes(data);
 });

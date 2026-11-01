@@ -172,16 +172,36 @@ export function toReviewSummary(raw: unknown): ReviewSummary | null {
     count,
     ratedCount: Number(r.rated_count) || 0,
     average: r.average == null ? null : Number(r.average),
-    quotes: quotes.map((q) => ({
-      id: Number(q.id),
-      reviewerName: String(q.reviewer_name ?? ""),
-      rating: q.rating == null ? null : Number(q.rating),
-      body: String(q.body ?? ""),
-      source: (q.source as ReviewSource) ?? "site",
-      reviewedOn: String(q.reviewed_on ?? ""),
-      ownerReply: (q.owner_reply as string | null) ?? null,
-    })),
+    quotes: quotes.map(toReviewQuote),
   };
+}
+
+function toReviewQuote(q: Record<string, unknown>): ReviewQuote {
+  return {
+    id: Number(q.id),
+    reviewerName: String(q.reviewer_name ?? ""),
+    rating: q.rating == null ? null : Number(q.rating),
+    body: String(q.body ?? ""),
+    source: (q.source as ReviewSource) ?? "site",
+    reviewedOn: String(q.reviewed_on ?? ""),
+    ownerReply: (q.owner_reply as string | null) ?? null,
+  };
+}
+
+// The shop_reviews_published() JSON array, typed. Empty when the call
+// failed or nothing is published.
+export function toReviewQuotes(raw: unknown): ReviewQuote[] {
+  return Array.isArray(raw) ? (raw as Record<string, unknown>[]).map(toReviewQuote) : [];
+}
+
+// Where one published review sits on the shop's /reviews page, e.g. to
+// send a buyer straight to theirs once it's published.
+export function reviewAnchor(id: number): string {
+  return `review-${id}`;
+}
+
+export function publishedReviewUrl(id: number): string {
+  return `${SHOP_URL}/reviews#${reviewAnchor(id)}`;
 }
 
 // "4.9 from 23 reviews" — the average is over rated reviews only, so the
