@@ -6,6 +6,7 @@ import { GRADES } from "@/lib/record-info";
 import { SELLER_INFO } from "@/lib/records";
 import "./shop.css";
 import VisitTracker from "./visit-tracker";
+import ShopNavLinks from "./shop-nav-links";
 
 // IM Fell: 17th-century English types, close kin to the Tenniel-era books
 // the Wonderland look borrows from. Roman and italic for display, the
@@ -77,7 +78,7 @@ export default function ShopLayout({
   return (
     <div className={`shop ${fell.variable} ${fellSC.variable} ${alice.variable}`}>
       <a className="shop-skip-link" href="#records">
-        Skip to the records
+        Skip to the listings
       </a>
       <nav className="shop-nav">
         <Link href="/" aria-label="Curiouser Records home">
@@ -92,6 +93,7 @@ export default function ShopLayout({
         <div className="shop-nav-brand">
           Curiouser <span>Records</span>
         </div>
+        <ShopNavLinks />
         <div style={{ flex: 1 }} />
         <a className="shop-nav-email" href={`mailto:${SELLER_INFO.contactEmail}`}>
           {SELLER_INFO.contactEmail}
@@ -126,6 +128,9 @@ export default function ShopLayout({
           </div>
         </div>
         <div className="shop-footer-bottom">
+          <Link href="/">Records</Link> · <Link href="/posters">Posters</Link> ·{" "}
+          <Link href="/reviews">Reviews</Link>
+          <br />
           curiouserrecords.com ·{" "}
           <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>{" "}
           · © {new Date().getFullYear()}

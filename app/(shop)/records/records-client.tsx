@@ -54,9 +54,13 @@ const AVAIL_OPTIONS: AvailOption[] = ["all", "open", "sold"];
 
 export default function RecordsClient({
   records,
+  bundlePool,
   redditPostUrl,
 }: {
   records: DbRecord[];
+  // Everything listed, of every kind: the bundle lives in localStorage
+  // across pages, so a poster added on /posters must still count here.
+  bundlePool?: DbRecord[];
   redditPostUrl: string;
 }) {
   const [query, setQuery] = useState("");
@@ -81,8 +85,8 @@ export default function RecordsClient({
   const highlightTimer = useRef<number | undefined>(undefined);
   const urlSynced = useRef(false);
 
-  // Derived from `records` (not `visible`) so filters never drop a selection.
-  const bundle = useBundle(records);
+  // Derived from the full pool (not `visible`) so filters never drop a selection.
+  const bundle = useBundle(bundlePool ?? records);
   const selectedRecords = bundle.selectedRecords;
 
   function clearFilters() {
