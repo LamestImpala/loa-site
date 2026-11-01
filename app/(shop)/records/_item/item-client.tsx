@@ -4,10 +4,12 @@ import { useCallback, useState } from "react";
 import Image from "next/image";
 import {
   FREE_SHIPPING_MIN,
+  POSTER_TUBE_RATE,
   SELLER_INFO,
   SHIPPING_PER_PARCEL,
 } from "@/lib/records";
 import { discogsUrl, dropPct, isOnHold, isReduced } from "@/lib/record-info";
+import { KIND_PLURALS, kindOf } from "@/lib/items";
 import type { DbRecord } from "@/lib/supabase";
 import {
   BundleBar,
@@ -19,16 +21,18 @@ import {
   useBundle,
   type BuySheet,
   type LightboxState,
-} from "../../shop-ui";
+} from "../shop-ui";
 
 // Photos of the actual copy when there are any; otherwise the Discogs stock
-// cover, labelled as such so nobody mistakes it for this copy.
+// cover, labelled as such so nobody mistakes it for this copy. Posters and
+// gear have no stock image — only photos, or a placeholder until there are.
 export function RecordGallery({ record: r }: { record: DbRecord }) {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [active, setActive] = useState(0);
+  const kind = kindOf(r);
   const photos = r.photo_urls ?? [];
   const actual = photos.length > 0;
-  const shown = actual ? photos[active] : r.cover_image;
+  const shown = actual ? photos[active] : kind === "record" ? r.cover_image : "";
   const tint = tintFor(r.artist);
   const alt = `${r.artist} — ${r.title}${actual ? `, photo ${active + 1} of ${photos.length}` : ", stock cover"}`;
 
@@ -38,7 +42,7 @@ export function RecordGallery({ record: r }: { record: DbRecord }) {
   }
 
   return (
-    <div className="rp-gallery">
+    <div className={`rp-gallery kind-${kind}`}>
       <div
         className="rp-gallery-main"
         style={shown ? undefined : { background: tint.bg }}
@@ -94,8 +98,10 @@ export function RecordGallery({ record: r }: { record: DbRecord }) {
       ) : null}
       <p className="rp-gallery-caption">
         {actual
-          ? `Actual copy pictured — ${photos.length} photo${photos.length === 1 ? "" : "s"}. Tap to enlarge.`
-          : "Stock cover from Discogs, not this copy. Want photos of the actual record? Ask in your request."}
+          ? `${kind === "record" ? "Actual copy" : "Actual item"} pictured — ${photos.length} photo${photos.length === 1 ? "" : "s"}. Tap to enlarge.`
+          : kind === "record"
+            ? "Stock cover from Discogs, not this copy. Want photos of the actual record? Ask in your request."
+            : "Photos coming — ask in your request and I'll send some."}
       </p>
       <PhotoLightbox state={lightbox} onChange={setLightbox} />
     </div>
@@ -116,12 +122,26 @@ export function RecordBuyBox({
   const [sheet, setSheet] = useState<BuySheet | null>(null);
   const [liveMessage, setLiveMessage] = useState("");
   const bundle = useBundle(bundleCandidates);
+  const kind = kindOf(r);
   const held = isOnHold(r) && !r.sold;
   const reduced = isReduced(r) && !r.sold;
   const inBundle = bundle.has(r.id);
-  // What adding this record does to shipping, given what's already bundled.
-  const othersInBundle = bundle.selectedRecords.filter((x) => x.id !== r.id).length;
+  // What adding this item does to shipping, given what's already bundled —
+  // counted among items of the same kind, since each kind ships its own way.
+  const othersInBundle = bundle.selectedRecords.filter(
+    (x) => x.id !== r.id && kindOf(x) === kind
+  ).length;
   const countWithThis = othersInBundle + 1;
+  const shipNote =
+    kind === "record"
+      ? countWithThis >= FREE_SHIPPING_MIN
+        ? `Ships free with the ${othersInBundle} other record${othersInBundle === 1 ? "" : "s"} in your bundle.`
+        : `+ $${SHIPPING_PER_PARCEL} USPS Media Mail. Bundle ${FREE_SHIPPING_MIN - countWithThis} more and shipping is free.`
+      : kind === "poster"
+        ? othersInBundle > 0
+          ? `Rolls into the same $${POSTER_TUBE_RATE} tube as the ${othersInBundle} other poster${othersInBundle === 1 ? "" : "s"} in your bundle — no extra shipping.`
+          : `+ $${POSTER_TUBE_RATE} shipping in a sturdy tube. Add more posters and they share it.`
+        : "Shipping is quoted after you request — boxed, or free local pickup in Phoenix.";
 
   const closeSheet = useCallback(
     (sentBundle: boolean) => {
@@ -154,8 +174,8 @@ export function RecordBuyBox({
             Sold — gone down the rabbit hole
           </button>
           <p className="rp-buy-note">
-            This copy has found a new home. The records below are still on
-            the shelf.
+            This one has found a new home. The {KIND_PLURALS[kind]} below are
+            still on the shelf.
           </p>
         </>
       ) : held ? (
@@ -164,11 +184,7 @@ export function RecordBuyBox({
         </p>
       ) : (
         <>
-          <p className="rp-buy-note">
-            {countWithThis >= FREE_SHIPPING_MIN
-              ? `Ships free with the ${othersInBundle} other record${othersInBundle === 1 ? "" : "s"} in your bundle.`
-              : `+ $${SHIPPING_PER_PARCEL} USPS Media Mail. Bundle ${FREE_SHIPPING_MIN - countWithThis} more and shipping is free.`}
-          </p>
+          <p className="rp-buy-note">{shipNote}</p>
           <button
             type="button"
             className="btn btn-primary btn-block"

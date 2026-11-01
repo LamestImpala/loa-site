@@ -349,6 +349,45 @@ html:has(.shop) {
   text-decoration: none;
   font-size: 15px;
 }
+/* Records | Posters: small caps like the hero kicker, the current wall underlined. */
+.shop-nav-links {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-6);
+  margin-left: var(--space-4);
+  font-family: var(--font-caps);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+}
+.shop-nav-links a {
+  font-weight: 400;
+  color: var(--color-neutral-800);
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+}
+.shop-nav-links a:hover {
+  color: var(--color-accent-700);
+}
+.shop-nav-links a[aria-current="page"] {
+  color: var(--color-accent-700);
+  border-bottom-color: currentColor;
+}
+.shop-footer-bottom a {
+  color: inherit;
+}
+
+/* Posters are portrait: show the whole print on parchment, never a square crop. */
+.kind-poster .record-cover,
+.kind-poster .record-compact-cover,
+.rp-gallery.kind-poster .rp-gallery-main {
+  aspect-ratio: 3 / 4;
+  background: var(--color-surface);
+}
+.kind-poster .record-cover img,
+.kind-poster .record-compact-cover img,
+.rp-gallery.kind-poster .rp-gallery-main img {
+  object-fit: contain;
+}
 
 /* Checkerboard trim — the White Rabbit's tiled floor, from the logo. */
 .shop-checker {
@@ -1569,6 +1608,11 @@ html:has(.shop) {
 }
 
 @media (max-width: 640px) {
+  .shop-nav-links {
+    gap: var(--space-4);
+    margin-left: var(--space-2);
+    font-size: 15px;
+  }
   .shop-shell,
   .shop-nav,
   .shop-footer {

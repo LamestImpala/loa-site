@@ -1,8 +1,8 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
-import { getListedRecords } from "@/app/(shop)/records/data";
+import { getListedItems } from "@/app/(shop)/records/data";
 import { SHOP_HOST, matchesHost } from "@/lib/hosts";
-import { recordPath } from "@/lib/record-info";
+import { itemPath } from "@/lib/items";
 
 // headers() makes this dynamic so each host serves its own sitemap: the shop
 // is the catalog, its reviews page and one page per record; everything else
@@ -11,9 +11,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const host = (await headers()).get("host")?.split(":")[0] ?? "";
 
   if (matchesHost(host, SHOP_HOST)) {
-    // The catalog plus a page per record still for sale; sold records keep
-    // their pages (old links work) but drop out of the sitemap.
-    const { records } = await getListedRecords();
+    // The catalog, the posters page, and a page per item still for sale;
+    // sold items keep their pages (old links work) but drop out of the sitemap.
+    const { items } = await getListedItems();
     return [
       {
         url: `https://${SHOP_HOST}`,
@@ -22,15 +22,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 1,
       },
       {
+        url: `https://${SHOP_HOST}/posters`,
+        lastModified: new Date(),
+        changeFrequency: "weekly",
+        priority: 0.8,
+      },
+      {
         url: `https://${SHOP_HOST}/reviews`,
         lastModified: new Date(),
         changeFrequency: "weekly",
         priority: 0.6,
       },
-      ...records
+      ...items
         .filter((r) => !r.sold)
         .map((r) => ({
-          url: `https://${SHOP_HOST}${recordPath(r)}`,
+          url: `https://${SHOP_HOST}${itemPath(r)}`,
           lastModified: new Date(r.updated_at),
           changeFrequency: "weekly" as const,
           priority: 0.7,

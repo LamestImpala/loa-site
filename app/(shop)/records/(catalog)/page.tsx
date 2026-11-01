@@ -4,7 +4,13 @@ import { SELLER_INFO } from "@/lib/records";
 import { trackRecordLine } from "@/lib/record-info";
 import Link from "next/link";
 import { ratingLine, stars, type ReviewSummary } from "@/lib/review";
-import { getListedRecords, getRedditPostUrl, getReviewSummary, getShopStats } from "../data";
+import {
+  getListedItems,
+  getListedRecords,
+  getRedditPostUrl,
+  getReviewSummary,
+  getShopStats,
+} from "../data";
 import RecordsClient from "../records-client";
 import ReviewQuoteItem from "../review-quote";
 
@@ -90,8 +96,9 @@ function ReviewQuotes({ summary }: { summary: ReviewSummary }) {
 }
 
 export default async function RecordsPage() {
-  const [{ records, error }, redditPostUrl, stats, reviews] = await Promise.all([
+  const [{ records, error }, { items: all }, redditPostUrl, stats, reviews] = await Promise.all([
     getListedRecords(),
+    getListedItems(),
     getRedditPostUrl(),
     getShopStats(),
     getReviewSummary(),
@@ -159,7 +166,7 @@ export default async function RecordsPage() {
           </div>
         </div>
       ) : (
-        <RecordsClient records={records} redditPostUrl={redditPostUrl} />
+        <RecordsClient records={records} bundlePool={all} redditPostUrl={redditPostUrl} />
       )}
     </>
   );
