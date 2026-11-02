@@ -28,11 +28,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <section className="mx-auto max-w-6xl px-4 py-8 md:px-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Shop logo: a way back to the storefront from any admin page.
+              Absolute URL on purpose — the admin is usually opened on
+              lateonsetaudiophile.com, where "/" is the LOA home, not the shop.
               Opens in a new tab so the loaded tables and sale-desk selection
               here aren't thrown away. On a phone it shares the first row with
               the account controls and the nav scrolls on its own row below. */}
           <a
-            href="/"
+            href="https://curiouserrecords.com"
             target="_blank"
             rel="noopener"
             title="Open curiouserrecords.com in a new tab"
