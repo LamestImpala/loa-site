@@ -104,7 +104,7 @@ export function AdminNav() {
     <nav
       ref={navRef}
       aria-label="Admin pages"
-      className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-1.5 overflow-x-auto scroll-px-4 px-4 [scrollbar-width:none] md:mx-0 md:w-auto md:flex-wrap md:overflow-visible md:px-0 [&::-webkit-scrollbar]:hidden"
+      className="order-3 -mx-4 flex w-[calc(100%+2rem)] items-center gap-1.5 overflow-x-auto scroll-px-4 px-4 [scrollbar-width:none] md:order-2 md:mx-0 md:w-auto md:flex-1 md:flex-wrap md:overflow-visible md:px-0 [&::-webkit-scrollbar]:hidden"
     >
       {GROUPS.map((group, gi) => (
         <div
