@@ -16,19 +16,46 @@ export function forSaleById(runs: PriceRun[]): Map<number, number> {
   return m;
 }
 
+export type PriceReason = NonNullable<PriceRun["summary"][number]["reason"]>;
+
+// Why the run queued each pending change, keyed "run_id:record_id", read
+// from that run's summary (an "above-lowest" entry is an undercut). Only
+// covers the runs loaded, so older pending rows have no reason.
+export function reasonByPending(runs: PriceRun[]): Map<string, PriceReason> {
+  const m = new Map<string, PriceReason>();
+  for (const run of runs) {
+    for (const s of run.summary ?? []) {
+      const reason = s.action === "above-lowest" ? "lowest" : s.reason;
+      if (s.action === "applied" || !reason) continue;
+      m.set(`${run.id}:${s.record_id}`, reason);
+    }
+  }
+  return m;
+}
+
+export function pendingReason(
+  p: Pick<PendingPriceChange, "run_id" | "record_id">,
+  reasons: Map<string, PriceReason>
+): PriceReason | undefined {
+  return p.run_id == null ? undefined : reasons.get(`${p.run_id}:${p.record_id}`);
+}
+
 // Same heuristic as the email: a cut worth acting on is modest (≤30%) with
 // several copies competing, or any cut on a stocked release (30+ copies —
 // the price run chases the cheapest listing there); everything else is
 // likely condition noise, a scarce copy, or a suggestion-based increase.
+// A time-decay step is always worth a look — it's small by design.
 export const ACTIONABLE_MAX_CUT = 0.3;
 export const ACTIONABLE_MIN_COPIES = 3;
 export const STOCKED_COPIES = 30;
 
 export function isActionable(
   p: PendingPriceChange,
-  forSale: Map<number, number>
+  forSale: Map<number, number>,
+  reason?: PriceReason
 ): boolean {
   if (p.pct_change >= 0) return false;
+  if (reason === "decay") return true;
   const copies = forSale.get(p.record_id) ?? 0;
   return (
     copies >= STOCKED_COPIES ||
