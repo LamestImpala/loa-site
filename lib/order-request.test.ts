@@ -81,3 +81,12 @@ test("buyer confirmation: greets by name, carries the ref and quote, replies go 
   const sneaky = buyerConfirmationEmail({ ...args, message: "<script>x</script>" });
   assert.ok(!sneaky.html.includes("<script>"));
 });
+
+test("buyer confirmation: carries the away notice only when a pause is set", () => {
+  const shippingPause = { from: "2026-11-03", until: "2026-11-11", shipsOn: "2026-11-12", note: "" };
+  const m = buyerConfirmationEmail({ ...args, shippingPause });
+  assert.match(m.text, /\nHeads up: I'm away Nov 3–11\. Anything requested in that window ships Thursday, Nov 12\.\n/);
+  assert.match(m.html, /<p><strong>Heads up: I'm away Nov 3–11\. Anything requested in that window ships Thursday, Nov 12\.<\/strong><\/p>/);
+  assert.doesNotMatch(buyerConfirmationEmail(args).text, /I'm away/);
+  assert.doesNotMatch(adminNotificationEmail({ ...args, shippingPause }).text, /I'm away/);
+});

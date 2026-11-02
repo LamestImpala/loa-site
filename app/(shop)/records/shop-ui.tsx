@@ -25,6 +25,8 @@ import {
   type ShippingQuote,
 } from "@/lib/items";
 import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
+import { shippingPauseSentence, shippingPauseShort } from "@/lib/shipping-pause";
+import { useShippingPause } from "../shipping-pause";
 
 // ── Interest tracking ────────────────────────────────────────────────────
 
@@ -410,6 +412,7 @@ export function BuyDialog({
   const ref = useModal(!!sheet && items.length > 0);
   const quote = bundleBreakdown(items);
   const hasPost = Boolean(redditPostUrl);
+  const pause = useShippingPause();
 
   function close() {
     const sentBundle = emailStatus.kind === "sent" && sheet?.kind === "bundle";
@@ -563,6 +566,11 @@ export function BuyDialog({
           {quote.shippingNote ? (
             <p className="shop-dialog-hint">{quote.shippingNote}</p>
           ) : null}
+          {pause ? (
+            <p className="shop-dialog-hint shop-dialog-hint-pause">
+              {shippingPauseSentence(pause)}
+            </p>
+          ) : null}
           {emailStatus.kind === "sent" ? (
             <div className="shop-dialog-success" role="status">
               <strong>Request sent — ref {emailStatus.refCode}</strong>
@@ -570,7 +578,7 @@ export function BuyDialog({
                 A confirmation is on its way to {emailStatus.email}. I&rsquo;ll
                 reply from {SELLER_INFO.contactEmail}, usually within a day,
                 with a PayPal invoice once we&rsquo;ve confirmed what&rsquo;s
-                available.
+                available.{pause ? ` ${shippingPauseShort(pause)}` : null}
               </p>
               <button
                 type="button"

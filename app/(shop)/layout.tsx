@@ -7,6 +7,8 @@ import { SELLER_INFO } from "@/lib/records";
 import "./shop.css";
 import VisitTracker from "./visit-tracker";
 import ShopNavLinks from "./shop-nav-links";
+import { ShippingPauseBanner, ShippingPauseProvider } from "./shipping-pause";
+import { getShippingPause } from "./records/data";
 
 // IM Fell: 17th-century English types, close kin to the Tenniel-era books
 // the Wonderland look borrows from. Roman and italic for display, the
@@ -70,11 +72,12 @@ export const viewport: Viewport = {
   themeColor: "#f8f1e4",
 };
 
-export default function ShopLayout({
+export default async function ShopLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const pause = await getShippingPause();
   return (
     <div className={`shop ${fell.variable} ${fellSC.variable} ${alice.variable}`}>
       <a className="shop-skip-link" href="#records">
@@ -100,8 +103,11 @@ export default function ShopLayout({
         </a>
       </nav>
       <div className="shop-checker" aria-hidden />
+      <ShippingPauseBanner pause={pause} />
 
-      <main>{children}</main>
+      <main>
+        <ShippingPauseProvider pause={pause}>{children}</ShippingPauseProvider>
+      </main>
       <VisitTracker />
 
       <div className="shop-checker" aria-hidden />

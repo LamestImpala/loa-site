@@ -7,6 +7,7 @@ import {
   parseOrderRequestBody,
 } from "@/lib/order-request";
 import { emailConfigured, sendEmail } from "@/lib/email";
+import { fetchShippingPause } from "@/lib/shipping-pause";
 
 // The shop's email "Request to buy". Unauthenticated by design, like
 // /api/track: strict validation here, the anon role's INSERT-only policy
@@ -57,14 +58,17 @@ export async function POST(req: NextRequest) {
   after(async () => {
     if (!emailConfigured()) return;
     // The same snapshot the trigger took: listed, unsold, in catalog order.
-    const { data, error: readError } = await supabase
-      .from("records")
-      .select("id, kind, artist, title, media, sleeve, condition, details, price")
-      .in("id", recordIds)
-      .eq("listed", true)
-      .eq("sold", false)
-      .order("artist")
-      .order("title");
+    const [{ data, error: readError }, shippingPause] = await Promise.all([
+      supabase
+        .from("records")
+        .select("id, kind, artist, title, media, sleeve, condition, details, price")
+        .in("id", recordIds)
+        .eq("listed", true)
+        .eq("sold", false)
+        .order("artist")
+        .order("title"),
+      fetchShippingPause(supabase),
+    ]);
     if (readError || !data) {
       console.error("order-request: records read failed:", readError?.message);
       return;
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
       details: r.details as ItemDetails | null,
       price: Number(r.price),
     }));
-    const args = { refCode, buyerName, buyerEmail, message, items };
+    const args = { refCode, buyerName, buyerEmail, message, items, shippingPause };
     const [admin, buyer] = await Promise.all([
       sendEmail(adminNotificationEmail(args)),
       sendEmail(buyerConfirmationEmail(args)),
