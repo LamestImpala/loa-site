@@ -399,6 +399,25 @@ html:has(.shop) {
     0 0 / 16px 16px;
 }
 
+/* Away notice: a gold strip under the checker on every shop page. */
+.shop-notice {
+  margin: 0;
+  padding: var(--space-3) var(--space-8);
+  background: var(--color-accent-2-100);
+  border-bottom: 1px solid var(--color-accent-2-300);
+  color: var(--color-accent-2-900);
+  font-size: 14.5px;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+}
+@media (max-width: 640px) {
+  .shop-notice {
+    padding-inline: var(--space-4);
+    text-align: left;
+  }
+}
+
 /* Title page: flat parchment, the rabbit as a frontispiece plate. */
 .shop-hero {
   padding-block: calc(var(--space-8) * 1.25) var(--space-8);
@@ -1346,6 +1365,13 @@ html:has(.shop) {
   font-size: 13.5px;
   color: var(--color-neutral-700);
   margin: 0;
+}
+.shop-dialog-hint-pause {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-2-100);
+  border: 1px solid var(--color-accent-2-300);
+  border-radius: var(--radius-md);
+  color: var(--color-accent-2-900);
 }
 .shop-dialog-field {
   display: grid;

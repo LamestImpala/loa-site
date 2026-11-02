@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createServerSupabase, type DbRecord, type ItemKind } from "@/lib/supabase";
 import { toReviewQuotes, toReviewSummary } from "@/lib/review";
 import { isRecord, kindOf } from "@/lib/items";
+import { fetchShippingPause } from "@/lib/shipping-pause";
 
 // Columns the catalog grid needs. Every column named here must be granted to
 // anon (see the records_anon_column_grants migrations) or the query fails.
@@ -45,6 +46,10 @@ export const getRedditPostUrl = cache(async () => {
     .single();
   return (data?.value as string | undefined)?.trim() ?? "";
 });
+
+// The away notice (settings.shipping_pause), null unless a window is set
+// and still open. The layout shows it; BuyDialog reads it via context.
+export const getShippingPause = cache(() => fetchShippingPause(createServerSupabase()));
 
 // Seller track record from the shop_stats() function (anon can't see sold
 // rows, which are unlisted once they ship). Null when unavailable — the

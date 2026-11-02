@@ -2,6 +2,7 @@ import { ADMIN_EMAIL } from "./supabase.ts";
 import { bundleBreakdown, type BundleItem } from "./records.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
 import { bundleKindSummary, countKinds, itemSpecShort, shippingSentence } from "./items.ts";
+import { shippingPauseSentence, type ShippingPause } from "./shipping-pause.ts";
 
 // The shop's email "Request to buy": what the form may send, and the two
 // emails that go out when it lands — a notification to the admin and a
@@ -64,6 +65,8 @@ export type RequestEmailArgs = {
   buyerEmail: string;
   message: string | null;
   items: BundleItem[];
+  // The away notice in force when the request came in, if any.
+  shippingPause?: ShippingPause | null;
 };
 
 export function escapeHtml(s: string): string {
@@ -144,6 +147,7 @@ export function buyerConfirmationEmail(a: RequestEmailArgs) {
   const noun = requestNoun(a.items);
   const subject = `Got your ${noun ? `${noun} ` : ""}request (Ref ${a.refCode})`;
   const ships = shippingSentence(a.items);
+  const away = a.shippingPause ? shippingPauseSentence(a.shippingPause) : "";
   const text = [
     hi,
     "",
@@ -155,12 +159,15 @@ export function buyerConfirmationEmail(a: RequestEmailArgs) {
     "",
     `I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods & Services invoice (I cover the fee), sent to this email once we've settled the list. ${ships}`,
     "",
+    ...(away ? [away, ""] : []),
     a.message ? `Your note: ${a.message}\n` : "",
     "— Curiouser Records",
   ]
     .filter((l) => l !== "")
     .join("\n");
   const html = `<p>${escapeHtml(hi)}</p><p>Thanks for your request from <a href="${SHOP_URL}">curiouserrecords.com</a>. Here's what you asked about:</p>${q.html}<p>Ref: <code>${a.refCode}</code></p><p>I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods &amp; Services invoice (I cover the fee), sent to this email once we've settled the list. ${escapeHtml(ships)}</p>${
+    away ? `<p><strong>${escapeHtml(away)}</strong></p>` : ""
+  }${
     a.message ? `<p style="color:#666">Your note: ${escapeHtml(a.message).replace(/\n/g, "<br>")}</p>` : ""
   }<p>— Curiouser Records</p>`;
   return { to: a.buyerEmail, subject, text, html, replyTo: ORDERS_ADDRESS };
