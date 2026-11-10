@@ -20,8 +20,9 @@ function cell(s: string | undefined) {
 // Reddit posts should funnel buyers to the site, where every record has a
 // "Request to buy" button that pre-fills the DM; SELLER_INFO.contact stays
 // as-is for the site's own hero card.
-export const SHOP_URL = "https://curiouserrecords.com";
-const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.
+// Written as a bare domain (no https://) in the post text.
+export const SHOP_DOMAIN = "curiouserrecords.com";
+const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_DOMAIN} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.
 
 **Offers:** reasonable offers welcome on bundles of ${FREE_SHIPPING_MIN}+ records (which also ship free) — singles are priced as listed.`;
 
@@ -59,7 +60,7 @@ export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
   return [
     title,
     "",
-    `**${SELLER_INFO.pageTitle}** — browse everything at ${SHOP_URL}`,
+    `**${SELLER_INFO.pageTitle}** — browse everything at ${SHOP_DOMAIN}`,
     "",
     `**Location:** ${SELLER_INFO.location}`,
     "",
@@ -138,7 +139,7 @@ export function redditWeeklyMarkdown(
   return [
     title,
     "",
-    `**Weekly update** — browse everything at ${SHOP_URL}`,
+    `**Weekly update** — browse everything at ${SHOP_DOMAIN}`,
     "",
     ...(drops > 0
       ? [
@@ -173,7 +174,7 @@ export function redditUpdateMarkdown(posted: DbRecord[]) {
   );
   const openCount = list.filter((r) => !r.sold).length;
   return [
-    `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
+    `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_DOMAIN}`,
     "",
     ...REDDIT_TABLE_HEADER,
     ...list.map(updateRow),
@@ -222,7 +223,7 @@ export function redditStaleMarkdown(
         ]
       : [...REDDIT_TABLE_HEADER, ...list.map(updateRow)];
   return [
-    `**⚠️ This post is outdated — see my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_URL}.**`,
+    `**⚠️ This post is outdated — see my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_DOMAIN}.**`,
     "",
     ...table,
     "",

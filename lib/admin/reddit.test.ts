@@ -5,7 +5,7 @@ import { FREE_SHIPPING_MIN } from "../records.ts";
 import type { MarketMap } from "./market.ts";
 import {
   REDDIT_BODY_LIMIT,
-  SHOP_URL,
+  SHOP_DOMAIN,
   WEEKLY_DROP_COUNT,
   WEEKLY_PICK_COUNT,
   demandRatio,
@@ -42,7 +42,8 @@ test("full-catalog post lists only listed, unsold, unheld records, alphabeticall
   assert.match(rows[1], /^\| Fela \| Zombie \|/);
   assert.match(rows[2], /^\| Zappa \| Hot Rats \|/);
   assert.equal(lines(md)[0], "[For Sale] 3 vinyl records — collection sale, audiophile pressings — PayPal G&S");
-  assert.ok(md.includes(SHOP_URL));
+  assert.ok(md.includes(SHOP_DOMAIN));
+  assert.ok(!md.includes("https://curiouserrecords.com"));
   assert.ok(md.includes(`bundles of ${FREE_SHIPPING_MIN}+ records`));
 });
 
@@ -128,7 +129,7 @@ test("update body strikes sold rows and counts what's left", () => {
     rec({ id: 1, artist: "B", title: "Gone", sold: true }),
     rec({ id: 2, artist: "A", title: "Here" }),
   ]);
-  assert.equal(lines(md)[0], `**Weekly update** — 1 of 2 still available — browse everything at ${SHOP_URL}`);
+  assert.equal(lines(md)[0], `**Weekly update** — 1 of 2 still available — browse everything at ${SHOP_DOMAIN}`);
   const rows = tableRows(md);
   assert.equal(rows[0], "| A | Here | $30 | 2020 | NM/VG+ |");
   assert.equal(rows[1], "| ~~B~~ | ~~Gone~~ | **SOLD** | 2020 | NM/VG+ |");
