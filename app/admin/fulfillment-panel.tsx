@@ -9,6 +9,7 @@ import {
   byLongestWaiting,
   confirmationComment,
   groupOrders,
+  handDelivered,
   inPayPal,
   needsRepush,
   orderStage,
@@ -970,7 +971,8 @@ export function FulfillmentPanel({
                       </span>
                     ) : (
                       <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs text-neutral-400">
-                        Dropped off {new Date(drop.sentAt as string).toLocaleDateString()}
+                        {drop.inPerson ? "Handed over" : "Dropped off"}{" "}
+                        {new Date(drop.sentAt as string).toLocaleDateString()}
                       </span>
                     );
                   })()}
@@ -1227,7 +1229,15 @@ export function FulfillmentPanel({
                             Packed {new Date(s.packed_at).toLocaleDateString()}
                           </span>
                         ) : null}
-                        {s.paypal_tracker_id ? (
+                        {handDelivered(s) ? (
+                          <span
+                            className="rounded-full border border-white/15 px-2 py-0.5 text-xs text-neutral-300"
+                            title="Handed to the buyer in person — no label or tracking"
+                          >
+                            Handed over
+                            {s.sent_at ? ` ${new Date(s.sent_at).toLocaleDateString()}` : ""}
+                          </span>
+                        ) : s.paypal_tracker_id ? (
                           <span className="text-xs text-neutral-500">
                             {s.mode === "paypal" ? "PayPal label" : "manual"}
                           </span>
@@ -1265,7 +1275,7 @@ export function FulfillmentPanel({
                             Tracking changed — push again
                           </span>
                         ) : null}
-                        {!s.paypal_invoice_id ? (
+                        {!s.paypal_invoice_id && !handDelivered(s) ? (
                           <span
                             className="text-xs text-neutral-500"
                             title="Paid off-PayPal — tracking is stored here only; tell the buyer yourself"
@@ -1285,6 +1295,7 @@ export function FulfillmentPanel({
                         ) : null}
                       </div>
 
+                      {handDelivered(s) ? null : (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <input
                           type="text"
@@ -1353,6 +1364,7 @@ export function FulfillmentPanel({
                           </button>
                         ) : null}
                       </div>
+                      )}
                       {notes[shipKey] ? (
                         <p className="mt-2 text-xs text-yellow-400">
                           {notes[shipKey]}

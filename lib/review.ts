@@ -7,6 +7,7 @@ import {
   type Shipment,
 } from "./supabase.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
+import { handDelivered } from "./admin/fulfillment.ts";
 import { escapeHtml, SHOP_URL } from "./order-request.ts";
 
 // Shop reviews: what the review form may send, which paid orders get an
@@ -74,18 +75,21 @@ export function parseReviewBody(raw: unknown): ParsedReview {
 // Paid orders due a review email today: an email on file, every parcel
 // dropped off, the last one INVITE_AFTER_DAYS–INVITE_UNTIL_DAYS ago, and
 // no invite yet (emailed or copied). Reddit buyers have no email; the
-// admin copies their link into a DM instead.
+// admin copies their link into a DM instead. A box handed over in person
+// counts from the hand-over; inPerson (nothing mailed) changes the wording.
 export function ordersToInvite(
   orders: Pick<Order, "id" | "status" | "buyer_email">[],
-  shipments: Pick<Shipment, "order_id" | "sent_at">[],
+  shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[],
   invites: Pick<ReviewInvite, "order_id">[],
   now: Date = new Date()
-): { orderId: number; email: string }[] {
+): { orderId: number; email: string; inPerson: boolean }[] {
   const invited = new Set(invites.map((i) => i.order_id));
   const lastSent = new Map<number, number>();
   const unsent = new Set<number>();
+  const mailed = new Set<number>();
   for (const s of shipments) {
     if (s.order_id == null) continue;
+    if (!handDelivered(s)) mailed.add(s.order_id);
     if (!s.sent_at) {
       unsent.add(s.order_id);
       continue;
@@ -96,28 +100,36 @@ export function ordersToInvite(
   const day = 86_400_000;
   const earliest = now.getTime() - INVITE_UNTIL_DAYS * day;
   const latest = now.getTime() - INVITE_AFTER_DAYS * day;
-  const due: { orderId: number; email: string }[] = [];
+  const due: { orderId: number; email: string; inPerson: boolean }[] = [];
   for (const o of orders) {
     const email = o.buyer_email?.trim().toLowerCase();
     if (o.status !== "paid" || !email || invited.has(o.id) || unsent.has(o.id)) continue;
     const sent = lastSent.get(o.id);
     if (sent == null || sent < earliest || sent > latest) continue;
-    due.push({ orderId: o.id, email });
+    due.push({ orderId: o.id, email, inPerson: !mailed.has(o.id) });
   }
   return due;
 }
 
-export type ReviewRequestArgs = { to: string; firstName: string | null; url: string };
+export type ReviewRequestArgs = {
+  to: string;
+  firstName: string | null;
+  url: string;
+  inPerson?: boolean; // picked up in person: nothing "landed"
+};
 
 // To the buyer, from orders@: a short ask with the private link. Replies
 // land in the admin Inbox like any other mail to orders@.
 export function reviewRequestEmail(a: ReviewRequestArgs) {
   const hi = a.firstName ? `Hi ${a.firstName},` : "Hi,";
-  const subject = "How did your records arrive?";
+  const subject = a.inPerson ? "How are your records sounding?" : "How did your records arrive?";
+  const opener = a.inPerson
+    ? "Thanks again for picking up your records from Curiouser Records. I hope they sound as good as they look."
+    : "Your records from Curiouser Records should have landed by now. I hope they sound as good as they look.";
   const text = [
     hi,
     "",
-    "Your records from Curiouser Records should have landed by now. I hope they sound as good as they look.",
+    opener,
     "",
     "If you have a minute, would you leave a short review? It's a couple of sentences and a star rating, and it helps other collectors trust a one-person shop:",
     "",
@@ -127,7 +139,7 @@ export function reviewRequestEmail(a: ReviewRequestArgs) {
     "",
     "— Curiouser Records",
   ].join("\n");
-  const html = `<p>${escapeHtml(hi)}</p><p>Your records from Curiouser Records should have landed by now. I hope they sound as good as they look.</p><p>If you have a minute, would you leave a short review? It's a couple of sentences and a star rating, and it helps other collectors trust a one-person shop.</p><p><a href="${escapeHtml(a.url)}"><strong>Leave a review</strong></a></p><p>If anything wasn't right — grading, packing, a skip — just reply to this email and I'll make it right.</p><p>— Curiouser Records</p>`;
+  const html = `<p>${escapeHtml(hi)}</p><p>${escapeHtml(opener)}</p><p>If you have a minute, would you leave a short review? It's a couple of sentences and a star rating, and it helps other collectors trust a one-person shop.</p><p><a href="${escapeHtml(a.url)}"><strong>Leave a review</strong></a></p><p>If anything wasn't right — grading, packing, a skip — just reply to this email and I'll make it right.</p><p>— Curiouser Records</p>`;
   return { to: a.to, subject, text, html, replyTo: ORDERS_ADDRESS };
 }
 
@@ -265,10 +277,14 @@ export function reviewDmText(a: {
   firstName: string | null;
   records: { artist: string; title: string }[];
   url: string;
+  inPerson?: boolean; // handed over in person, so it didn't "arrive"
 }): string {
   const one = a.records.length === 1;
+  const sounds = one ? "sounds" : "sound";
   return [
-    `Hey ${a.firstName || "there"}, hope ${boughtPhrase(a.records)} arrived safely and ${one ? "sounds" : "sound"} great!`,
+    a.inPerson
+      ? `Hey ${a.firstName || "there"}, thanks again for meeting up! Hope ${boughtPhrase(a.records)} ${sounds} great.`
+      : `Hey ${a.firstName || "there"}, hope ${boughtPhrase(a.records)} arrived safely and ${sounds} great!`,
     "",
     "If you've got a minute, would you leave a quick review for Curiouser Records? It's just a star rating and a sentence or two, and it really helps other collectors trust a one-person shop:",
     "",

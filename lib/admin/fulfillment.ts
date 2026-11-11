@@ -24,6 +24,17 @@ export const needsRepush = (s: Shipment) =>
 export const pushNotNeeded = (s: Shipment) =>
   s.mode === "paypal" && !s.paypal_tracker_id;
 
+// Handed to the buyer in person (local pickup, cash or otherwise): no
+// label, no tracking, nothing for PayPal. sent_at is when it changed
+// hands, so the box counts as gone everywhere a drop-off would.
+export const HAND_MODE = "hand";
+export const HAND_CARRIER = "In person";
+export const handDelivered = (s: { mode?: string | null }) => s.mode === HAND_MODE;
+
+// A box still waiting on its label: no tracking yet and not handed over.
+export const needsLabel = (s: Pick<Shipment, "mode" | "tracking_code">) =>
+  !s.tracking_code && !handDelivered(s);
+
 // r/VinylCollectors trade confirmations: u/VinylSwapBot only reads plain-text
 // u/ mentions (hyperlinked tags are invisible to it) and only counts NEW
 // top-level comments on the thread the sale came from — edits don't register.
@@ -129,7 +140,7 @@ export function groupOrders(
     g.done =
       g.records.length > 0 &&
       g.unassigned.length === 0 &&
-      g.shipments.every((s) => !!s.tracking_code);
+      !g.shipments.some(needsLabel);
     g.lastActivity = g.shipments.reduce(
       (max, s) =>
         Math.max(max, new Date(s.updated_at ?? s.created_at).getTime()),
@@ -146,6 +157,7 @@ export function groupOrders(
 // fulfillment card names in its pill and offers as its main button:
 //   pack   records not in a box yet            → the pack page
 //   label  a box with no tracking number       → the labels page
+//          (a box handed over in person needs none)
 //   push   tracking PayPal hasn't been told    → Push to PayPal
 //   sync   invoice with no PayPal fee recorded → Sync from PayPal
 //   done   nothing left but the trade confirmation
@@ -159,7 +171,7 @@ export function orderStage(
   invoice: Pick<Invoice, "paypal_fee"> | null | undefined
 ): OrderStage {
   if (g.unassigned.length > 0) return "pack";
-  if (g.shipments.some((s) => !s.tracking_code)) return "label";
+  if (g.shipments.some(needsLabel)) return "label";
   if (g.shipments.some(pushable)) return "push";
   if (g.invoiceId && invoice?.paypal_fee == null) return "sync";
   return "done";
@@ -207,11 +219,10 @@ export function refundedOrders(orders: Order[], records: DbRecord[]): RefundedOr
 
 // Sold records ready to come out of the owner's Discogs collection. The
 // Discogs delete can't be undone, so it waits until the sale can't come
-// back: every record of the order boxed and every box tracked. Before
-// that a refund would put the record back on the shelf with its
-// collection entry already gone. Records a refunded order kept sold had
-// shipped, so they count too. Hand-delivered sales never get tracking —
-// the catalog drawer removes those one at a time.
+// back: every record of the order boxed and every box tracked or handed
+// over in person. Before that a refund would put the record back on the
+// shelf with its collection entry already gone. Records a refunded order
+// kept sold had shipped, so they count too.
 export function discogsReady(
   records: DbRecord[],
   shipments: Shipment[],

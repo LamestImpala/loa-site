@@ -1,5 +1,5 @@
 import type { DbRecord, Invoice, Order, Shipment, ShipTo } from "../supabase.ts";
-import { groupOrders, orderStage } from "./fulfillment.ts";
+import { groupOrders, handDelivered, needsLabel, orderStage } from "./fulfillment.ts";
 
 // Pack rules: which paid orders are on the packing table, what's still
 // loose in each, which boxes are sealed, and the one order boxes go in
@@ -69,9 +69,10 @@ export function packList(
 // Boxes with no label yet — what a dropped label PDF can be matched to,
 // and what a packing slip prints for. Sealed on the pack page or made on
 // the fulfillment card alike; sealed ones come first, in pack order.
+// Boxes handed over in person never get a label, so they're not here.
 export function openParcels(shipments: Shipment[]): Shipment[] {
   return sortByPackOrder(
-    shipments.filter((s) => !s.tracking_code && s.status !== "refunded")
+    shipments.filter((s) => needsLabel(s) && s.status !== "refunded")
   );
 }
 
@@ -142,7 +143,7 @@ export function slipsForParcels(
 export function packProgress(list: PackOrder[]) {
   const loose = list.reduce((n, o) => n + o.loose.length, 0);
   const boxes = list.reduce(
-    (n, o) => n + o.parcels.filter((s) => !s.tracking_code).length,
+    (n, o) => n + o.parcels.filter(needsLabel).length,
     0
   );
   return { orders: list.length, loose, boxes };
@@ -313,15 +314,17 @@ export function awaitingDropOff(shipments: Shipment[], orders: Order[] = []): Sh
 }
 
 // Where an order's boxes are, for its fulfillment card: none labeled yet,
-// some still in the house, or all dropped off (with the latest drop date).
+// some still in the house, or all gone (with the latest date). A box
+// handed over in person counts as gone the moment it's marked; inPerson
+// says every gone box went that way, so the card can say "Handed over".
 export function dropOffState(
-  shipments: Pick<Shipment, "tracking_code" | "sent_at">[]
-): { state: "none" | "waiting" | "sent"; sentAt: string | null } {
-  const labeled = shipments.filter((s) => !!s.tracking_code);
-  if (labeled.length === 0) return { state: "none", sentAt: null };
-  if (labeled.some((s) => !s.sent_at)) return { state: "waiting", sentAt: null };
+  shipments: Pick<Shipment, "tracking_code" | "sent_at" | "mode">[]
+): { state: "none" | "waiting" | "sent"; sentAt: string | null; inPerson: boolean } {
+  const labeled = shipments.filter((s) => !!s.tracking_code || handDelivered(s));
+  if (labeled.length === 0) return { state: "none", sentAt: null, inPerson: false };
+  if (labeled.some((s) => !s.sent_at)) return { state: "waiting", sentAt: null, inPerson: false };
   const sentAt = labeled
     .map((s) => s.sent_at as string)
     .reduce((a, b) => (a > b ? a : b));
-  return { state: "sent", sentAt };
+  return { state: "sent", sentAt, inPerson: labeled.every(handDelivered) };
 }

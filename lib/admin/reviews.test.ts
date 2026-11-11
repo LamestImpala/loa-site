@@ -29,6 +29,7 @@ test("askable orders: paid, every box out in the last 60 days, no review yet", (
     order({ id: 6, status: "paid" }), // link used
     order({ id: 7, status: "refunded" }),
     order({ id: 8, status: "paid", buyer_email: "h@example.com" }), // already emailed
+    order({ id: 9, status: "paid" }), // handed over in person yesterday
   ];
   const shipments = [
     shipment({ order_id: 1, sent_at: iso(now - 3 * DAY) }),
@@ -39,6 +40,7 @@ test("askable orders: paid, every box out in the last 60 days, no review yet", (
     shipment({ order_id: 6, sent_at: iso(now - 5 * DAY) }),
     shipment({ order_id: 7, sent_at: iso(now - 5 * DAY) }),
     shipment({ order_id: 8, sent_at: iso(now - 12 * DAY) }),
+    shipment({ order_id: 9, sent_at: iso(now - DAY), mode: "hand" }),
   ];
   const invites = [
     invite({ id: 6, order_id: 6, used_at: iso(now - DAY) }),
@@ -46,11 +48,12 @@ test("askable orders: paid, every box out in the last 60 days, no review yet", (
   ];
   const got = askableOrders(orders, shipments, invites, [{ order_id: 5 }], now);
   assert.deepEqual(
-    got.map((a) => [a.order.id, a.invite?.id ?? null, a.autoEmailOn]),
+    got.map((a) => [a.order.id, a.invite?.id ?? null, a.autoEmailOn, a.inPerson]),
     [
-      [1, null, iso(now + 7 * DAY)],
-      [2, null, null],
-      [8, 8, null],
+      [9, null, null, true],
+      [1, null, iso(now + 7 * DAY), false],
+      [2, null, null, false],
+      [8, 8, null, false],
     ]
   );
 });

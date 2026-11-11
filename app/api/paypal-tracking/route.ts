@@ -19,6 +19,7 @@ import {
   type TrackerInput,
 } from "@/lib/paypal";
 import { refundPlan, refundedPatch } from "@/lib/admin/refunds";
+import { needsLabel } from "@/lib/admin/fulfillment";
 
 // Two-way tracking sync between shipments and PayPal.
 //
@@ -190,9 +191,10 @@ async function closeRefunded(
   }
 
   // Boxes that never got a label have nothing left to ship. Tracked ones
-  // keep their row — the postage was spent either way.
+  // keep their row — the postage was spent either way — and so do boxes
+  // handed over in person.
   const dropped = sale.shipments.filter(
-    (s) => !s.tracking_code && s.status !== "refunded"
+    (s) => needsLabel(s) && s.status !== "refunded"
   );
   if (dropped.length > 0) {
     const { error } = await supabase

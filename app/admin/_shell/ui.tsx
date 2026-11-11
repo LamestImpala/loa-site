@@ -137,7 +137,7 @@ export function ConfirmDialog({ request }: { request: ConfirmRequest | null }) {
         className="w-full max-w-md rounded-2xl border border-white/15 bg-neutral-950 p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <p id="admin-confirm-message" className="text-sm leading-relaxed text-neutral-200">
+        <p id="admin-confirm-message" className="whitespace-pre-line text-sm leading-relaxed text-neutral-200">
           {request.message}
         </p>
         <div className="mt-5 flex justify-end gap-2">

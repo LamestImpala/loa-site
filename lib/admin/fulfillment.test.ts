@@ -8,7 +8,9 @@ import {
   confirmationComment,
   discogsReady,
   groupOrders,
+  handDelivered,
   inPayPal,
+  needsLabel,
   needsRepush,
   orderStage,
   pushNotNeeded,
@@ -128,6 +130,22 @@ test("an order paid outside PayPal is done once it has tracking", () => {
   const records = [rec({ id: 1, sold: true, order_id: 1 })];
   const [g] = groupOrders(records, [shipment({ order_id: 1, record_ids: [1], tracking_code: "9400" })], [o]);
   assert.equal(orderStage(g, undefined), "done");
+});
+
+test("a cash sale handed over in person is done with no label, and ready for Discogs", () => {
+  const o = order({ id: 28, status: "paid" });
+  const records = [rec({ id: 1, sold: true, order_id: 28, discogs_release_id: 99 })];
+  const box = shipment({ order_id: 28, record_ids: [1], packed_at: "2026-11-11T23:32:39Z" });
+  const handed = { ...box, mode: "hand", carrier: "In person", status: "shipped" as const, sent_at: "2026-11-11T23:40:00Z" };
+  assert.equal(needsLabel(box), true);
+  assert.equal(needsLabel(handed), false);
+  assert.equal(handDelivered(handed), true);
+  assert.equal(orderStage(groupOrders(records, [box], [o])[0], undefined), "label");
+  const [g] = groupOrders(records, [handed], [o]);
+  assert.equal(g.done, true);
+  assert.equal(orderStage(g, undefined), "done");
+  assert.deepEqual(discogsReady(records, [handed], [o]).map((r) => r.id), [1]);
+  assert.deepEqual(discogsReady(records, [box], [o]), [], "not before it changes hands");
 });
 
 test("the panel lists open orders longest-waiting first, then finished ones newest first", () => {

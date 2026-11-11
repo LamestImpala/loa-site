@@ -117,7 +117,7 @@ export function ReviewsSection() {
 
   // Copies the ready-to-paste DM (name, records, link), or just the link.
   // The link is made on first copy, which is what marks the buyer asked.
-  async function copyAsk(order: Order, what: "dm" | "link") {
+  async function copyAsk(order: Order, what: "dm" | "link", inPerson = false) {
     try {
       const invite = await ensureReviewInvite(supabase, order.id);
       setReviewInvites((prev) =>
@@ -130,6 +130,7 @@ export function ReviewsSection() {
               firstName: buyerFirstName(order),
               records: bought.get(order.id) ?? [],
               url,
+              inPerson,
             })
           : url;
       if (await copyText(text, what === "dm" ? "Review request DM" : "Review link")) {
@@ -337,8 +338,8 @@ export function ReviewsSection() {
 
       <h3 className="mt-6 text-lg font-medium">Ask for a review</h3>
       <p className="mt-1 text-sm text-neutral-400">
-        Buyers whose boxes went out in the last 60 days. Email buyers get their
-        link automatically 10 days after drop-off. For Reddit buyers, copy a
+        Buyers whose boxes went out (or were handed over) in the last 60 days.
+        Email buyers get their link automatically 10 days after drop-off. For Reddit buyers, copy a
         ready-to-paste DM with their name, records and link (or just the link).
       </p>
       {askable.length === 0 ? (
@@ -364,7 +365,8 @@ export function ReviewsSection() {
                   {buyerLabel(a.order.buyer_username, a.order.buyer_email)}
                 </span>
                 <span className="text-xs text-neutral-500">
-                  order #{a.order.id} · dropped off {timeAgo(a.lastSent)}
+                  order #{a.order.id} · {a.inPerson ? "handed over" : "dropped off"}{" "}
+                  {timeAgo(a.lastSent)}
                 </span>
                 {asked ? (
                   <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-300">
@@ -380,7 +382,7 @@ export function ReviewsSection() {
                 <button
                   type="button"
                   className={`ml-auto ${smallButtonClass}`}
-                  onClick={() => copyAsk(a.order, "dm")}
+                  onClick={() => copyAsk(a.order, "dm", a.inPerson)}
                   title="Copies a ready-to-paste DM with their name, records and review link"
                 >
                   {isCopied(`review-dm-${a.order.id}`)

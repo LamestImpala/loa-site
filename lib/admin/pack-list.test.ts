@@ -189,13 +189,13 @@ test("awaiting drop-off: labeled, not sent, not refunded, in pack order", () => 
 });
 
 test("drop-off state: nothing labeled, a box still in the house, or all sent", () => {
-  assert.deepEqual(dropOffState([shipment({ tracking_code: null })]), { state: "none", sentAt: null });
+  assert.deepEqual(dropOffState([shipment({ tracking_code: null })]), { state: "none", sentAt: null, inPerson: false });
   assert.deepEqual(
     dropOffState([
       shipment({ tracking_code: "1", sent_at: "2026-09-16T00:00:00Z" }),
       shipment({ tracking_code: "2" }),
     ]),
-    { state: "waiting", sentAt: null }
+    { state: "waiting", sentAt: null, inPerson: false }
   );
   assert.deepEqual(
     dropOffState([
@@ -203,6 +203,35 @@ test("drop-off state: nothing labeled, a box still in the house, or all sent", (
       shipment({ tracking_code: "2", sent_at: "2026-09-18T00:00:00Z" }),
       shipment({ tracking_code: null }), // an unlabeled box doesn't hold it up
     ]),
-    { state: "sent", sentAt: "2026-09-18T00:00:00Z" }
+    { state: "sent", sentAt: "2026-09-18T00:00:00Z", inPerson: false }
+  );
+});
+
+const handed = (over: Parameters<typeof shipment>[0] = {}) =>
+  shipment({ mode: "hand", carrier: "In person", status: "shipped", sent_at: "2026-11-11T20:00:00Z", ...over });
+
+test("handed over in person: off the table, no label, no slip, no drop-off, reads as gone", () => {
+  const orders = [order({ id: 1, status: "paid" }), order({ id: 2, status: "paid" })];
+  const records = [
+    rec({ id: 1, sold: true, order_id: 1 }),
+    rec({ id: 2, sold: true, order_id: 2 }),
+    rec({ id: 3, sold: true, order_id: 2 }),
+  ];
+  const hand = handed({ id: 21, order_id: 1, record_ids: [1], packed_at: "2026-11-11T19:00:00Z" });
+  const shipments = [
+    hand,
+    handed({ id: 22, order_id: 2, record_ids: [2] }),
+    shipment({ id: 23, order_id: 2, record_ids: [3], packed_at: "2026-11-11T19:00:00Z" }), // still needs a label
+  ];
+  assert.deepEqual(packList(records, shipments, orders).map((o) => o.key), ["order-2"]);
+  assert.deepEqual(packProgress(packList(records, shipments, orders)).boxes, 1);
+  assert.deepEqual(openParcels(shipments).map((s) => s.id), [23]);
+  assert.deepEqual(awaitingDropOff(shipments, orders), []);
+  assert.deepEqual(orderSheet(records, shipments, orders).flatMap((o) => o.records.map((r) => r.boxId)), [23]);
+  assert.deepEqual(dropOffState([hand]), { state: "sent", sentAt: "2026-11-11T20:00:00Z", inPerson: true });
+  assert.equal(
+    dropOffState([hand, shipment({ tracking_code: "9400", sent_at: "2026-11-10T00:00:00Z" })]).inPerson,
+    false,
+    "a mailed box too: Dropped off"
   );
 });
