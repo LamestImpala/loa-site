@@ -1,7 +1,7 @@
 // node --test scripts/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planPrice, releaseDetails } from "./price-run.mjs";
+import { applyMode, planPrice, releaseDetails } from "./price-run.mjs";
 import { releaseDetailsFromDiscogs } from "../lib/record-info.ts";
 
 // Stone Temple Pilots — Live In New Haven, 1994 (release 33673521), the
@@ -115,4 +115,14 @@ test("release details match the admin import's shape", () => {
   };
   assert.deepEqual(releaseDetails(rel), releaseDetailsFromDiscogs(rel));
   assert.deepEqual(releaseDetails({}), releaseDetailsFromDiscogs({}));
+});
+
+test("every cut waits for approval; only small raises apply on their own", () => {
+  assert.equal(applyMode(30, 30), "none");
+  assert.equal(applyMode(0, 34), "auto"); // first price on an unpriced record
+  assert.equal(applyMode(30, 29), "queue"); // a $1 cut, even under 5%
+  assert.equal(applyMode(26, 25), "queue"); // a decay step
+  assert.equal(applyMode(40, 31), "queue"); // a big cut
+  assert.equal(applyMode(40, 42), "auto"); // +5% raise
+  assert.equal(applyMode(40, 43), "queue"); // +7.5% raise
 });

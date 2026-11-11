@@ -181,8 +181,8 @@ export function PricingPage() {
         <h2 className="mt-10 text-xl font-medium">
           Pending price changes{" "}
           <span className="text-sm text-neutral-400">
-            ({pending.length} waiting · moves over ±5% from the daily Discogs
-            run)
+            ({pending.length} waiting · every cut, and raises over 5%, from
+            the daily Discogs run)
           </span>
         </h2>
         {pending.length === 0 ? (
