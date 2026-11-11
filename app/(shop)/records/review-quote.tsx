@@ -1,9 +1,19 @@
+import ReviewBody from "./review-body";
 import { reviewAnchor, reviewMonth, SOURCE_LABELS, stars, type ReviewQuote } from "@/lib/review";
 
 // One published review as the shop shows it: stars, the buyer's words, the
 // shop's reply, who and when. Shared by the home page's three quotes and
 // the full /reviews list, where `anchored` gives each one a linkable id.
-export default function ReviewQuoteItem({ quote: q, anchored = false }: { quote: ReviewQuote; anchored?: boolean }) {
+// `clamp` holds long words to three lines behind a "Read more" (home page).
+export default function ReviewQuoteItem({
+  quote: q,
+  anchored = false,
+  clamp = false,
+}: {
+  quote: ReviewQuote;
+  anchored?: boolean;
+  clamp?: boolean;
+}) {
   return (
     <li className="shop-quote" id={anchored ? reviewAnchor(q.id) : undefined}>
       {q.rating != null ? (
@@ -11,12 +21,18 @@ export default function ReviewQuoteItem({ quote: q, anchored = false }: { quote:
           {stars(q.rating)}
         </span>
       ) : null}
-      <blockquote>{q.body}</blockquote>
-      {q.ownerReply ? (
-        <p className="shop-quote-reply">
-          <em>Reply:</em> {q.ownerReply}
-        </p>
-      ) : null}
+      {clamp ? (
+        <ReviewBody body={q.body} ownerReply={q.ownerReply} />
+      ) : (
+        <>
+          <blockquote>{q.body}</blockquote>
+          {q.ownerReply ? (
+            <p className="shop-quote-reply">
+              <em>Reply:</em> {q.ownerReply}
+            </p>
+          ) : null}
+        </>
+      )}
       <footer>
         <strong>{q.reviewerName}</strong>
         {" · "}

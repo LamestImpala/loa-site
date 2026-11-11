@@ -1863,6 +1863,31 @@ html:has(.shop) {
   font-size: 14.5px;
   color: var(--color-accent-700);
 }
+/* Home page only: three lines, then "Read more" opens the rest in place. */
+.shop-quote-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.shop-quote-more {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-accent-700);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.shop-quote-more:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 .shop-reviews-more {
   margin-top: var(--space-4);
 }
