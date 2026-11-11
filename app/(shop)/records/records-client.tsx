@@ -36,12 +36,14 @@ import {
   type BuySheet,
   type LightboxState,
 } from "./shop-ui";
+import Crate from "./crate";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
 // Grid density: full cards or a compact covers grid. `null` = auto, which
-// resolves to compact on phones once the viewport is known.
-type ViewOption = "full" | "compact";
+// resolves to compact on phones once the viewport is known. "crate" swaps
+// the grid for a flip-through bin (crate.tsx) and is only ever chosen.
+type ViewOption = "full" | "compact" | "crate";
 
 const SORT_OPTIONS: SortOption[] = [
   "artist",
@@ -319,7 +321,9 @@ export default function RecordsClient({
   useEffect(() => {
     try {
       const stored = localStorage.getItem("cr_view");
-      if (stored === "full" || stored === "compact") setView(stored);
+      if (stored === "full" || stored === "compact" || stored === "crate") {
+        setView(stored);
+      }
     } catch {
       // Private mode etc. — fall back to auto.
     }
@@ -577,6 +581,7 @@ export default function RecordsClient({
           [
             ["full", "Cards"],
             ["compact", "Covers"],
+            ["crate", "Crate"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -896,7 +901,16 @@ export default function RecordsClient({
       ) : null}
 
       <div className="shop-shell shop-main">
-        {visible.length > 0 ? (
+        {visible.length > 0 && effectiveView === "crate" ? (
+          <Crate
+            records={visible}
+            showTabs={sort === "artist"}
+            paused={buySheet !== null || lightbox !== null}
+            inBundle={bundle.has}
+            onToggleBundle={bundle.toggle}
+            onBuy={(record) => setBuySheet({ kind: "single", record })}
+          />
+        ) : visible.length > 0 ? (
           <div
             className={`shop-grid view-${effectiveView} ${stuck ? "has-sticky-bar" : ""}`}
           >
