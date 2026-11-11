@@ -26,19 +26,19 @@ test("a listing under half the suggestion is not comparable and never undercuts"
   assert.equal(p.reason, "stocked");
 });
 
-test("a comparable listing caps the target at lowest − 1", () => {
+test("a comparable listing sets the target at lowest + 6", () => {
   const p = planPrice({ price: 40, suggestion: 40, lowest: 30, forSale: 12 });
   assert.equal(p.lowestPlausible, true);
-  assert.equal(p.target, 29);
+  assert.equal(p.target, 36);
   assert.equal(p.reason, "lowest");
 });
 
 test("a comparable listing below the tier floor is ignored as noise", () => {
-  // normal tier floor = 55% of 40 = 22; lowest 20 → competitive 19 < 22
-  const p = planPrice({ price: 40, suggestion: 40, lowest: 20, forSale: 12 });
+  // scarce tier floor = 85% of 40 = 34; lowest 21 → 27 < 34
+  const p = planPrice({ price: 40, suggestion: 40, lowest: 21, forSale: 2, want: 500, have: 600 });
   assert.equal(p.lowestPlausible, true);
   assert.equal(p.competitive, null);
-  assert.equal(p.target, 34);
+  assert.equal(p.target, 40);
 });
 
 test("only the scarce tier may propose a raise on a priced record", () => {
@@ -125,4 +125,46 @@ test("every cut waits for approval; only small raises apply on their own", () =>
   assert.equal(applyMode(40, 31), "queue"); // a big cut
   assert.equal(applyMode(40, 42), "auto"); // +5% raise
   assert.equal(applyMode(40, 43), "queue"); // +7.5% raise
+});
+
+test("an under-priced record climbs weekly toward lowest + 6", () => {
+  // lowest $30 → mark $36; priced $20, quiet for 8 days: one 10% step
+  const base = { price: 20, suggestion: 40, lowest: 30, forSale: 12, daysListed: 60 };
+  const p = planPrice({ ...base, daysSinceChange: 8 });
+  assert.equal(p.reason, "climb");
+  assert.equal(p.target, 22);
+  assert.equal(applyMode(20, p.target, p.reason), "auto");
+  // changed within the week: hold
+  assert.equal(planPrice({ ...base, daysSinceChange: 3 }).target, 20);
+  // cheap records still move a dollar
+  assert.equal(planPrice({ ...base, price: 9, daysSinceChange: 8 }).target, 10);
+  // bigger records step 10%, and never past the mark
+  assert.equal(planPrice({ ...base, lowest: 80, price: 60, suggestion: 100, daysSinceChange: 8 }).target, 66);
+  assert.equal(planPrice({ ...base, price: 35, daysSinceChange: 8 }).target, 36);
+  // at the mark: no climb, and decay may propose its cut (for approval)
+  const atMark = planPrice({ ...base, price: 36, daysSinceChange: 20 });
+  assert.equal(atMark.reason, "decay");
+  assert.equal(applyMode(36, atMark.target, atMark.reason), "queue");
+  // a climbing record never decays
+  assert.equal(planPrice({ ...base, daysSinceChange: 20 }).reason, "climb");
+});
+
+test("no comparable listing, no climb", () => {
+  // the only listing is a junk copy: the ratchet holds as before
+  const p = planPrice({ price: 20, suggestion: 40, lowest: 12, forSale: 12, daysSinceChange: 30 });
+  assert.equal(p.target, 20);
+  assert.notEqual(p.reason, "climb");
+});
+
+test("an eBay median below the mark caps the climb", () => {
+  const ebay = { exact: true, count: 5, median: 25 };
+  const p = planPrice({ price: 24, suggestion: 40, lowest: 30, forSale: 12, ebay, daysSinceChange: 8 });
+  assert.equal(p.target, 25);
+  assert.equal(p.reason, "climb");
+});
+
+test("a record above lowest + 6 gets a cut proposal, never an applied cut", () => {
+  const p = planPrice({ price: 50, suggestion: 40, lowest: 30, forSale: 12 });
+  assert.equal(p.target, 36);
+  assert.equal(applyMode(50, p.target, p.reason), "queue");
 });

@@ -15,10 +15,14 @@
  *     counts when it is at least COMPARABLE_FACTOR of the grade suggestion
  *     (Discogs' own Fair-grade suggestion is far too low a bar — about 14%
  *     of NM), and even then never below the tier floor. A comparable
- *     listing caps the target at lowest − UNDERCUT_BY.
- *   - Ratchet: outside the scarce tier the run never proposes a raise on a
- *     priced record. Hand markdowns are the strategy; only scarce-and-wanted
- *     records track the suggestion back up.
+ *     listing sets the target at lowest + LOWEST_MARKUP — about what a
+ *     buyer pays for that copy once Discogs shipping is added — in place of
+ *     the suggestion.
+ *   - Ratchet: outside the scarce tier the run never jumps a priced record
+ *     up. The one exception is the climb: a record below lowest +
+ *     LOWEST_MARKUP, with no price change in CLIMB_QUIET_DAYS, steps up
+ *     CLIMB_STEP (at least $1) per run, stopping at that mark. Climb steps
+ *     apply directly.
  *   - eBay: when the exact pressing (UPC match) has EBAY_MIN_EXACT+ used
  *     listings, their median asking price caps the target (floored too).
  *   - Time decay: a record unsold for DECAY_AFTER_DAYS with no price change
@@ -46,7 +50,11 @@ export const PRICE_FACTOR = 0.85; // normal releases: ask 85% of the grade sugge
 export const SCARCE_FACTOR = 1.0; // scarce and wanted: the full suggestion
 export const STOCKED_FACTOR = 0.7; // stocked releases: commodity copies only move cheap
 const THRESHOLD = 0.05; // auto-apply suggestion moves within ±5%
-export const UNDERCUT_BY = 1; // competitive price = $1 below a comparable cheapest listing
+export const LOWEST_MARKUP = 6; // market price = a comparable cheapest listing + $6 (its shipping)
+// Climb: under-priced records step up toward lowest + LOWEST_MARKUP, one
+// small step a week so prices quoted in a Reddit post hold for days.
+export const CLIMB_STEP = 0.1; // ~5 weeks for a typical record to reach the mark
+export const CLIMB_QUIET_DAYS = 7;
 // Scarce = few copies for sale AND real demand (wants per existing copy).
 export const SCARCE_MAX_FOR_SALE = 5;
 export const SCARCE_MIN_DEMAND = 0.4;
@@ -125,7 +133,7 @@ export function planPrice({
   const lowestPlausible =
     lowest != null && lowest > 0 && lowest >= suggestion * COMPARABLE_FACTOR;
   const rawCompetitive = lowestPlausible
-    ? Math.max(Math.round(lowest) - UNDERCUT_BY, 1)
+    ? Math.round(lowest) + LOWEST_MARKUP
     : null;
   // Below the tier floor even a comparable listing is treated as noise.
   const competitive =
@@ -138,7 +146,8 @@ export function planPrice({
 
   let target = Math.round(suggestion * factor);
   let reason = tier === "normal" ? "suggestion" : tier;
-  if (competitive !== null && competitive < target) {
+  // A comparable listing is the real market: price to it, not the suggestion.
+  if (competitive !== null) {
     target = competitive;
     reason = "lowest";
   }
@@ -146,17 +155,27 @@ export function planPrice({
     target = ebayCap;
     reason = "ebay";
   }
-  // Ratchet: a priced record outside the scarce tier is never pushed back
-  // up — a hand markdown stays put, and the suggestion drifting up only
-  // matters for records buyers are actually hunting.
-  if (price > 0 && tier !== "scarce" && target > price) target = price;
+  // Ratchet: a priced record outside the scarce tier is never jumped back
+  // up — the suggestion drifting up only matters for records buyers are
+  // actually hunting. Against a comparable listing it climbs in small
+  // weekly steps instead (see the header).
+  if (price > 0 && tier !== "scarce" && target > price) {
+    // Climb: step a quiet, under-priced record toward the market mark.
+    if (competitive !== null && daysSinceChange >= CLIMB_QUIET_DAYS) {
+      target = Math.min(target, Math.max(price + 1, Math.round(price * (1 + CLIMB_STEP))));
+      reason = "climb";
+    } else {
+      target = price;
+    }
+  }
 
   // Shelf-sitter decay only kicks in when the market rule alone would leave
   // the price where it is (or raise it); a bigger market cut wins outright.
   let decay = false;
   if (
     price > 0 &&
-    target >= price &&
+    target === price &&
+    reason !== "climb" &&
     daysListed >= DECAY_AFTER_DAYS &&
     daysSinceChange >= DECAY_QUIET_DAYS
   ) {
@@ -184,11 +203,12 @@ export function planPrice({
 // Whether a planned move applies on its own or waits for approval. The
 // owner approves every reduction (prices get quoted in Reddit posts, so a
 // silent overnight cut can undercut a price already promised); only small
-// raises and a first price on an unpriced record apply directly.
-export function applyMode(price, target) {
+// raises, climb steps and a first price on an unpriced record apply directly.
+export function applyMode(price, target, reason = null) {
   if (target === price) return "none";
   if (price === 0) return "auto";
   if (target < price) return "queue";
+  if (reason === "climb") return "auto";
   return (target - price) / price <= THRESHOLD ? "auto" : "queue";
 }
 
@@ -519,6 +539,7 @@ async function main() {
   let aboveLowest = 0;
   const undercuts = 0; // cuts are never auto-applied any more; column kept for old runs
   let decays = 0;
+  let climbs = 0;
   let implausible = 0;
   let errors = 0;
   let reservedSkips = 0;
@@ -675,13 +696,14 @@ async function main() {
         ebay_median: ebay?.median ?? null,
       };
 
-      const mode = applyMode(price, target);
+      const mode = applyMode(price, target, reason);
       if (mode !== "none") {
         const entry = { ...base, old_price: price, new_price: target, reason };
         const pct = price === 0 ? 0 : Number(((target - price) / price).toFixed(4));
         if (mode === "auto") {
           await setPrice(r.id, { price: target });
           autoApplied++;
+          if (reason === "climb") climbs++;
           price = target;
           summary.push({ ...entry, pct, action: "applied" });
         } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
@@ -694,7 +716,7 @@ async function main() {
       }
 
       // Competitive check: are we still above a comparable cheapest Discogs
-      // listing? Queue a $1 undercut for approval (never applied directly).
+      // listing + $6? Queue the cut for approval (never applied directly).
       // competitive is already null when the listing isn't comparable or the
       // cut would breach the tier floor.
       if (price > 0 && competitive !== null && competitive < price) {
@@ -739,7 +761,7 @@ async function main() {
   }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only, ${climbs} climb steps), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
@@ -752,7 +774,8 @@ async function main() {
       suggestion: "85% of grade suggestion",
       scarce: "scarce & wanted — full suggestion",
       stocked: "stocked release (30+ copies) — 70% of suggestion",
-      lowest: "$1 under a comparable cheapest listing",
+      lowest: "$6 over a comparable cheapest listing",
+      climb: "weekly step up toward a comparable cheapest listing + $6",
       ebay: "capped at eBay median for this pressing",
       decay: "unsold 30+ days — 5% time decay",
     };
@@ -788,7 +811,7 @@ ${suggestionRows("flagged")}
         ? `<p>These are priced <strong>above a comparable cheapest Discogs listing</strong>
 (at least half the grade suggestion — junk-grade and foreign-only listings are already filtered out).
 One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>
-sets the suggested price ($1 under that listing).</p>
+sets the suggested price ($6 over that listing).</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`
         : "";
 
@@ -802,7 +825,7 @@ sets the suggested price ($1 under that listing).</p>
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
         subject: `Price run: ${flagged + pendingCuts.length} awaiting approval (${decays} decay steps), ${autoApplied} small raises applied`,
-        html: `<p>${checked} records checked, ${autoApplied} small raises auto-applied, ${flagged + pendingCuts.length} changes waiting for approval (no cut is ever applied without it), ${implausible} cheapest listings ignored as not comparable.</p>
+        html: `<p>${checked} records checked, ${autoApplied} small raises auto-applied (${climbs} weekly climb steps toward lowest + $6), ${flagged + pendingCuts.length} changes waiting for approval (no cut is ever applied without it), ${implausible} cheapest listings ignored as not comparable.</p>
 ${flaggedSection}
 ${cutsSection}`,
       }),

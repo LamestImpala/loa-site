@@ -257,7 +257,7 @@ export type PriceRun = {
     // what set the target: the tier factor on the grade suggestion
     // (suggestion 85% / scarce 100% / stocked 70%), a comparable cheapest
     // listing, the eBay median, or the unsold-30-days time decay
-    reason?: "suggestion" | "scarce" | "stocked" | "lowest" | "ebay" | "decay";
+    reason?: "suggestion" | "scarce" | "stocked" | "lowest" | "climb" | "ebay" | "decay";
     action: "applied" | "flagged" | "above-lowest" | "undercut";
   }[];
 };
