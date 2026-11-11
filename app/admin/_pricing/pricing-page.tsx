@@ -389,8 +389,10 @@ export function PricingPage() {
                                       : s.reason === "ebay"
                                         ? " · capped at eBay median for this pressing"
                                         : s.reason === "lowest"
-                                          ? " · $1 under comparable cheapest listing"
-                                          : ""}
+                                          ? " · $6 over comparable cheapest listing"
+                                          : s.reason === "climb"
+                                            ? " · weekly climb toward cheapest listing + $6"
+                                            : ""}
                                 {s.lowest != null
                                   ? ` · lowest listing $${s.lowest}${
                                       s.lowest_plausible === false

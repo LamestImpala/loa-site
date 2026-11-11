@@ -1867,8 +1867,9 @@ export function CatalogPage() {
           <>
         <p className="mt-1 text-sm text-neutral-400">
           Paste a Discogs release URL or ID and Fetch fills in the details and
-          cover art. Leave the price at 0 and tonight&apos;s run will set it to
-          85% of the Discogs suggested price for its grade.
+          cover art. Leave the price at 0 and the next run will set it to the
+          cheapest comparable Discogs listing + $6, or 85% of the Discogs
+          suggested price for its grade when there isn&apos;t one.
         </p>
         <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
           <input
