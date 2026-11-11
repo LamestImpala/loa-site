@@ -1,4 +1,5 @@
 import type { DbRecord, Shipment } from "../supabase.ts";
+import { handDelivered } from "./fulfillment.ts";
 import { unsoldPatch } from "./sales.ts";
 
 // Refund rules: what happens to an order's records when PayPal reports
@@ -7,17 +8,17 @@ import { unsoldPatch } from "./sales.ts";
 
 type PlanRecord = { id: number; tracking_number?: string | null };
 
-// A record that already left in a tracked parcel isn't coming back (a
-// lost or damaged parcel is the usual refund after shipping), so it stays
-// sold; one that never shipped goes back up for sale. Decided per record,
+// A record that already left in a tracked parcel, or was handed over in
+// person, isn't coming back (a lost or damaged parcel is the usual refund
+// after shipping), so it stays sold; one that never shipped goes back up for sale. Decided per record,
 // so a half-shipped order splits.
 export function refundPlan<R extends PlanRecord>(
   records: R[],
-  shipments: Pick<Shipment, "record_ids" | "tracking_code" | "status">[]
+  shipments: Pick<Shipment, "record_ids" | "tracking_code" | "status" | "mode">[]
 ): { relist: R[]; keepSold: R[] } {
   const shipped = new Set(
     shipments
-      .filter((s) => s.status !== "refunded" && !!s.tracking_code)
+      .filter((s) => s.status !== "refunded" && (!!s.tracking_code || handDelivered(s)))
       .flatMap((s) => s.record_ids ?? [])
   );
   const relist: R[] = [];

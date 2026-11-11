@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Shipment, ShipTo } from "../supabase.ts";
+import { HAND_CARRIER, HAND_MODE } from "./fulfillment.ts";
 
 // The parcel writes, shared by the fulfillment card, the pack page, and
 // label intake. Every caller holds a Supabase client under the admin's
@@ -67,6 +68,59 @@ export async function setParcelTracking(
     .eq("id", shipment.id);
   if (error) throw new Error(`Save failed: ${error.message}`);
   return patch;
+}
+
+// Hand an order over in person: every loose record goes into a new box
+// and every box still waiting on a label is marked handed over, all
+// stamped `at` (sent_at, so the order reads as gone everywhere a drop-off
+// would). Returns the new box, if one was made, and the patch written to
+// the existing ones so the caller can mirror both locally.
+export const handOverPatch = (at: string): Partial<Shipment> => ({
+  mode: HAND_MODE,
+  carrier: HAND_CARRIER,
+  status: "shipped",
+  sent_at: at,
+});
+
+export async function handOverOrder(
+  supabase: SupabaseClient,
+  o: {
+    buyer: string;
+    orderId: number | null;
+    invoiceId: string | null;
+    looseIds: number[];
+    boxIds: number[];
+    toAddress?: ShipTo | null;
+  },
+  at: string = new Date().toISOString()
+): Promise<{ created: Shipment | null; patch: Partial<Shipment> }> {
+  const patch = handOverPatch(at);
+  if (o.boxIds.length > 0) {
+    const { error } = await supabase
+      .from("shipments")
+      .update({ ...patch, updated_at: at })
+      .in("id", o.boxIds);
+    if (error) throw new Error(`Couldn't mark the boxes handed over: ${error.message}`);
+  }
+  let created: Shipment | null = null;
+  if (o.looseIds.length > 0) {
+    const { data, error } = await supabase
+      .from("shipments")
+      .insert({
+        buyer_username: o.buyer,
+        order_id: o.orderId,
+        record_ids: o.looseIds,
+        paypal_invoice_id: o.invoiceId,
+        packed_at: at,
+        ...(o.toAddress ? { to_address: o.toAddress } : {}),
+        ...patch,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(`Couldn't record the hand-over: ${error.message}`);
+    created = data as Shipment;
+  }
+  return { created, patch };
 }
 
 // Mirror a parcel's tracking number onto its member records, so the

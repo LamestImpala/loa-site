@@ -987,7 +987,7 @@ export function CatalogPage() {
               <button
                 type="button"
                 onClick={removeAllSoldFromDiscogs}
-                title="Removes every shipped record (whole order boxed and tracked) that has a Discogs release id from your Discogs collection. Hand-delivered sales: use the record's drawer."
+                title="Removes every shipped record (whole order boxed and tracked, or handed over in person on Pack) that has a Discogs release id from your Discogs collection."
                 className={buttonClass}
               >
                 Remove {soldOnDiscogs} shipped from Discogs

@@ -21,6 +21,15 @@ test("a half-shipped order splits: tracked records stay sold", () => {
   assert.deepEqual(plan.relist.map((r) => r.id), [2, 3]);
 });
 
+test("a box handed over in person stays sold on a refund", () => {
+  const records = [rec({ id: 1, sold: true }), rec({ id: 2, sold: true })];
+  const plan = refundPlan(records, [
+    shipment({ record_ids: [1], mode: "hand", status: "shipped", sent_at: "2026-11-11T00:00:00Z" }),
+  ]);
+  assert.deepEqual(plan.keepSold.map((r) => r.id), [1]);
+  assert.deepEqual(plan.relist.map((r) => r.id), [2]);
+});
+
 test("a tracking number mirrored on the record counts as shipped; a refunded parcel doesn't", () => {
   const records = [
     rec({ id: 1, sold: true, tracking_number: "9400" }),

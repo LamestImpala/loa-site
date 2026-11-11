@@ -34,7 +34,7 @@ async function run(req: NextRequest) {
 
     const [{ data: shipments, error: shipError }, { data: invites, error: invError }] =
       await Promise.all([
-        supabase.from("shipments").select("order_id, sent_at").in("order_id", ids),
+        supabase.from("shipments").select("order_id, sent_at, mode").in("order_id", ids),
         supabase.from("review_invites").select("order_id").in("order_id", ids),
       ]);
     if (shipError) throw new Error(shipError.message);
@@ -42,7 +42,7 @@ async function run(req: NextRequest) {
 
     const due = ordersToInvite(
       orders as Pick<Order, "id" | "status" | "buyer_email">[],
-      (shipments ?? []) as Pick<Shipment, "order_id" | "sent_at">[],
+      (shipments ?? []) as Pick<Shipment, "order_id" | "sent_at" | "mode">[],
       (invites ?? []) as Pick<ReviewInvite, "order_id">[]
     );
     if (dry) return Response.json({ dry, due, sent: [], failed: [] });
@@ -66,6 +66,7 @@ async function run(req: NextRequest) {
           to: d.email,
           firstName: buyerFirstName(order),
           url: reviewUrl(invite.token as string),
+          inPerson: d.inPerson,
         })
       );
       if (!result.ok) {

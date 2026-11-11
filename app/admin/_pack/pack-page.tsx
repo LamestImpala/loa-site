@@ -17,7 +17,8 @@ import {
 import { packingSlips, shipManifest } from "@/lib/admin/packing-slips";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { orderSheetPdf, THERMAL_SHEET } from "@/lib/admin/order-sheet";
-import { createParcel } from "@/lib/admin/shipments-db";
+import { createParcel, handOverOrder } from "@/lib/admin/shipments-db";
+import { needsLabel } from "@/lib/admin/fulfillment";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
 import { buttonClass, smallButtonClass } from "../_shell/ui";
@@ -33,7 +34,9 @@ import { buttonClass, smallButtonClass } from "../_shell/ui";
 // "Print order sheet" is one Letter page of every paid order not yet
 // dropped off and each of its records, ticked off while packing. "Mark
 // dropped off" stamps every labeled box as gone after the post office
-// run, which takes it off the order sheet.
+// run, which takes it off the order sheet. "Handed over in person" closes
+// a local sale with no label: loose records and unlabeled boxes are
+// marked handed over today, and the order is done.
 export function PackPage() {
   const {
     records,
@@ -50,7 +53,7 @@ export function PackPage() {
     confirm,
   } = useAdmin();
   const [checked, setChecked] = useState<Record<string, number[]>>({});
-  const [busy, setBusy] = useState<string | null>(null); // order key or `box-${id}`
+  const [busy, setBusy] = useState<string | null>(null); // order key, `hand-${key}` or `box-${id}`
   const [printing, setPrinting] = useState<"slips" | "manifest" | "sheet" | "sheet4x6" | null>(null);
 
   const list = useMemo(() => packList(records, shipments, orders), [records, shipments, orders]);
@@ -119,6 +122,54 @@ export function PackPage() {
       );
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Couldn't seal the box");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // A local sale: the buyer took the records in person, so nothing gets a
+  // label. Loose records go into a new box and every box still waiting on
+  // a label is marked handed over now — the order leaves the table and
+  // shows up under Ask for a review.
+  async function handOver(o: PackOrder) {
+    if (busy) return;
+    const boxes = o.parcels.filter(needsLabel);
+    const recs = [
+      ...o.loose,
+      ...boxes.flatMap((s) => (s.record_ids ?? []).map((id) => byId.get(id))),
+    ].filter((r): r is DbRecord => !!r);
+    if (recs.length === 0 && boxes.length === 0) return;
+    if (
+      !(await confirm(
+        `Mark ${buyerLabel(o.buyer, o.buyerEmail, "this buyer")}'s order handed over in person today?\n\n${recs
+          .map((r) => `• ${r.artist} — ${r.title}`)
+          .join("\n")}\n\nNo label needed. The order is done, and it shows up under Ask for a review in the Inbox.`,
+        "Handed over"
+      ))
+    )
+      return;
+    setBusy(`hand-${o.key}`);
+    try {
+      const { created, patch } = await handOverOrder(supabase, {
+        buyer: o.buyer,
+        orderId: o.order?.id ?? null,
+        invoiceId: o.invoiceId || null,
+        looseIds: o.loose.map((r) => r.id),
+        boxIds: boxes.map((s) => s.id),
+        toAddress: o.shipTo,
+      });
+      const ids = new Set(boxes.map((s) => s.id));
+      setShipments((prev) => {
+        const next = prev.map((s) => (ids.has(s.id) ? { ...s, ...patch } : s));
+        return created ? [...next, created] : next;
+      });
+      setChecked((prev) => ({ ...prev, [o.key]: [] }));
+      pushToast(
+        "success",
+        `Handed over ✓ — ${recs.length} record${recs.length === 1 ? "" : "s"} for ${buyerLabel(o.buyer, o.buyerEmail, "?")}`
+      );
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Couldn't mark it handed over");
     } finally {
       setBusy(null);
     }
@@ -424,6 +475,18 @@ export function PackPage() {
                     </div>
                   );
                 })}
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handOver(o)}
+                    disabled={!!busy}
+                    title="Local pickup or meet-up: the buyer has the records, so no label is needed. Marks the order done today and lists it under Ask for a review."
+                    className={smallButtonClass}
+                  >
+                    {busy === `hand-${o.key}` ? "Saving…" : "Handed over in person"}
+                  </button>
+                </div>
               </section>
             );
           })}

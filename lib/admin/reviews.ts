@@ -1,5 +1,6 @@
 import type { DbRecord, Order, ReviewInvite, ReviewSource, Shipment, ShopReview } from "../supabase.ts";
 import { INVITE_AFTER_DAYS, MAX_REVIEW_BODY, MAX_REVIEWER_NAME } from "../review.ts";
+import { handDelivered } from "./fulfillment.ts";
 
 // The Inbox's Reviews section: which recent buyers can still be asked for
 // a review, and the shape check for a review imported from another
@@ -13,6 +14,7 @@ export const IMPORT_SOURCES: Exclude<ReviewSource, "site">[] = ["discogs", "ebay
 export type AskableOrder = {
   order: Order;
   lastSent: string; // when the last box went out
+  inPerson: boolean; // every box was handed over in person, none mailed
   invite: ReviewInvite | null; // existing link, if one was made
   autoEmailOn: string | null; // when the daily job will email it (email buyers, no invite yet)
 };
@@ -22,7 +24,7 @@ export type AskableOrder = {
 // buyers are emailed by the daily job; anyone can be sent a copied link.
 export function askableOrders(
   orders: Order[],
-  shipments: Pick<Shipment, "order_id" | "sent_at">[],
+  shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[],
   invites: ReviewInvite[],
   reviews: Pick<ShopReview, "order_id">[],
   now: number = Date.now()
@@ -31,8 +33,10 @@ export function askableOrders(
   const inviteByOrder = new Map(invites.map((i) => [i.order_id, i]));
   const lastSent = new Map<number, string>();
   const unsent = new Set<number>();
+  const mailed = new Set<number>();
   for (const s of shipments) {
     if (s.order_id == null) continue;
+    if (!handDelivered(s)) mailed.add(s.order_id);
     if (!s.sent_at) unsent.add(s.order_id);
     else if (!lastSent.has(s.order_id) || s.sent_at > lastSent.get(s.order_id)!) {
       lastSent.set(s.order_id, s.sent_at);
@@ -51,7 +55,7 @@ export function askableOrders(
       !invite && order.buyer_email
         ? new Date(Date.parse(sent) + INVITE_AFTER_DAYS * day).toISOString()
         : null;
-    out.push({ order, lastSent: sent, invite, autoEmailOn });
+    out.push({ order, lastSent: sent, inPerson: !mailed.has(order.id), invite, autoEmailOn });
   }
   return out.sort((a, b) => b.lastSent.localeCompare(a.lastSent));
 }

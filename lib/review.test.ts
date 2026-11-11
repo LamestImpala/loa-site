@@ -82,7 +82,23 @@ test("orders to invite: paid, emailed buyer, box out 10-30 days, not yet invited
   ];
   const invites = [{ order_id: 5 }];
   assert.deepEqual(ordersToInvite(orders, shipments, invites, now), [
-    { orderId: 1, email: "a@example.com" },
+    { orderId: 1, email: "a@example.com", inPerson: false },
+  ]);
+});
+
+test("orders to invite: a hand-over counts from the day it changed hands", () => {
+  const orders = [
+    { id: 1, status: "paid" as const, buyer_email: "a@example.com" },
+    { id: 2, status: "paid" as const, buyer_email: "b@example.com" },
+  ];
+  const shipments = [
+    { order_id: 1, sent_at: daysAgo(12), mode: "hand" },
+    { order_id: 2, sent_at: daysAgo(12), mode: "hand" },
+    { order_id: 2, sent_at: daysAgo(14), mode: "paypal" },
+  ];
+  assert.deepEqual(ordersToInvite(orders, shipments, [], now), [
+    { orderId: 1, email: "a@example.com", inPerson: true },
+    { orderId: 2, email: "b@example.com", inPerson: false },
   ]);
 });
 
@@ -104,6 +120,11 @@ test("review request email: greets by first name, carries the link, replies to o
   assert.ok(m.text.includes(url));
   assert.ok(m.html.includes(`href="${url}"`));
   assert.match(reviewRequestEmail({ to: "a@example.com", firstName: null, url }).text, /^Hi,/);
+  const local = reviewRequestEmail({ to: "a@example.com", firstName: "Jane", url, inPerson: true });
+  assert.equal(local.subject, "How are your records sounding?");
+  assert.match(local.text, /picking up your records/);
+  assert.ok(!local.text.includes("landed"));
+  assert.ok(local.html.includes("picking up your records"));
 });
 
 test("admin review notification: stars, text, escaped html, link to the admin", () => {
@@ -191,4 +212,7 @@ test("review DM: first name, the record, the link, and an out", () => {
   assert.match(one, /reply here and I'll make it right/);
   const many = reviewDmText({ firstName: null, records: [pj, ts, pj], url });
   assert.match(many, /^Hey there, hope your 3 records arrived safely and sound great!/);
+  const met = reviewDmText({ firstName: null, records: [pj], url, inPerson: true });
+  assert.match(met, /^Hey there, thanks again for meeting up! Hope Pearl Jam – Benaroya Hall sounds great\./);
+  assert.ok(!met.includes("arrived"));
 });
