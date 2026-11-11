@@ -22,11 +22,13 @@
  *   - eBay: when the exact pressing (UPC match) has EBAY_MIN_EXACT+ used
  *     listings, their median asking price caps the target (floored too).
  *   - Time decay: a record unsold for DECAY_AFTER_DAYS with no price change
- *     in DECAY_QUIET_DAYS comes down DECAY_STEP, to the tier floor. Applied
- *     directly — the daily "Drink me" drops on the site come from here.
+ *     in DECAY_QUIET_DAYS comes down DECAY_STEP, to the tier floor. Queued
+ *     for approval like every other cut.
  *
- * Moves within ±THRESHOLD (and decay steps) apply automatically; bigger
- * moves are queued in pending_price_changes for approval on /admin. Each run
+ * Price cuts never apply on their own: every reduction — market moves,
+ * decay steps and undercuts alike — is queued in pending_price_changes for
+ * approval on /admin (see applyMode). Raises within ±THRESHOLD apply
+ * automatically; bigger raises are queued too. Each run
  * is logged to price_runs, and an email report is sent via Resend when
  * anything was flagged (if RESEND_API_KEY is set).
  *
@@ -45,7 +47,6 @@ export const SCARCE_FACTOR = 1.0; // scarce and wanted: the full suggestion
 export const STOCKED_FACTOR = 0.7; // stocked releases: commodity copies only move cheap
 const THRESHOLD = 0.05; // auto-apply suggestion moves within ±5%
 export const UNDERCUT_BY = 1; // competitive price = $1 below a comparable cheapest listing
-const MAX_AUTO_CUT = 0.1; // auto-apply competitive cuts up to 10%
 // Scarce = few copies for sale AND real demand (wants per existing copy).
 export const SCARCE_MAX_FOR_SALE = 5;
 export const SCARCE_MIN_DEMAND = 0.4;
@@ -178,6 +179,17 @@ export function planPrice({
     reason,
     decay,
   };
+}
+
+// Whether a planned move applies on its own or waits for approval. The
+// owner approves every reduction (prices get quoted in Reddit posts, so a
+// silent overnight cut can undercut a price already promised); only small
+// raises and a first price on an unpriced record apply directly.
+export function applyMode(price, target) {
+  if (target === price) return "none";
+  if (price === 0) return "auto";
+  if (target < price) return "queue";
+  return (target - price) / price <= THRESHOLD ? "auto" : "queue";
 }
 
 // --- eBay Browse API (optional second market signal) ---
@@ -505,7 +517,7 @@ async function main() {
   let autoApplied = 0;
   let flagged = 0;
   let aboveLowest = 0;
-  let undercuts = 0;
+  const undercuts = 0; // cuts are never auto-applied any more; column kept for old runs
   let decays = 0;
   let implausible = 0;
   let errors = 0;
@@ -663,45 +675,33 @@ async function main() {
         ebay_median: ebay?.median ?? null,
       };
 
-      if (target !== price) {
+      const mode = applyMode(price, target);
+      if (mode !== "none") {
         const entry = { ...base, old_price: price, new_price: target, reason };
-        if (price === 0) {
-          // new record with no price yet — set it directly
+        const pct = price === 0 ? 0 : Number(((target - price) / price).toFixed(4));
+        if (mode === "auto") {
           await setPrice(r.id, { price: target });
           autoApplied++;
           price = target;
-          summary.push({ ...entry, pct: 0, action: "applied" });
-        } else {
-          const pct = Number(((target - price) / price).toFixed(4));
-          if (Math.abs(pct) <= THRESHOLD || reason === "decay") {
-            await setPrice(r.id, { price: target });
-            autoApplied++;
-            if (reason === "decay") decays++;
-            price = target;
-            summary.push({ ...entry, pct, action: "applied" });
-          } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
-            await queueChange(r.id, price, target, pct);
-            hasPending.add(r.id);
-            flagged++;
-            summary.push({ ...entry, pct, action: "flagged" });
-          }
+          summary.push({ ...entry, pct, action: "applied" });
+        } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
+          await queueChange(r.id, price, target, pct);
+          hasPending.add(r.id);
+          flagged++;
+          if (reason === "decay") decays++;
+          summary.push({ ...entry, pct, action: "flagged" });
         }
       }
 
       // Competitive check: are we still above a comparable cheapest Discogs
-      // listing? Undercut it by $1 — automatically when the cut is small
-      // (≤MAX_AUTO_CUT); otherwise queue it for approval. competitive is
-      // already null when the listing isn't comparable or the cut would
-      // breach the tier floor.
+      // listing? Queue a $1 undercut for approval (never applied directly).
+      // competitive is already null when the listing isn't comparable or the
+      // cut would breach the tier floor.
       if (price > 0 && competitive !== null && competitive < price) {
         aboveLowest++;
         const cutPct = Number(((competitive - price) / price).toFixed(4));
         const entry = { ...base, old_price: price, new_price: competitive, pct: cutPct };
-        if (Math.abs(cutPct) <= MAX_AUTO_CUT) {
-          await setPrice(r.id, { price: competitive, prev_price: price });
-          undercuts++;
-          summary.push({ ...entry, action: "undercut" });
-        } else if (!hasPending.has(r.id) && !wasRejected(r.id, competitive)) {
+        if (!hasPending.has(r.id) && !wasRejected(r.id, competitive)) {
           await queueChange(r.id, price, competitive, cutPct);
           hasPending.add(r.id);
           summary.push({ ...entry, action: "above-lowest" });
@@ -739,13 +739,13 @@ async function main() {
   }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied (${decays} decay steps), ${undercuts} undercuts, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
   if (
     !DRY_RUN &&
-    (flagged > 0 || undercuts > 0 || pendingCuts.length > 0) &&
+    (flagged > 0 || pendingCuts.length > 0) &&
     process.env.RESEND_API_KEY
   ) {
     const REASON_LABEL = {
@@ -774,7 +774,7 @@ async function main() {
 
     const flaggedSection =
       flagged > 0
-        ? `<p>These moved more than ±5% and are waiting for your approval at
+        ? `<p>These are waiting for your approval (every cut, and raises over 5%) at
 <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th><th>Why</th><th>Lowest listing</th><th>Copies for sale</th><th>eBay median (used)</th></tr>
@@ -792,15 +792,6 @@ sets the suggested price ($1 under that listing).</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`
         : "";
 
-    const undercutSection =
-      undercuts > 0
-        ? `<p>Auto-undercut to $1 below a comparable cheapest listing (cut ≤10% and above the tier floor):</p>
-<table border="1" cellpadding="6" cellspacing="0">${cutHeader}${summary
-            .filter((s) => s.action === "undercut")
-            .map(cutRow)
-            .join("")}</table>`
-        : "";
-
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -810,11 +801,10 @@ sets the suggested price ($1 under that listing).</p>
       body: JSON.stringify({
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
-        subject: `Price run: ${undercuts} auto-undercut, ${decays} decay steps, ${flagged + pendingCuts.length} awaiting approval`,
-        html: `<p>${checked} records checked, ${autoApplied} changes auto-applied (${decays} of them time-decay steps), ${undercuts} competitive undercuts applied, ${implausible} cheapest listings ignored as not comparable.</p>
+        subject: `Price run: ${flagged + pendingCuts.length} awaiting approval (${decays} decay steps), ${autoApplied} small raises applied`,
+        html: `<p>${checked} records checked, ${autoApplied} small raises auto-applied, ${flagged + pendingCuts.length} changes waiting for approval (no cut is ever applied without it), ${implausible} cheapest listings ignored as not comparable.</p>
 ${flaggedSection}
-${cutsSection}
-${undercutSection}`,
+${cutsSection}`,
       }),
     });
     if (!res.ok) {
