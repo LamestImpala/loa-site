@@ -2000,3 +2000,228 @@ html:has(.shop) {
     padding: var(--space-4);
   }
 }
+
+/* — crate view: flip through the covers like a record bin (crate.tsx) — */
+.shop .crate {
+  display: grid;
+  gap: var(--space-5, 24px);
+  justify-content: center;
+  align-items: start;
+  grid-template-columns: minmax(0, 440px);
+}
+@media (min-width: 820px) {
+  .shop .crate {
+    grid-template-columns: minmax(0, 440px) minmax(260px, 360px);
+    gap: 48px;
+  }
+  .shop .crate-plate {
+    margin-top: 26%;
+  }
+}
+.shop .crate-bin {
+  min-width: 0;
+}
+/* The stage is the camera: looking slightly down into the bin, so the
+   sleeves behind the front one peek over its top edge. */
+.shop .crate-stage {
+  position: relative;
+  padding: 30% 6% 0;
+  perspective: 1100px;
+  perspective-origin: 50% 0%;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.shop .crate-sleeves {
+  position: relative;
+  aspect-ratio: 1;
+  transform-style: preserve-3d;
+}
+.shop .crate-sleeves[data-fell] {
+  animation: cratefall 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes cratefall {
+  from {
+    opacity: 0;
+    transform: translateY(-48px) rotate(-3deg) scale(0.94);
+  }
+}
+.shop .crate-sleeve {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-origin: 50% 100%;
+  transform: translate3d(0, calc(var(--d) * -4.4%), calc(var(--d) * -70px));
+  filter: brightness(calc(1 - var(--d) * 0.07));
+  transition:
+    transform 0.45s cubic-bezier(0.2, 0.75, 0.2, 1),
+    filter 0.45s ease,
+    opacity 0.3s ease;
+}
+/* Flipped toward you and out of the way. */
+.shop .crate-sleeve.is-flipped {
+  transform: translate3d(0, 10%, 40px) rotateX(-74deg);
+  opacity: 0;
+  filter: none;
+  pointer-events: none;
+}
+.shop .crate-art {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--color-neutral-200);
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #251b33 22%, transparent),
+    0 -6px 14px color-mix(in srgb, #251b33 18%, transparent);
+}
+.shop .crate-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.shop .crate-art .initials {
+  font-family: var(--font-heading);
+  font-size: clamp(48px, 16vw, 96px);
+}
+.shop .crate-sleeve.is-sold .crate-art {
+  filter: grayscale(1) opacity(0.75);
+}
+.shop .crate-sleeve:not(.is-front):not(.is-flipped):hover {
+  filter: brightness(1.05);
+}
+/* Bin divider tab where a new letter starts (A–Z sort only). */
+.shop .crate-tab {
+  position: absolute;
+  bottom: 100%;
+  min-width: 2.4em;
+  padding: 1px 8px 2px;
+  text-align: center;
+  font-family: var(--font-caps);
+  font-size: 15px;
+  line-height: 1.2;
+  color: var(--color-accent-800);
+  background: var(--color-accent-2-200);
+  border: 1px solid color-mix(in srgb, #251b33 22%, transparent);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+/* The price sticker on the front sleeve. */
+.shop .crate-sticker {
+  position: absolute;
+  top: 4%;
+  right: -3%;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 6px 12px 7px;
+  font-family: var(--font-caps);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  color: var(--color-accent-2-900);
+  background: var(--color-accent-2-300);
+  border: 1px solid var(--color-accent-2-600);
+  box-shadow: var(--shadow-md);
+  transform: rotate(4deg);
+  animation: curiofade 0.35s ease both;
+}
+.shop .crate-sticker b {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
+}
+/* The front board of the bin. */
+.shop .crate-lip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -9%;
+  z-index: 60;
+  height: 15%;
+  display: grid;
+  place-items: center;
+  color: var(--color-ink-muted);
+  background: linear-gradient(var(--color-ink), var(--color-ink-2));
+  border-top: 3px solid var(--color-accent-2);
+  border-radius: 2px;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+.shop .crate-lip span {
+  font-family: var(--font-caps);
+  font-size: 13px;
+  letter-spacing: 0.22em;
+}
+.shop .crate-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: calc(9% + var(--space-4));
+}
+.shop .crate-scrub {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--color-accent);
+}
+.shop .crate-hint {
+  margin: var(--space-2) 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.shop .crate-plate {
+  padding: var(--space-4);
+}
+.shop .crate-count {
+  font-family: var(--font-caps);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--color-neutral-700);
+}
+.shop .crate-fell {
+  color: var(--color-accent-700);
+}
+.shop .crate-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+.shop .crate-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.shop .crate-title a:hover {
+  color: var(--color-accent);
+}
+.shop .crate-hole {
+  margin-top: var(--space-3);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--color-ink-text);
+  background: var(--color-ink);
+  border: 1px solid var(--color-ink-2);
+  border-radius: var(--radius-sm);
+}
+.shop .crate-hole:hover {
+  background: var(--color-ink-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shop .crate-sleeve {
+    transition: none;
+  }
+  .shop .crate-sleeves[data-fell],
+  .shop .crate-sticker {
+    animation: none;
+  }
+}
