@@ -83,7 +83,7 @@ function ReviewQuotes({ summary }: { summary: ReviewSummary }) {
       <h2 id="reviews-title">What buyers say</h2>
       <ul className="shop-reviews-list">
         {summary.quotes.map((q) => (
-          <ReviewQuoteItem key={q.id} quote={q} />
+          <ReviewQuoteItem key={q.id} quote={q} clamp />
         ))}
       </ul>
       {hasMoreReviews(summary) ? (
