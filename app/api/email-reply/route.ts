@@ -9,6 +9,7 @@ import {
 import { EMAIL_RE } from "@/lib/order-request";
 import { ORDERS_ADDRESS, addressOf, emailConfigured, emailFrom, sendEmail } from "@/lib/email";
 import { parseAttachments } from "@/lib/admin/attachments";
+import { orderEmailSubject } from "@/lib/admin/messages";
 
 // Send an email from the admin Inbox as orders@curiouserrecords.com — a
 // reply to an inbound message, or the sale-desk breakdown to an email
@@ -16,8 +17,11 @@ import { parseAttachments } from "@/lib/admin/attachments";
 // route; the shop_messages writes go through the admin's own token, so
 // RLS still enforces the admin policy.
 //
-//   POST { to, subject, text, inReplyTo?, messageId?, requestId?, attachments? }
+//   POST { to, subject, text, inReplyTo?, messageId?, requestId?, orderId?, attachments? }
 //     → sends, saves an outbound row, marks the inbound row replied.
+//   orderId: a note about a paid order (the Ship page's Email buyer box).
+//   The row is filed against the order and the request it came from, and
+//   the subject may be left out — it then threads with that request.
 //   attachments: [{ url, filename }] — photos in our public record-photos
 //   bucket, which Resend fetches by URL (parseAttachments refuses the rest).
 
@@ -48,8 +52,27 @@ export async function POST(req: NextRequest) {
   if (!to || !EMAIL_RE.test(to)) {
     return NextResponse.json({ error: "Invalid recipient" }, { status: 400 });
   }
-  const subject =
+  const orderId = Number.isInteger(body.orderId) ? (body.orderId as number) : null;
+  let requestId = Number.isInteger(body.requestId) ? (body.requestId as number) : null;
+  let subject =
     typeof body.subject === "string" ? body.subject.trim().slice(0, 200) : "";
+  if (orderId != null) {
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .select("id, request_id, order_requests(ref_code)")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (orderError || !order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    const joined = (order as { order_requests?: unknown }).order_requests;
+    const request = (Array.isArray(joined) ? joined[0] : joined) as
+      | { ref_code?: string | null }
+      | null
+      | undefined;
+    requestId ??= (order as { request_id: number | null }).request_id;
+    if (!subject) subject = orderEmailSubject(request?.ref_code ?? null);
+  }
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (!subject || !text || text.length > 5000) {
     return NextResponse.json({ error: "Subject and message are required" }, { status: 400 });
@@ -59,7 +82,6 @@ export async function POST(req: NextRequest) {
       ? body.inReplyTo.trim().slice(0, 300)
       : null;
   const messageId = Number.isInteger(body.messageId) ? (body.messageId as number) : null;
-  const requestId = Number.isInteger(body.requestId) ? (body.requestId as number) : null;
   const attachments = parseAttachments(body.attachments, SUPABASE_URL);
   if (!attachments.ok) {
     return NextResponse.json({ error: attachments.error }, { status: 400 });
@@ -88,6 +110,7 @@ export async function POST(req: NextRequest) {
       subject,
       text_body: text,
       request_id: requestId,
+      order_id: orderId,
       status: "archived", // outbound rows are history, not work
       received_at: now,
     })

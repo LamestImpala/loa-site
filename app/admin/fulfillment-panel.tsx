@@ -30,6 +30,7 @@ import {
 } from "@/lib/admin/shipments-db";
 import { blurOnEnter, buttonClass, inputClass, smallButtonClass, useCopied } from "./_shell/ui";
 import { BuyerField } from "./_shell/buyer-field";
+import { EmailBuyer } from "./_ship/email-buyer";
 
 /*
  * Fulfillment: sold records grouped by order, split into parcels
@@ -1016,6 +1017,15 @@ export function FulfillmentPanel({
                     >
                       {groupBusy ? "Working…" : "Sync from PayPal"}
                     </button>
+                  ) : null}
+                  {g.order && g.buyerEmail ? (
+                    <EmailBuyer
+                      order={g.order}
+                      email={g.buyerEmail}
+                      buyer={g.buyer}
+                      records={g.records}
+                      paid={paid}
+                    />
                   ) : null}
                   {paid && g.records.length > 0 && !g.buyerEmail ? (
                     <>

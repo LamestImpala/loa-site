@@ -92,3 +92,41 @@ export function latestReplyTo<
   }
   return best;
 }
+
+// Subject for a note to a buyer about a paid order. An order that began as
+// a shop email request reuses the request thread (and its ref code, so a
+// reply files back to it); any other order gets a plain subject.
+export function orderEmailSubject(refCode: string | null | undefined): string {
+  return refCode ? requestReplySubject(refCode) : "Your Curiouser Records order";
+}
+
+// "Payment received" draft for the Ship page's Email buyer box. `shipsOn`
+// is the shipping-pause day ("Thursday, Nov 12") when one is active.
+export function paymentReceivedText(a: {
+  name: string | null | undefined;
+  titles: string[];
+  shipsOn?: string | null;
+}): string {
+  const what =
+    a.titles.length === 0
+      ? "your order"
+      : a.titles.length === 1
+        ? a.titles[0]
+        : `${a.titles.slice(0, -1).join(", ")} and ${a.titles[a.titles.length - 1]}`;
+  const when = a.shipsOn
+    ? `It'll ship ${a.shipsOn}`
+    : "I'll get it packed up and shipped in the next couple of days";
+  return `${replyGreeting(a.name)}Got your payment for ${what} — thank you! ${when}, and PayPal will email you the tracking number once it's on its way.\n\n— Curiouser Records`;
+}
+
+// The newest outbound message filed against an order, or null.
+export function latestEmailToOrder<
+  T extends Pick<ShopMessage, "direction" | "order_id" | "received_at">,
+>(sent: T[], orderId: number): T | null {
+  let best: T | null = null;
+  for (const m of sent) {
+    if (m.direction !== "out" || m.order_id !== orderId) continue;
+    if (!best || m.received_at > best.received_at) best = m;
+  }
+  return best;
+}
