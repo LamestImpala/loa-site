@@ -74,6 +74,19 @@ const SLICE_NAMES: SliceName[] = [
   "redditPosts",
 ];
 
+// What /api/email-reply takes. orderId files the note against a paid
+// order (and the request it came from); the subject may then be left out.
+export type ShopEmailBody = {
+  to: string;
+  subject?: string;
+  text: string;
+  inReplyTo?: string | null;
+  messageId?: number;
+  requestId?: number | null;
+  orderId?: number | null;
+  attachments?: { url: string; filename: string }[];
+};
+
 type AdminContextValue = {
   supabase: SupabaseClient;
   session: Session;
@@ -96,9 +109,13 @@ type AdminContextValue = {
   // Mail to orders@ (inbound, not yet archived) for the Inbox.
   messages: ShopMessage[];
   setMessages: Setter<ShopMessage[]>;
-  // Replies the Inbox sent against a request, so its card can say so.
+  // Mail sent as orders@ against a request or an order, so its card can
+  // say it was answered.
   sentMessages: ShopMessage[];
   setSentMessages: Setter<ShopMessage[]>;
+  // Send mail as orders@ through /api/email-reply (the Resend key lives on
+  // the server). False when it didn't go — already toasted.
+  sendShopEmail: (body: ShopEmailBody) => Promise<boolean>;
   // Shop reviews (newest first) and review links, for the Inbox's Reviews.
   reviews: ShopReview[];
   setReviews: Setter<ShopReview[]>;
@@ -383,6 +400,38 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     return current?.access_token ?? "";
   }, [supabase]);
 
+  const sendShopEmail = useCallback(
+    async (body: ShopEmailBody): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/email-reply", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${await getAccessToken()}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          sent?: ShopMessage | null;
+        };
+        if (!res.ok) {
+          pushToast("error", json.error || `Email failed (${res.status})`);
+          return false;
+        }
+        const sent = json.sent;
+        if (sent && (sent.request_id != null || sent.order_id != null)) {
+          setSentMessages((prev) => [sent, ...prev.filter((m) => m.id !== sent.id)]);
+        }
+        return true;
+      } catch {
+        pushToast("error", "Email failed — couldn't reach the server");
+        return false;
+      }
+    },
+    [getAccessToken, pushToast]
+  );
+
   // --- Lazy slices ---
   const [sliceStatus, setSliceStatus] = useState<Record<SliceName, SliceStatus>>(
     () =>
@@ -543,7 +592,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .from("shop_messages")
           .select("*")
           .eq("direction", "out")
-          .not("request_id", "is", null)
+          .or("request_id.not.is.null,order_id.not.is.null")
           .order("received_at", { ascending: false })
           .limit(100),
         supabase
@@ -1192,6 +1241,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setMessages,
     sentMessages,
     setSentMessages,
+    sendShopEmail,
     reviews,
     setReviews,
     reviewInvites,

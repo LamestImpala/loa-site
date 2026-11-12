@@ -73,7 +73,7 @@ export function InboxPage() {
     messages,
     setMessages,
     sentMessages,
-    setSentMessages,
+    sendShopEmail,
     events,
     visits,
     loading,
@@ -263,49 +263,6 @@ export function InboxPage() {
     if (saleRecords.length === 0) return;
     if (await copyText(saleReply(), "Copy this reply")) {
       flash("reply");
-    }
-  }
-
-  // Send mail as orders@ through the server (the Resend key lives there).
-  // False when it didn't go — already toasted. A reply filed against a
-  // request joins sentMessages so its card shows it was answered.
-  async function sendShopEmail(body: {
-    to: string;
-    subject: string;
-    text: string;
-    inReplyTo?: string | null;
-    messageId?: number;
-    requestId?: number | null;
-    attachments?: { url: string; filename: string }[];
-  }): Promise<boolean> {
-    try {
-      const {
-        data: { session: current },
-      } = await supabase.auth.getSession();
-      const res = await fetch("/api/email-reply", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${current?.access_token ?? ""}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        sent?: ShopMessage | null;
-      };
-      if (!res.ok) {
-        pushToast("error", json.error || `Email failed (${res.status})`);
-        return false;
-      }
-      const sent = json.sent;
-      if (sent && sent.request_id != null) {
-        setSentMessages((prev) => [sent, ...prev.filter((m) => m.id !== sent.id)]);
-      }
-      return true;
-    } catch {
-      pushToast("error", "Email failed — couldn't reach the server");
-      return false;
     }
   }
 
