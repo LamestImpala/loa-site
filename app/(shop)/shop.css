@@ -7,55 +7,65 @@
  * under .shop because this file is bundled globally — the LOA site and /admin
  * keep their own dark theme.
  *
+ * Nov 2026: re-coloured for the engraved rabbit emblem — midnight indigo,
+ * antique gold, burgundy — with the celestial hero and midnight-garden wall
+ * (art in assets/brand-source, web copies from scripts/brand-images.mjs).
+ *
  * Fonts: --font-fell / --font-fell-sc / --font-alice are set by next/font
  * in the shop layout;
  * the tokens below only reference them.
  */
 
 .shop {
-  --color-bg: #f8f1e4;
-  --color-surface: #efe5d6;
-  --color-text: #251b33;
-  --color-accent: #a83d68;
-  --color-accent-2: #c98a2b;
-  --color-divider: color-mix(in srgb, #251b33 16%, transparent);
+  /* Engraved-night palette, taken from the rabbit emblem and the two
+     wallpapers: warm ivory page, midnight-indigo ink, burgundy for actions,
+     antique gold for rules and borders only (too light for small text). */
+  --color-bg: #f6efdf;
+  --color-surface: #ede3cf;
+  --color-text: #171d30;
+  --color-accent: #7e314d;
+  --color-accent-2: #b48b48;
+  --color-moss: #586044;
+  --color-divider: color-mix(in srgb, #171d30 16%, transparent);
 
-  /* Dark "down the rabbit hole" surfaces for hero and footer. */
-  --color-ink: #2b1d40;
-  --color-ink-2: #1e1430;
+  /* Night surfaces: hero art, garden wall and footer. */
+  --color-ink: #171d30;
+  --color-ink-2: #10141f;
   --color-ink-text: #f3ecdd;
-  --color-ink-muted: #cfc2e0;
+  --color-ink-muted: #cfc8d6;
+  /* The garden's darkest ground; the wall below the wallpaper layer. */
+  --color-garden: #150e12;
 
   /* Tonal ramps — one shared lightness scale across roles. */
-  --color-neutral-100: #f9f3ea;
-  --color-neutral-200: #efe6da;
-  --color-neutral-300: #ded2c6;
-  --color-neutral-400: #c2b3ab;
-  --color-neutral-500: #a3928f;
-  --color-neutral-600: #847377;
-  --color-neutral-700: #66575f;
-  --color-neutral-800: #483d47;
-  --color-neutral-900: #2f2833;
+  --color-neutral-100: #f8f3e9;
+  --color-neutral-200: #ece4d4;
+  --color-neutral-300: #d9cfbf;
+  --color-neutral-400: #bdb2a5;
+  --color-neutral-500: #9c9290;
+  --color-neutral-600: #7b7279;
+  --color-neutral-700: #5e5560;
+  --color-neutral-800: #423b4a;
+  --color-neutral-900: #272335;
 
-  --color-accent-100: #fbeef4;
-  --color-accent-200: #f6d7e4;
-  --color-accent-300: #eeb2ca;
-  --color-accent-400: #dd85a8;
-  --color-accent-500: #bb5583;
-  --color-accent-600: #96345e;
-  --color-accent-700: #772647;
-  --color-accent-800: #551a32;
-  --color-accent-900: #350f1f;
+  --color-accent-100: #f6eef1;
+  --color-accent-200: #ecdae0;
+  --color-accent-300: #dfb4c4;
+  --color-accent-400: #cb869f;
+  --color-accent-500: #a84a6c;
+  --color-accent-600: #8f3858;
+  --color-accent-700: #792f4a;
+  --color-accent-800: #582236;
+  --color-accent-900: #371522;
 
-  --color-accent-2-100: #fcf3e1;
-  --color-accent-2-200: #f7e4bd;
-  --color-accent-2-300: #eecd8d;
-  --color-accent-2-400: #ddb05b;
-  --color-accent-2-500: #c98a2b;
-  --color-accent-2-600: #a56f1d;
-  --color-accent-2-700: #815614;
-  --color-accent-2-800: #5c3d0e;
-  --color-accent-2-900: #3a2608;
+  --color-accent-2-100: #f8f1e2;
+  --color-accent-2-200: #efe1c3;
+  --color-accent-2-300: #e0c796;
+  --color-accent-2-400: #cbab6c;
+  --color-accent-2-500: #b48b48;
+  --color-accent-2-600: #99763d;
+  --color-accent-2-700: #785d30;
+  --color-accent-2-800: #574423;
+  --color-accent-2-900: #372a16;
 
   --font-heading: var(--font-fell), Georgia, serif;
   --font-caps: var(--font-fell-sc), Georgia, serif;
@@ -89,7 +99,7 @@
    overscroll/browser chrome should be parchment instead. */
 html:has(.shop),
 body:has(.shop) {
-  background: #f8f1e4;
+  background: #f6efdf;
 }
 html:has(.shop) {
   scroll-behavior: smooth;
@@ -332,9 +342,16 @@ html:has(.shop) {
   gap: var(--space-4);
   padding: var(--space-4) var(--space-8);
 }
+/* The emblem's link must not shrink: the img's max-width: 100% would
+   follow it down to nothing on tablets. */
+.shop-nav-home {
+  flex-shrink: 0;
+}
 .shop-nav-logo {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  margin-block: -6px;
 }
 .shop-nav-brand {
   font-family: var(--font-heading);
@@ -389,17 +406,19 @@ html:has(.shop) {
   object-fit: contain;
 }
 
-/* Checkerboard trim — the White Rabbit's tiled floor, from the logo. */
-.shop-checker {
-  height: 16px;
-  background: repeating-conic-gradient(
-      var(--color-ink) 0% 25%,
-      var(--color-accent-2) 0% 50%
-    )
-    0 0 / 16px 16px;
+/* Rule under the nav and over the footer: a midnight band between two
+   antique-gold hairlines, like the border of an engraved plate. */
+.shop-rule {
+  height: 7px;
+  background:
+    linear-gradient(var(--color-accent-2), var(--color-accent-2)) top / 100% 1px
+      no-repeat,
+    linear-gradient(var(--color-accent-2), var(--color-accent-2)) bottom / 100%
+      1px no-repeat,
+    var(--color-ink);
 }
 
-/* Away notice: a gold strip under the checker on every shop page. */
+/* Away notice: a gold strip under the rule on every shop page. */
 .shop-notice {
   margin: 0;
   padding: var(--space-3) var(--space-8);
@@ -418,40 +437,71 @@ html:has(.shop) {
   }
 }
 
-/* Title page: parchment, the rabbit as a frontispiece plate hung on a
-   chinoiserie-papered wall. The paper (scripts/chinoiserie-tile.mjs) shows
-   on the rabbit's side and fades to clear parchment under the copy. */
+/* Title page: the copy on an ivory leaf at left, the celestial-observatory
+   engraving filling the right to the window edge (shop-hero.tsx). */
 .shop-hero-band {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border-bottom: 1px solid var(--color-divider);
-  margin-bottom: var(--space-8);
-}
-.shop-hero-band::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  /* Offset from centre so the vine climbs beside the badge, not behind it. */
-  background: url("/images/chinoiserie-day.svg") calc(50% + 172px) -40px / 540px auto;
-  -webkit-mask-image: linear-gradient(to right, transparent 42%, #000 62%);
-  mask-image: linear-gradient(to right, transparent 42%, #000 62%);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-accent-2);
 }
 .shop-hero {
-  padding-block: calc(var(--space-8) * 1.25) var(--space-8);
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: calc(var(--space-8) * 1.5);
+  grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
 }
 .shop-hero-copy {
   /* No min-width: a hard floor here forces horizontal scroll on narrow phones. */
   min-width: 0;
-  max-width: 680px;
-  /* Clear parchment behind the copy at any width, feathered into the paper. */
+  /* Left edge lines up with the 1200px shell below. */
+  padding: var(--space-6) calc(var(--space-8) * 1.25)
+    calc(var(--space-8) * 1.25)
+    max(var(--space-8), calc(50vw - 600px + var(--space-8)));
+  /* Emblem and kicker share the first row, like a book-plate and its
+     legend; everything else runs the full width of the leaf. */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-content: start;
+  align-items: center;
+}
+.shop-hero-copy > * {
+  grid-column: 1 / -1;
+  max-width: 660px;
+  justify-self: start;
+}
+.shop-hero-copy > .shop-hero-logo + * {
+  grid-column: 2;
+  margin: 0;
+}
+/* The emblem's square canvas has a transparent margin, so it is nudged
+   left to line its artwork up with the text. */
+.shop-hero-copy > .shop-hero-logo {
+  grid-column: 1;
+  display: block;
+  width: 148px;
+  height: 148px;
+  object-fit: contain;
+  margin: 0 0 var(--space-3) -6px;
+  animation: curiofade 0.5s ease both;
+}
+.shop-hero-art {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-ink);
+}
+.shop .shop-hero-art-img {
+  object-fit: cover;
+  /* Keep the armillary, the moon's face and the rabbit; lose quiet sky. */
+  object-position: 90% 40%;
+}
+/* Gold hairlines at the join, as on a mounted plate. */
+.shop-hero-art::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 8px;
+  border-left: 1px solid var(--color-accent-2);
+  border-right: 1px solid var(--color-accent-2);
   background: var(--color-bg);
-  box-shadow: 0 0 32px 44px var(--color-bg);
 }
 .shop-hero-kicker {
   font-family: var(--font-caps);
@@ -460,7 +510,7 @@ html:has(.shop) {
   color: var(--color-accent-700);
 }
 .shop .shop-hero h1 {
-  font-size: clamp(38px, 5vw, 64px);
+  font-size: clamp(38px, 4.1vw, 58px);
   line-height: 1.04;
   margin: 0 0 var(--space-4);
   color: var(--color-ink);
@@ -508,30 +558,6 @@ html:has(.shop) {
 .shop .shop-hero-cta {
   margin-top: var(--space-6);
 }
-.shop-hero-art {
-  position: relative;
-}
-/* A thin gold rule around the badge, like a printed plate border. The
-   badge's artwork runs past its square's inscribed circle (out to ~54% of
-   the width from center), so the ring sits wide enough to clear it. */
-.shop-hero-art::before {
-  content: "";
-  position: absolute;
-  inset: -20px;
-  border-radius: 50%;
-  border: 1px solid var(--color-accent-2);
-  /* A parchment mount, so the badge reads against the wallpaper. */
-  background: var(--color-bg);
-  box-shadow: 0 0 0 7px var(--color-bg), 0 0 0 8px var(--color-accent-2);
-}
-.shop-hero-logo {
-  position: relative;
-  display: block;
-  width: 260px;
-  height: 260px;
-  animation: curiofade 0.5s ease both;
-}
-
 .shop-section {
   padding-bottom: var(--space-6);
 }
@@ -1606,6 +1632,44 @@ html:has(.shop) {
   margin-right: auto;
 }
 
+/* — the garden wall — */
+/* Everything below the hero hangs on the midnight-garden engraving as an
+   ivory sheet. The art is one scene, not a tile: a single layer at the top
+   of the wall that fades into the garden's own dark ground below. */
+.shop-garden {
+  position: relative;
+  isolation: isolate;
+  background: var(--color-garden);
+  padding: clamp(36px, 6vw, 96px) clamp(0px, 4vw, 120px) clamp(36px, 5vw, 80px);
+}
+.shop-garden::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: min(100%, 1150px);
+  z-index: -1;
+  background: url("/images/brand/garden-1536.webp") 50% 0 / max(1536px, 100%)
+    auto no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.shop-garden-sheet {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-top: var(--space-8);
+  background: var(--color-bg);
+  /* Double gold rule just inside the edge, and a soft cast onto the wall. */
+  box-shadow:
+    inset 0 0 0 6px var(--color-bg),
+    inset 0 0 0 7px var(--color-accent-2),
+    0 18px 50px rgb(0 0 0 / 0.55);
+  border: 1px solid var(--color-accent-2);
+}
+/* The sheet is the page now: no extra bottom border on the last block. */
+.shop-garden-sheet > :last-child {
+  margin-bottom: 0;
+}
+
 /* — footer — */
 .shop-footer {
   position: relative;
@@ -1614,27 +1678,28 @@ html:has(.shop) {
   color: var(--color-ink-text);
   padding: calc(var(--space-8) + var(--space-2)) var(--space-8);
 }
-/* The night colourway of the wallpaper: full strength in the margins
-   outside the 1200px text column, a tone-on-tone print behind it. */
+/* A restrained crop of the midnight garden: full strength in the margins
+   outside the 1200px text column, barely there behind the text. */
 .shop-footer::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: url("/images/chinoiserie-night.svg") 50% -30px / 540px auto;
+  background: url("/images/brand/garden-1000.webp") 50% 62% / max(1000px, 100%)
+    auto no-repeat;
   -webkit-mask-image: linear-gradient(
     to right,
-    #000 0,
-    rgb(0 0 0 / 0.16) max(7%, calc(50% - 570px)),
-    rgb(0 0 0 / 0.16) min(93%, calc(50% + 570px)),
-    #000 100%
+    rgb(0 0 0 / 0.8) 0,
+    rgb(0 0 0 / 0.1) max(7%, calc(50% - 570px)),
+    rgb(0 0 0 / 0.1) min(93%, calc(50% + 570px)),
+    rgb(0 0 0 / 0.8) 100%
   );
   mask-image: linear-gradient(
     to right,
-    #000 0,
-    rgb(0 0 0 / 0.16) max(7%, calc(50% - 570px)),
-    rgb(0 0 0 / 0.16) min(93%, calc(50% + 570px)),
-    #000 100%
+    rgb(0 0 0 / 0.8) 0,
+    rgb(0 0 0 / 0.1) max(7%, calc(50% - 570px)),
+    rgb(0 0 0 / 0.1) min(93%, calc(50% + 570px)),
+    rgb(0 0 0 / 0.8) 100%
   );
 }
 .shop-footer a {
@@ -1682,7 +1747,69 @@ html:has(.shop) {
   color: color-mix(in srgb, var(--color-ink-muted) 75%, transparent);
 }
 
+/* Tablets and phones: the scene becomes a landscape band on top, shown
+   whole, with the emblem set in its quiet left-hand sky (the space the
+   engraving leaves for it); the copy follows on ivory. */
+@media (max-width: 900px) {
+  .shop-hero {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .shop-hero-art {
+    order: -1;
+    aspect-ratio: 3 / 2;
+    border-bottom: 1px solid var(--color-accent-2);
+  }
+  .shop-hero-art::after {
+    display: none;
+  }
+  .shop .shop-hero-art-img {
+    object-position: 50% 50%;
+  }
+  .shop-hero-copy > .shop-hero-logo + * {
+    margin-bottom: var(--space-3);
+  }
+  .shop-hero-copy > .shop-hero-logo {
+    position: absolute;
+    z-index: 1;
+    left: 3vw;
+    top: calc(100vw / 3 - 19vw);
+    width: 38vw;
+    height: 38vw;
+    margin: 0;
+  }
+  .shop-garden {
+    padding: 64px 24px 40px;
+  }
+  .shop-garden::before {
+    background-image: url("/images/brand/garden-1000.webp");
+    background-size: max(900px, 100%) auto;
+    height: 800px;
+  }
+  .shop-hero-copy {
+    display: block;
+    padding: var(--space-6) var(--space-8) var(--space-8);
+  }
+}
+
 @media (max-width: 640px) {
+  /* Compact hero: records should surface within ~1.5 screens. */
+  /* The garden shrinks to a band above an edge-to-edge sheet. */
+  .shop-garden {
+    padding: 72px 0 0;
+  }
+  .shop-garden::before {
+    height: 640px;
+  }
+  .shop-garden-sheet {
+    box-shadow: 0 -10px 30px rgb(0 0 0 / 0.5);
+    border-inline: 0;
+    border-bottom: 0;
+  }
+  .shop-hero-copy {
+    display: block;
+    padding: var(--space-6) var(--space-4) var(--space-6);
+  }
   .shop-nav-links {
     gap: var(--space-4);
     margin-left: var(--space-2);
@@ -1693,31 +1820,11 @@ html:has(.shop) {
   .shop-footer {
     padding-inline: var(--space-4);
   }
-  /* Compact hero: records should surface within ~1.5 screens. The logo is
-     already in the nav; the buying details collapse into a <details>. */
-  .shop-hero {
-    grid-template-columns: 1fr;
-    padding-block: var(--space-6);
-    gap: var(--space-4);
-  }
-  /* One column leaves no clear wall, so the paper is a faint print in the
-     lower corner, away from the title. */
-  .shop-hero-band::before {
-    background-size: 360px auto;
-    background-position: right -150px bottom -40px;
-    opacity: 0.55;
-    -webkit-mask-image: radial-gradient(75% 60% at 100% 100%, #000 30%, transparent 100%);
-    mask-image: radial-gradient(75% 60% at 100% 100%, #000 30%, transparent 100%);
-  }
-  .shop-hero-copy {
-    background: none;
-    box-shadow: none;
-  }
   .shop-footer::before {
-    background-size: 380px auto;
+    background-size: 700px auto;
     -webkit-mask-image: none;
     mask-image: none;
-    opacity: 0.2;
+    opacity: 0.18;
   }
   .shop .shop-hero h1 {
     font-size: clamp(32px, 9vw, 40px);
@@ -1725,9 +1832,6 @@ html:has(.shop) {
   .shop-hero-lede {
     font-size: 16px;
     margin-bottom: var(--space-4);
-  }
-  .shop-hero-art {
-    display: none;
   }
   .shop-hero-info-static {
     display: none;
@@ -1780,11 +1884,28 @@ html:has(.shop) {
   }
 }
 
-/* Narrow phones: the brand and the long mailbox address can't share a
-   line; the address is in the buying details and the footer too. */
-@media (max-width: 420px) {
+/* Below desktop the brand, three section links and the long mailbox
+   address can't share a line; the address is in the buying details and
+   the footer too. */
+@media (max-width: 900px) {
   .shop-nav-email {
     display: none;
+  }
+}
+/* Brand, Records, Posters and Equipment don't fit one phone line: the
+   section links drop to their own row under the emblem and name. */
+@media (max-width: 560px) {
+  .shop-nav {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+    column-gap: var(--space-3);
+    padding-block: var(--space-3);
+  }
+  .shop-nav-links {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-left: calc(56px + var(--space-3));
   }
 }
 

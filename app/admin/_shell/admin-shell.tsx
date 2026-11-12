@@ -4,7 +4,12 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import { useAdmin } from "./admin-provider";
 import { AdminNav } from "./admin-nav";
-import { ClipboardFallbackModal, ConfirmDialog, ToastStack, buttonClass } from "./ui";
+import {
+  ClipboardFallbackModal,
+  ConfirmDialog,
+  ToastStack,
+  buttonClass,
+} from "./ui";
 
 // Page chrome shared by every /admin page: nav, account controls, the
 // load-error banner, and the toast / clipboard-fallback overlays.
@@ -42,11 +47,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
             className="order-1 shrink-0 rounded-full transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
             <Image
-              src="/images/curiouserlogo.png"
+              src="/images/brand/logo-96.webp"
               alt=""
-              width={40}
-              height={40}
-              className="h-10 w-10 rounded-full"
+              width={96}
+              height={96}
+              className="h-10 w-10 object-contain"
             />
           </a>
           <AdminNav />
