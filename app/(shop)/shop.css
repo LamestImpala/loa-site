@@ -406,9 +406,10 @@ html:has(.shop) {
   object-fit: contain;
 }
 
-/* Rule under the nav and over the footer: a midnight band between two
-   antique-gold hairlines, like the border of an engraved plate. */
-.shop-rule {
+/* Rule under the nav, under the hero and over the footer: a midnight band
+   between two antique-gold hairlines, like the border of an engraved plate. */
+.shop-rule,
+.shop-hero-band::after {
   height: 7px;
   background:
     linear-gradient(var(--color-accent-2), var(--color-accent-2)) top / 100% 1px
@@ -438,10 +439,19 @@ html:has(.shop) {
 }
 
 /* Title page: the copy on an ivory leaf at left, the celestial-observatory
-   engraving filling the right to the window edge (shop-hero.tsx). */
+   engraving filling the right to the window edge (shop-hero.tsx). It hangs
+   in front of the garden wall like a mounted plate: it ends on the plate rule
+   (shared with .shop-rule above) and casts a shadow down onto the wall, so
+   the two engravings never touch. */
 .shop-hero-band {
+  position: relative;
+  z-index: 1;
   background: var(--color-bg);
-  border-bottom: 1px solid var(--color-accent-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+.shop-hero-band::after {
+  content: "";
+  display: block;
 }
 .shop-hero {
   position: relative;
@@ -1634,13 +1644,16 @@ html:has(.shop) {
 
 /* — the garden wall — */
 /* Everything below the hero hangs on the midnight-garden engraving as an
-   ivory sheet. The art is one scene, not a tile: a single layer at the top
-   of the wall that fades into the garden's own dark ground below. */
+   ivory sheet. The art is one scene, not a tile: a single layer that rises
+   out of the garden's own dark ground under the hero (a quiet band between
+   the two engravings) and sinks back into it further down. */
 .shop-garden {
+  /* How far down the art takes to come up to full strength. */
+  --garden-fade-in: clamp(72px, 8vw, 120px);
   position: relative;
   isolation: isolate;
   background: var(--color-garden);
-  padding: clamp(36px, 6vw, 96px) clamp(0px, 4vw, 120px) clamp(36px, 5vw, 80px);
+  padding: clamp(56px, 9vw, 136px) clamp(0px, 4vw, 120px) clamp(36px, 5vw, 80px);
 }
 .shop-garden::before {
   content: "";
@@ -1650,8 +1663,20 @@ html:has(.shop) {
   z-index: -1;
   background: url("/images/brand/garden-1536.webp") 50% 0 / max(1536px, 100%)
     auto no-repeat;
-  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
-  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.08),
+    #000 var(--garden-fade-in),
+    #000 70%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.08),
+    #000 var(--garden-fade-in),
+    #000 70%,
+    transparent
+  );
 }
 .shop-garden-sheet {
   max-width: 1200px;
@@ -1779,7 +1804,8 @@ html:has(.shop) {
     margin: 0;
   }
   .shop-garden {
-    padding: 64px 24px 40px;
+    --garden-fade-in: 64px;
+    padding: 96px 24px 40px;
   }
   .shop-garden::before {
     background-image: url("/images/brand/garden-1000.webp");
@@ -1796,7 +1822,8 @@ html:has(.shop) {
   /* Compact hero: records should surface within ~1.5 screens. */
   /* The garden shrinks to a band above an edge-to-edge sheet. */
   .shop-garden {
-    padding: 72px 0 0;
+    --garden-fade-in: 48px;
+    padding: 96px 0 0;
   }
   .shop-garden::before {
     height: 640px;
