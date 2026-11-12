@@ -11,6 +11,8 @@ const jobs = [
   ...[96, 192, 360, 720].map((w) => ({
     in: "curiouser-engraved-logo.png", out: `logo-${w}.webp`, w, q: 86, alpha: true,
   })),
+  // Full resolution, for the click-to-zoom viewer on the hero emblem.
+  { in: "curiouser-engraved-logo.png", out: "logo-1254.webp", w: 1254, q: 90, alpha: true },
   { in: "curiouser-engraved-logo.png", out: "logo-share.png", w: 800, png: true },
   ...[960, 1536].map((w) => ({ in: "celestial-observatory.png", out: `celestial-${w}.webp`, w, q: 78 })),
   ...[1000, 1536].map((w) => ({ in: "midnight-garden.png", out: `garden-${w}.webp`, w, q: 74 })),
