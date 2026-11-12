@@ -107,51 +107,53 @@ export default async function RecordsPage() {
 
   return (
     <>
-      <header className="shop-shell shop-hero">
-        <div className="shop-hero-copy">
-          <p className="shop-hero-kicker">Phoenix, Arizona · a one-person record shop</p>
-          <h1>
-            <em>Curiouser and curiouser</em> finds for your turntable.
-          </h1>
-          <p className="shop-hero-lede">
-            Every record here is from my own shelves, graded to the{" "}
-            <a
-              href="https://www.discogs.com/selling/resources/how-to-grade-items/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Goldmine standard
-            </a>
-            , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
-            That&rsquo;s a real price drop since yesterday.
-          </p>
-          {reviews ? <RatingLine summary={reviews} /> : null}
-          {/* Same info twice: always open on desktop, a collapsed <details>
-              on phones so records surface within ~1.5 screens. */}
-          <div className="shop-hero-info shop-hero-info-static">
-            <SellerInfoLines trackRecord={trackRecord} />
-          </div>
-          <details className="shop-hero-info shop-hero-info-details">
-            <summary>How buying works — payment &amp; shipping</summary>
-            <div className="shop-hero-info-detail-body">
+      <div className="shop-hero-band">
+        <header className="shop-shell shop-hero">
+          <div className="shop-hero-copy">
+            <p className="shop-hero-kicker">Phoenix, Arizona · a one-person record shop</p>
+            <h1>
+              <em>Curiouser and curiouser</em> finds for your turntable.
+            </h1>
+            <p className="shop-hero-lede">
+              Every record here is from my own shelves, graded to the{" "}
+              <a
+                href="https://www.discogs.com/selling/resources/how-to-grade-items/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Goldmine standard
+              </a>
+              , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
+              That&rsquo;s a real price drop since yesterday.
+            </p>
+            {reviews ? <RatingLine summary={reviews} /> : null}
+            {/* Same info twice: always open on desktop, a collapsed <details>
+                on phones so records surface within ~1.5 screens. */}
+            <div className="shop-hero-info shop-hero-info-static">
               <SellerInfoLines trackRecord={trackRecord} />
             </div>
-          </details>
-          <a className="btn btn-primary shop-hero-cta" href="#records">
-            Browse the records ↓
-          </a>
-        </div>
-        <div className="shop-hero-art">
-          <Image
-            src="/images/curiouserlogo.png"
-            alt="Curiouser Records — the White Rabbit with his pocket watch"
-            width={260}
-            height={260}
-            priority
-            className="shop-hero-logo"
-          />
-        </div>
-      </header>
+            <details className="shop-hero-info shop-hero-info-details">
+              <summary>How buying works — payment &amp; shipping</summary>
+              <div className="shop-hero-info-detail-body">
+                <SellerInfoLines trackRecord={trackRecord} />
+              </div>
+            </details>
+            <a className="btn btn-primary shop-hero-cta" href="#records">
+              Browse the records ↓
+            </a>
+          </div>
+          <div className="shop-hero-art">
+            <Image
+              src="/images/curiouserlogo.png"
+              alt="Curiouser Records — the White Rabbit with his pocket watch"
+              width={260}
+              height={260}
+              priority
+              className="shop-hero-logo"
+            />
+          </div>
+        </header>
+      </div>
 
       {reviews && reviews.quotes.length > 0 ? <ReviewQuotes summary={reviews} /> : null}
 
