@@ -47,10 +47,10 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/images/curiouserlogo.png",
-        width: 892,
-        height: 892,
-        alt: "Curiouser Records — the White Rabbit logo",
+        url: "/images/brand/logo-share.png",
+        width: 800,
+        height: 800,
+        alt: "Curiouser Records — the engraved White Rabbit emblem",
       },
     ],
   },
@@ -59,7 +59,7 @@ export const metadata: Metadata = {
     title: "Curiouser Records",
     description:
       "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
-    images: ["/images/curiouserlogo.png"],
+    images: ["/images/brand/logo-share.png"],
   },
 };
 
@@ -69,7 +69,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#f8f1e4",
+  themeColor: "#f6efdf",
 };
 
 export default async function ShopLayout({
@@ -79,17 +79,24 @@ export default async function ShopLayout({
 }>) {
   const pause = await getShippingPause();
   return (
-    <div className={`shop ${fell.variable} ${fellSC.variable} ${alice.variable}`}>
+    <div
+      className={`shop ${fell.variable} ${fellSC.variable} ${alice.variable}`}
+    >
       <a className="shop-skip-link" href="#records">
         Skip to the listings
       </a>
       <nav className="shop-nav">
-        <Link href="/" aria-label="Curiouser Records home">
+        <Link
+          className="shop-nav-home"
+          href="/"
+          aria-label="Curiouser Records home"
+        >
           <Image
-            src="/images/curiouserlogo.png"
-            alt="Curiouser Records"
-            width={44}
-            height={44}
+            src="/images/brand/logo-192.webp"
+            alt=""
+            width={192}
+            height={192}
+            sizes="56px"
             className="shop-nav-logo"
           />
         </Link>
@@ -98,11 +105,14 @@ export default async function ShopLayout({
         </div>
         <ShopNavLinks />
         <div style={{ flex: 1 }} />
-        <a className="shop-nav-email" href={`mailto:${SELLER_INFO.contactEmail}`}>
+        <a
+          className="shop-nav-email"
+          href={`mailto:${SELLER_INFO.contactEmail}`}
+        >
           {SELLER_INFO.contactEmail}
         </a>
       </nav>
-      <div className="shop-checker" aria-hidden />
+      <div className="shop-rule" aria-hidden />
       <ShippingPauseBanner pause={pause} />
 
       <main>
@@ -110,7 +120,7 @@ export default async function ShopLayout({
       </main>
       <VisitTracker />
 
-      <div className="shop-checker" aria-hidden />
+      <div className="shop-rule" aria-hidden />
       <footer className="shop-footer">
         <div className="shop-footer-inner">
           <div className="shop-footer-about">
@@ -135,10 +145,13 @@ export default async function ShopLayout({
         </div>
         <div className="shop-footer-bottom">
           <Link href="/">Records</Link> · <Link href="/posters">Posters</Link> ·{" "}
-          <Link href="/equipment">Equipment</Link> · <Link href="/reviews">Reviews</Link>
+          <Link href="/equipment">Equipment</Link> ·{" "}
+          <Link href="/reviews">Reviews</Link>
           <br />
           curiouserrecords.com ·{" "}
-          <a href={`mailto:${SELLER_INFO.contactEmail}`}>{SELLER_INFO.contactEmail}</a>{" "}
+          <a href={`mailto:${SELLER_INFO.contactEmail}`}>
+            {SELLER_INFO.contactEmail}
+          </a>{" "}
           · © {new Date().getFullYear()}
         </div>
       </footer>
