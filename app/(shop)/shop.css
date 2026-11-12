@@ -493,6 +493,146 @@ html:has(.shop) {
   margin: 0 0 var(--space-3) -6px;
   animation: curiofade 0.5s ease both;
 }
+/* The emblem is a button that opens the full-size viewer. */
+.shop-hero-logo-zoom {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  cursor: zoom-in;
+}
+.shop-hero-logo-zoom img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 0.25s ease;
+}
+.shop-hero-logo-zoom:hover img {
+  transform: scale(1.03);
+}
+.shop-hero-logo-zoom:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.shop-hero-logo-badge {
+  position: absolute;
+  right: 6%;
+  bottom: 8%;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: var(--color-ink-text);
+  border: 1px solid var(--color-accent-2);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgb(0 0 0 / 0.25));
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+.shop-hero-logo-zoom:hover .shop-hero-logo-badge,
+.shop-hero-logo-zoom:focus-visible .shop-hero-logo-badge {
+  opacity: 1;
+  transform: none;
+}
+/* No hover on touch screens, so the badge stays up as the cue. */
+@media (hover: none) {
+  .shop-hero-logo-badge {
+    opacity: 0.9;
+    transform: none;
+  }
+}
+
+/* — emblem viewer — */
+.shop-logo-viewer {
+  margin: auto;
+}
+.shop-logo-viewer-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.shop-logo-viewer-stage {
+  position: relative;
+  width: min(calc(100vw - 2 * var(--space-3)), calc(100dvh - 120px), 960px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(circle at 50% 45%, #fbf6ea 0%, var(--color-bg) 60%, #e9dec4 100%);
+  box-shadow: var(--shadow-lg);
+  touch-action: none;
+  user-select: none;
+  cursor: zoom-in;
+}
+.shop-logo-viewer-stage.is-zoomed {
+  cursor: grab;
+}
+.shop-logo-viewer-stage.is-zoomed.is-dragging {
+  cursor: grabbing;
+}
+.shop .shop-logo-viewer-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 50%;
+  transition: transform 0.22s ease;
+  will-change: transform;
+  -webkit-user-drag: none;
+}
+.shop-logo-viewer-stage.is-dragging .shop-logo-viewer-img {
+  transition: none;
+}
+.shop-logo-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 960px;
+  color: var(--color-ink-text);
+}
+.shop-logo-viewer-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--color-ink-text);
+  opacity: 0.8;
+}
+.shop-logo-viewer-btn,
+.shop-logo-viewer .shop-dialog-close {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--color-ink-text) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink) 60%, transparent);
+  color: var(--color-ink-text);
+}
+.shop-logo-viewer-btn:hover:not(:disabled),
+.shop-logo-viewer .shop-dialog-close:hover {
+  border-color: var(--color-accent-2);
+  color: var(--color-accent-2-200);
+}
+.shop-logo-viewer-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .shop-hero-art {
   position: relative;
   overflow: hidden;
@@ -1946,6 +2086,11 @@ html:has(.shop) {
   .shop-sticky-bar,
   .shop-skeleton {
     animation: none;
+  }
+  .shop-hero-logo-zoom img,
+  .shop .shop-logo-viewer-img,
+  .shop-hero-logo-badge {
+    transition: none;
   }
 }
 
