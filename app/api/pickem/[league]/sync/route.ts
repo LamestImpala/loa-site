@@ -17,7 +17,8 @@ import {
 // prediction and CollegeFootballData ratings for college, nflverse EPA and
 // Sleeper injuries for the NFL, and for both the forecast at kickoff
 // (Open-Meteo) and each team's rest (from our own schedule), once a day
-// each. None of these spend Odds API requests. Runs on the
+// each. None of these spend Odds API requests. The sync itself also runs the
+// shadow price engine (the `engine` block of the result). Runs on the
 // Vercel cron in vercel.json (/api/pickem/ncaaf/sync, /api/pickem/nfl/sync)
 // and from the admin page's "Refresh lines" button.
 export const maxDuration = 60;

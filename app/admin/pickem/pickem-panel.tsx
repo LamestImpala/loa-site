@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEAGUES, LEAGUE_META, PICKEM_SEASON, tallyAvgClv, tallyWinPct, weekWindow, type CalibrationRow, type League, type Market } from "@/lib/pickem";
+import { displayTeam, LEAGUES, LEAGUE_META, PICKEM_SEASON, tallyAvgClv, tallyWinPct, weekWindow, type CalibrationRow, type League, type Market } from "@/lib/pickem";
 import { calibrationTable, FEEDBACK_MIN_CALLS, type CalibrationSplit } from "@/lib/pickem-feedback";
 import { stakeTable, STAKE_MIN_CALLS } from "@/lib/pickem-house";
 import { HOUSE_VARIANTS } from "@/lib/pickem-variants";
@@ -344,6 +344,156 @@ function Experiment({ league }: { league: League }) {
   );
 }
 
+type EngineSummaryRow = {
+  strategy: string;
+  picks: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  units: number | string;
+  units_flat: number | string;
+  avg_ev: number | string | null;
+  closed: number;
+  beat_close: number;
+  avg_close_ev: number | string | null;
+};
+type EnginePickRow = {
+  id: number;
+  week: number;
+  home_team: string;
+  away_team: string;
+  market: "spread" | "total";
+  selection: "home" | "away" | "over" | "under";
+  tier: "play" | "lean";
+  book: string;
+  line: number | string;
+  price: number;
+  ev: number | string;
+  stake: number;
+  close_ev: number | string | null;
+  closed_at: string | null;
+  result: string | null;
+};
+
+const STRATEGIES: { key: string; label: string }[] = [
+  { key: "engine play", label: "Engine plays (2%+)" },
+  { key: "engine lean", label: "Engine leans (0–2%)" },
+  { key: "house", label: "House plays (6+)" },
+  { key: "fade fpi", label: "Fade FPI at 5+" },
+];
+const ENGINE_PICKS_SHOWN = 40;
+
+// The price engine in shadow (views pickem_engine_summary and
+// pickem_engine_graded): a regulated book's number against Pinnacle's no-vig
+// price, locked at every line sync. Beside it, the house over the same games
+// and the fade-FPI paper record. None of it is on the board. The engine is
+// judged on its closing edge, which settles in far fewer picks than a record.
+function ShadowEngine({ league }: { league: League }) {
+  const { supabase } = useAdmin();
+  const [summary, setSummary] = useState<EngineSummaryRow[] | null>(null);
+  const [picks, setPicks] = useState<EnginePickRow[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    supabase
+      .from("pickem_engine_summary")
+      .select("strategy, picks, wins, losses, pushes, units, units_flat, avg_ev, closed, beat_close, avg_close_ev")
+      .eq("league", league)
+      .then(({ data }) => {
+        if (live) setSummary((data ?? []) as EngineSummaryRow[]);
+      });
+    supabase
+      .from("pickem_engine_graded")
+      .select("id, week, home_team, away_team, market, selection, tier, book, line, price, ev, stake, close_ev, closed_at, result")
+      .eq("league", league)
+      .eq("season", PICKEM_SEASON)
+      .order("found_at", { ascending: false })
+      .limit(ENGINE_PICKS_SHOWN)
+      .then(({ data }) => {
+        if (live) setPicks((data ?? []) as EnginePickRow[]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [supabase, league]);
+  if (!summary?.length && !picks?.length) return null;
+  const pct = (v: number | string | null) => (v == null ? "—" : `${Number(v) > 0 ? "+" : ""}${(Number(v) * 100).toFixed(1)}%`);
+  const signed = (v: number | string) => `${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(2)}`;
+  const tone = (v: number | string | null) => (v == null || Number(v) === 0 ? "" : Number(v) > 0 ? "text-emerald-300" : "text-red-300");
+  const price = (p: number) => (p > 0 ? `+${p}` : String(p));
+  const pick = (r: EnginePickRow) => {
+    const line = Number(r.line);
+    if (r.market === "total") return `${r.selection === "over" ? "Over" : "Under"} ${line}`;
+    return `${displayTeam(league, r.selection === "home" ? r.home_team : r.away_team)} ${line > 0 ? "+" : ""}${line}`;
+  };
+  const rows = STRATEGIES.flatMap((s) => {
+    const r = summary?.find((x) => x.strategy === s.key);
+    return r ? [{ ...r, label: s.label }] : [];
+  });
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-semibold text-white">Shadow price engine</h3>
+      <p className="mt-1 text-sm text-neutral-400">
+        Not on the board. At every line refresh the engine looks for a regulated book whose number beats Pinnacle&apos;s
+        no-vig price: 2% or more is a play, above zero is a lean tracked at no stake. Closing edge is the same pick
+        valued against Pinnacle&apos;s last pre-game price; above zero means it beat the close. Games from Nov 13 on.
+      </p>
+      {rows.length ? (
+        <table className="mt-2 text-left text-xs text-neutral-300">
+          <thead className="text-neutral-500">
+            <tr>
+              {["", "Picks", "W-L-P", "Units", "Flat", "Avg edge", "Beat close", "Avg closing edge"].map((h) => (
+                <th key={h} className="pr-4 font-normal">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {rows.map((r) => (
+              <tr key={r.strategy}>
+                <td className="pr-4 text-neutral-500">{r.label}</td>
+                <td className="pr-4">{r.picks}</td>
+                <td className="pr-4">{r.wins}-{r.losses}-{r.pushes}</td>
+                <td className={`pr-4 ${tone(r.units)}`}>{signed(r.units)}</td>
+                <td className={`pr-4 ${tone(r.units_flat)}`}>{signed(r.units_flat)}</td>
+                <td className="pr-4">{pct(r.avg_ev)}</td>
+                <td className="pr-4">{r.closed ? `${r.beat_close} of ${r.closed}` : "—"}</td>
+                <td className={`pr-4 ${tone(r.avg_close_ev)}`}>{pct(r.avg_close_ev)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {picks?.length ? (
+        <table className="mt-4 text-left text-xs text-neutral-300">
+          <thead className="text-neutral-500">
+            <tr>
+              {["Wk", "Game", "Pick", "Book", "Price", "Edge", "Stake", "Closing edge", "Result"].map((h) => (
+                <th key={h} className="pr-4 font-normal">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {picks.map((r) => (
+              <tr key={r.id} className={r.tier === "lean" ? "text-neutral-500" : ""}>
+                <td className="pr-4">{r.week}</td>
+                <td className="pr-4">{displayTeam(league, r.away_team)} at {displayTeam(league, r.home_team)}</td>
+                <td className="pr-4">{pick(r)}</td>
+                <td className="pr-4">{r.book}</td>
+                <td className="pr-4">{price(r.price)}</td>
+                <td className="pr-4">{pct(r.ev)}</td>
+                <td className="pr-4">{r.stake ? `${r.stake}u` : "lean"}</td>
+                <td className={`pr-4 ${tone(r.close_ev)}`}>{r.closed_at ? pct(r.close_ev) : "open"}</td>
+                <td className="pr-4">{r.result ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="mt-2 text-xs text-neutral-500">No engine plays or leans in this league yet.</p>
+      )}
+    </div>
+  );
+}
+
 // What the Claude jobs cost (table pickem_job_runs): every house and research
 // run's tokens and searches, priced at list rates, added up by season week.
 // Previews (dry runs) are in the totals; the Dry column shows how much.
@@ -565,6 +715,7 @@ export function PickemPanel() {
       <ClosingLineValue league={league} />
       <Calibration league={league} />
       <Experiment league={league} />
+      <ShadowEngine league={league} />
       <Spend league={league} />
     </section>
   );

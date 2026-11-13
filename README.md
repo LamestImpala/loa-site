@@ -168,7 +168,7 @@ Environment variables (Vercel project + `.env.local`):
 
 | Name | Used for |
 |---|---|
-| `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3, plus 2 when there are finals to grade. Pinnacle's line costs 3 more, fetched only by the house and research jobs (see below). |
+| `ODDS_API_KEY` | The Odds API (the-odds-api.com). Free tier is 500 requests/month; a sync costs 3 (the nine US books and Pinnacle asked for by name, which counts as one region), plus 2 when there are finals to grade. The house and research jobs fetch Pinnacle themselves, 3 more, only when the last sync is over 6 hours old (see below). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Writing games, lines and house picks from the jobs (bypasses RLS). |
 | `ANTHROPIC_API_KEY` | House picks and research digests (`claude-opus-5-5`, falls back to an Opus-tier model on a safety refusal); parlays are computed from the picks, no model call. |
 | `CRON_SECRET` | Vercel sends it as a bearer token to the cron routes; any random string. |
@@ -205,7 +205,8 @@ Jobs (schedules in `vercel.json`; the admin page can run either on demand):
   block (`feedback`) and, per variant, a user message with one game in it (`sample_user_messages`).
   When there are games to pick, the run first stores Pinnacle's line (`pinnacle` in the JSON, with the
   Odds API requests it cost and how many are left): `bookmakers=pinnacle`, 3 requests, skipped when this
-  league already has a Pinnacle row from the last 6 hours, so the gap-filling runs cost nothing. The house
+  league already has a Pinnacle row from the last 6 hours. Every line sync writes one, so a run that
+  follows a sync and the gap-filling runs cost nothing. The house
   sees it as `pinnacle` and `vs_pinnacle` (consensus and best lines against Pinnacle's no-vig line, in
   points). The pick call has two web searches a batch; the news comes from the research digests.
 - `GET /api/pickem/{ncaaf|nfl}/research` — a news digest for every game kicking off within four days that
@@ -240,6 +241,56 @@ run whose digest insert failed records its calls first, with the error in `detai
 run also prints one line to the function log on Vercel, since the routes are otherwise silent there:
 `[pickem] nfl research: 13 calls, 0 failed, 52 searches, $5.33 (97s)`, or `[pickem] nfl research failed
 after 2s: <message>`. A run the platform kills at its 300 s limit leaves neither.
+
+### Shadow price engine
+
+A review of the house's first ten weeks (about 1,800 graded calls) found no side-picking edge: plays were
+352-321, the projected scores missed by more than the closing line, and the one thing that separated
+winners from losers was whether the number taken beat the close. The price engine (`lib/pickem-engine.ts`)
+tests the opposite approach: no opinion on the game, only on the price. It runs in shadow. The board, the
+house and the parlays do not read it, and it makes no Claude calls.
+
+At every line sync, for each game's spread and total:
+
+1. Pinnacle's two prices at its own number give the fair (no-vig) chance of each side there.
+2. Each regulated book's number (`ENGINE_BOOKS`: DraftKings, FanDuel, BetMGM, BetRivers) is usually a half
+   point or more away. The chance is walked from Pinnacle's number to the book's, adding the share of
+   games that land on each number crossed. Those shares are in `lib/pickem-push-rates.ts`, generated from
+   2015-2025 results by `CFBD_API_KEY=... node scripts/gen-push-rates.mjs`: an NFL game lands on 3 about
+   10% of the time and on 5 about 3%, so a half point through 3 is worth three times as much.
+3. Win, push and loss at the book's line, with the book's own price, give an expected value per unit.
+4. The best one in the market is a **play** at 2% or more (`ENGINE_MIN_EV`; 1 unit, 2 from 3.5%, 3 from
+   5%) and a **lean** between zero and 2%, tracked at no stake. Each is locked the first time it appears,
+   at that book's line and price, and never moved. A market that has a play takes no lean afterwards.
+5. A quote is ignored when it or Pinnacle's is over 3 hours old, when the book is more than 2 points
+   (spread) or 3 (total) from Pinnacle, or when the price is outside -135 to +120. A gap that wide is news
+   or bad data.
+
+Expect few plays. On the feed of 2026-11-12, none of 150 markets had a regulated price worth 2% against
+Pinnacle and 10 were above zero; with the offshore books included, one reached 2%. Leans exist so the
+shadow still learns something in weeks with no plays.
+
+What is stored (migration `20261113_pickem_engine.sql`): `pickem_book_lines`, every book's spread and total
+per game per sync, Pinnacle included, so another threshold or book list can be replayed over the same
+lines; and `pickem_engine_plays`. Once a game has kicked off, the next sync fills `close_line` and
+`close_ev`: the locked line and price valued against Pinnacle's last pre-game price. Above zero beat the
+close. The sync's JSON carries an `engine` block: `snapshots`, `pinnacle`, `plays` and `leans` newly
+locked, `closed`, and `skipped` by reason (`no_pinnacle`, `stale_pinnacle`, `no_book`, `stale_book`, `gap`,
+`price`, `no_edge`), or `error` when the tables are missing, which does not fail the sync.
+
+The admin page's "Shadow price engine" table (view `pickem_engine_summary`) puts the engine beside the
+house's plays over the same games and beside a second paper record, `pickem_shadow_fade_fpi`: when ESPN's
+FPI is 5 or more points from the consensus spread, take the market's side at that consensus, -110. Graded
+against the closing line that side went 53-29 through October 2 and 31-22 from then to November 11;
+locked at the first sighting, the way the view does it, the second stretch was 35-28-1. All three count
+games from 2026-11-13 on.
+
+**Decision rule, written before any results.** Judge the engine after at least 50 graded plays. It takes
+over staking if its average closing edge is above zero and at least 55% of plays beat the Pinnacle close.
+The win-loss record is reported and is not the test: 50 plays cannot settle it. If plays are too rare to
+reach 50, the leans answer a narrower question, whether small edges at regulated books hold to the close,
+and the threshold or the book list is what to revisit. If the engine passes, the next step is Claude as a
+veto and explainer on engine plays, then the board.
 
 ### House prompt experiments
 

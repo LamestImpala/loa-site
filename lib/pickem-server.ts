@@ -32,6 +32,7 @@ import { buildHouseCard, houseNews, previousCall, projectionAgrees, type HouseCa
 import { houseFeedback, type LastWeekRow } from "./pickem-feedback";
 import { assignVariants, dealVariantBatches, HOUSE_VARIANTS, type HouseVariant } from "./pickem-variants";
 import { isScoped, scopeGames, type RepickScope } from "./pickem-repick";
+import { closingEv, compactBooks, findPlays, SYNC_BOOKS, withoutSharp, type BookSnapshot, type EnginePlay, type EngineSkip } from "./pickem-engine";
 import { SLIP_MARKETS, SLIP_SELECTIONS, type ParsedSlip, type SlipGame } from "./pickem-slip";
 import {
   cfbdRatings,
@@ -72,7 +73,7 @@ export { serviceSupabase };
 
 type OddsOutcome = { name: string; price: number; point?: number };
 type OddsMarket = { key: "spreads" | "totals" | "h2h"; outcomes: OddsOutcome[] };
-type OddsBook = { key: string; title: string; markets: OddsMarket[] };
+type OddsBook = { key: string; title: string; last_update?: string; markets: OddsMarket[] };
 export type OddsEvent = {
   id: string;
   commence_time: string;
@@ -236,9 +237,13 @@ export function selectSlate(league: League, events: OddsEvent[], week: number): 
 export async function syncLines(league: League, now = new Date()) {
   const db = serviceSupabase();
   const week = seasonWeek(league, now);
-  const fetched = await fetchOdds(league, now);
+  // The nine US books by name plus Pinnacle: ten names are one region, so
+  // this costs the same 3 requests as asking for the region. The board is
+  // built from the US books alone; Pinnacle rides along for the price engine.
+  const fetched = await fetchOdds(league, now, { bookmakers: SYNC_BOOKS.join(",") });
   const remaining = fetched.remaining;
-  const events = pregameEvents(fetched.events, now);
+  const full = pregameEvents(fetched.events, now);
+  const events = full.map(withoutSharp);
   const slate = selectSlate(league, events, week);
 
   // Keep games we already feature this week even if they fell out of the top
@@ -331,10 +336,130 @@ export async function syncLines(league: League, now = new Date()) {
     }
   }
 
+  // The price engine, in shadow. Nothing above depends on it, so a failure
+  // (its tables not created yet, say) is reported and the sync still succeeds.
+  const fullById = new Map(full.map((e) => [e.id, e]));
+  const engine = await runEngine(
+    db,
+    league,
+    week,
+    [...byId.keys()].flatMap((id) => fullById.get(id) ?? []),
+    now
+  ).catch((e: Error) => ({ error: e.message }));
+
   // Team strings the conference map does not know. Genuine FCS opponents land
   // here too; anything FBS in this list is a spelling to add to the map.
   const unmapped = league === "ncaaf" ? unmappedTeams(rows.flatMap((r) => [r.home_team, r.away_team])) : [];
-  return { league, week, games: rows.length, graded, unmapped_teams: unmapped, odds_requests_remaining: remaining };
+  return { league, week, games: rows.length, graded, unmapped_teams: unmapped, odds_requests_remaining: remaining, engine };
+}
+
+// ---------------------------------------------------------------------------
+// The price engine (lib/pickem-engine.ts), run on every sync's events with
+// Pinnacle still in them. It stores each game's per-book lines, so any rule
+// can be replayed later; Pinnacle's line as the house's `pinnacle` signal,
+// which spares the house and research jobs their own fetch when a sync has
+// just run; and its plays and leans, each locked the first time it appears.
+// When a game has kicked off, its plays are valued against the last snapshot
+// before kickoff. All of it is shadow: the board reads none of these tables.
+
+export type EngineSync = {
+  /** Games whose book lines were stored, and how many of them had Pinnacle. */
+  snapshots: number;
+  pinnacle: number;
+  /** Plays and leans locked by this sync (a market already holding one is not counted). */
+  plays: number;
+  leans: number;
+  /** Plays and leans on started games that got their closing numbers. */
+  closed: number;
+  /** Markets that gave nothing, by reason. */
+  skipped: Partial<Record<EngineSkip, number>>;
+};
+
+async function runEngine(db: ReturnType<typeof serviceSupabase>, league: League, week: number, events: OddsEvent[], now: Date): Promise<EngineSync> {
+  const stamp = now.toISOString();
+  const out: EngineSync = { snapshots: 0, pinnacle: 0, plays: 0, leans: 0, closed: 0, skipped: {} };
+
+  // Pinnacle first: the signals table exists whether or not the engine's do.
+  const pins = events.flatMap((ev) => {
+    const line = pinnacleLine(league, ev);
+    return line ? [{ game_id: ev.id, source: "pinnacle", taken_at: stamp, data: line }] : [];
+  });
+  if (pins.length) {
+    const { error } = await db.from("pickem_game_signals").insert(pins);
+    if (error) throw new Error(`insert pinnacle signals: ${error.message}`);
+    out.pinnacle = pins.length;
+  }
+
+  const snaps = events.map((ev) => ({ ev, books: compactBooks(ev) })).filter((s) => Object.keys(s.books).length);
+  if (snaps.length) {
+    const { error } = await db.from("pickem_book_lines").insert(snaps.map((s) => ({ game_id: s.ev.id, taken_at: stamp, books: s.books })));
+    if (error) throw new Error(`insert book lines: ${error.message}`);
+    out.snapshots = snaps.length;
+  }
+
+  const found: EnginePlay[] = [];
+  for (const { ev, books } of snaps) {
+    const titles = Object.fromEntries(ev.bookmakers.map((b) => [b.key, b.title]));
+    const r = findPlays(league, ev.id, books, now.getTime(), titles);
+    found.push(...r.plays);
+    for (const [why, n] of Object.entries(r.skipped) as [EngineSkip, number][]) out.skipped[why] = (out.skipped[why] ?? 0) + n;
+  }
+  if (found.length) {
+    // Locked once: a market keeps its first play and its first lean, and takes no lean once it has a play.
+    const { data: held, error } = await db
+      .from("pickem_engine_plays")
+      .select("game_id, market, tier")
+      .in("game_id", [...new Set(found.map((p) => p.game_id))]);
+    if (error) throw new Error(`read engine plays: ${error.message}`);
+    const has = new Set(((held ?? []) as { game_id: string; market: string; tier: string }[]).map((p) => `${p.game_id}|${p.market}|${p.tier}`));
+    const fresh = found.filter((p) => !has.has(`${p.game_id}|${p.market}|${p.tier}`) && !(p.tier === "lean" && has.has(`${p.game_id}|${p.market}|play`)));
+    if (fresh.length) {
+      const { error: iErr } = await db.from("pickem_engine_plays").insert(fresh.map((p) => ({ ...p, league, season: PICKEM_SEASON, week, found_at: stamp })));
+      if (iErr) throw new Error(`insert engine plays: ${iErr.message}`);
+      out.plays = fresh.filter((p) => p.tier === "play").length;
+      out.leans = fresh.length - out.plays;
+    }
+  }
+
+  // Closing numbers. The sync only ever stores pre-game events, so a started game's newest snapshot is its close.
+  const { data: open, error: oErr } = await db
+    .from("pickem_engine_plays")
+    .select("id, game_id, market, selection, line, price")
+    .eq("league", league)
+    .is("closed_at", null);
+  if (oErr) throw new Error(`read open engine plays: ${oErr.message}`);
+  const openPlays = (open ?? []) as (Pick<EnginePlay, "game_id" | "market" | "selection"> & { id: number; line: number | string; price: number })[];
+  if (openPlays.length) {
+    const { data: started, error: sErr } = await db
+      .from("pickem_games")
+      .select("id")
+      .in("id", [...new Set(openPlays.map((p) => p.game_id))])
+      .lte("commence_time", stamp);
+    if (sErr) throw new Error(`read started games: ${sErr.message}`);
+    const startedIds = ((started ?? []) as { id: string }[]).map((g) => g.id);
+    if (startedIds.length) {
+      const { data: lines, error: lErr } = await db
+        .from("pickem_book_lines")
+        .select("game_id, books")
+        .in("game_id", startedIds)
+        .order("taken_at", { ascending: false })
+        .limit(1000);
+      if (lErr) throw new Error(`read book lines: ${lErr.message}`);
+      const closing = new Map<string, BookSnapshot>();
+      for (const r of (lines ?? []) as { game_id: string; books: BookSnapshot }[]) if (!closing.has(r.game_id)) closing.set(r.game_id, r.books);
+      for (const p of openPlays.filter((x) => startedIds.includes(x.game_id))) {
+        const snap = closing.get(p.game_id);
+        const close = snap ? closingEv(league, { ...p, line: Number(p.line) }, snap) : null;
+        // closed_at is set even with no closing Pinnacle line, so the play is not looked at again.
+        const { error } = await db
+          .from("pickem_engine_plays")
+          .update({ close_line: close?.close_line ?? null, close_ev: close?.close_ev ?? null, closed_at: stamp })
+          .eq("id", p.id);
+        if (!error) out.closed++;
+      }
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -585,9 +710,10 @@ export function captureNflInjuries(now = new Date()): Promise<SignalCapture> {
   });
 }
 
-// Pinnacle's line costs 3 Odds API requests a fetch, so it is not in the
-// daily sync: the house fetches it just before picking and the research job
-// before researching, at most once every 6 hours per league.
+// Pinnacle's line comes with every line sync at no extra cost (runEngine
+// stores it as this same signal). A fetch of its own costs 3 Odds API
+// requests, so the house and research jobs make one only when the newest
+// Pinnacle row for the league is more than 6 hours old.
 const PINNACLE_FRESH_MS = 6 * 60 * 60 * 1000;
 
 export type PinnacleCapture = SignalCapture & { odds_requests: number; odds_requests_remaining: string | null };
