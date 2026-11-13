@@ -52,13 +52,14 @@
   75% { opacity: .68; transform: scale(1.13); }
   85% { opacity: 0; transform: scale(.9); }
 }
-/* A 1.7-second gold trail, then almost half a minute of empty sky. */
+/* A 1.7-second gold trail, then almost half a minute of empty sky. The travel
+   is in artwork units and ends just short of the armillary's outer ring. */
 @keyframes cr-shooting-star {
   0% { opacity: 0; transform: translate(0px, 0px); }
   .8% { opacity: .7; }
   4% { opacity: .55; }
-  5.5% { opacity: 0; transform: translate(280px, 118px); }
-  100% { opacity: 0; transform: translate(280px, 118px); }
+  5.5% { opacity: 0; transform: translate(66px, 118px); }
+  100% { opacity: 0; transform: translate(66px, 118px); }
 }
 @keyframes cr-celestial-drift {
   from { transform: translate3d(-.35%, .15%, 0) scale(1.04); }
