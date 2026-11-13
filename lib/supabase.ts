@@ -112,6 +112,10 @@ export type Order = {
   ship_to: ShipTo | null; // from PayPal once paid; null for off-PayPal sales
   refunded_amount: number; // what PayPal refunded — all of it on a refunded order, part on a paid one; 0 = none
   refunded_at: string | null;
+  // When the seller marked the order done (Orders page); null = not yet.
+  // Absent on rows read before the 20261114 migration is applied — the
+  // admin then leaves "Mark done" out rather than offer a write that fails.
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -137,7 +141,7 @@ export type Shipment = {
   paypal_tracked_number: string | null; // the tracking number PayPal currently has
   paypal_synced_at: string | null;
   packed_at: string | null; // sealed on /admin/pack with its records checked in; null for parcels made on the fulfillment card
-  sent_at: string | null; // dropped off with the carrier ("Mark dropped off" on /admin/pack); null = still in the house
+  sent_at: string | null; // dropped off with the carrier ("Mark dropped off" on /admin/ship) or handed over in person; null = still in the house
 };
 
 // Money facts about one PayPal invoice, typed in from the transaction

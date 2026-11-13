@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DbRecord, Invoice, Order, Shipment } from "@/lib/supabase";
+import { afterSaleChecklist, openAfterSale, type AfterSaleItem } from "@/lib/admin/after-sale";
 import {
+  ARCHIVE_AFTER_DAYS,
   buyerNudge,
   byLongestWaiting,
   confirmationComment,
@@ -12,38 +14,47 @@ import {
   handDelivered,
   inPayPal,
   needsRepush,
-  orderStage,
+  nextJob,
+  orderGone,
+  orderPhase,
+  orderTimeline,
   pushNotNeeded,
   pushable,
   refundedOrders,
   type OrderGroup,
-  type OrderStage,
+  type OrderJob,
 } from "@/lib/admin/fulfillment";
-import { dropOffState } from "@/lib/admin/pack-list";
 import { buyerLabel } from "@/lib/admin/buyers";
+import { setOrderCompleted } from "@/lib/admin/orders-db";
 import { refundedPatch } from "@/lib/admin/refunds";
 import { parseMoney } from "@/lib/admin/sales";
 import {
   createParcel as createParcelDb,
   mirrorTracking as mirrorTrackingDb,
   setParcelTracking,
+  undoHandOver as undoHandOverDb,
 } from "@/lib/admin/shipments-db";
+import { useAdmin, useSlice } from "./_shell/admin-provider";
 import { blurOnEnter, buttonClass, inputClass, smallButtonClass, useCopied } from "./_shell/ui";
 import { BuyerField } from "./_shell/buyer-field";
+import { EmptyState } from "./_shell/primitives";
 import { EmailBuyer } from "./_ship/email-buyer";
+import { AfterSale, OrderTimeline } from "./_ship/order-progress";
 
 /*
- * Fulfillment: sold records grouped by order, split into parcels
- * (shipments rows) that each carry one tracking number. The buyer's name
+ * The Orders page's cards: sold records grouped by order, split into
+ * boxes (shipments rows) that each carry one tracking number. A card
+ * shows the order's timeline, the one job it is waiting on, and — once
+ * its boxes have left — the after-sale checklist, until it's marked done. The buyer's name
  * lives on the order and is edited on the card; sales that predate the
  * orders table still group by buyer name.
  *
  * Tracking comes in through the Labels page (the label PDF is read for
- * its number) or is typed into a manual parcel. "Sync from PayPal" reads
+ * its number) or is typed into a box made here. "Sync from PayPal" reads
  * the invoice's money facts and the buyer's address; it also asks the
  * Shipment Tracking API for trackers, but labels PayPal sells (Shipping
  * Center or the invoice page) never appear there — only numbers pushed
- * through the API do. A manual parcel can be pushed up, which emails the
+ * through the API do. A manual box can be pushed up, which emails the
  * buyer through PayPal; a PayPal-bought label is marked "PayPal label"
  * instead, since the buyer was already emailed. Sales paid off-PayPal
  * just store tracking with no sync in either direction.
@@ -51,7 +62,7 @@ import { EmailBuyer } from "./_ship/email-buyer";
  * shipments is the source of truth; records.tracking_number is mirrored
  * per member record so the listings table's quick input stays accurate.
  *
- * Costs live here too: each parcel takes a postage cost, and each invoice
+ * Costs live here too: each box takes a postage cost, and each invoice
  * takes the PayPal fee and buyer-paid shipping (both read off PayPal's
  * transaction page). They feed the Net stats tile and the tax records.
  */
@@ -64,10 +75,13 @@ const primaryButtonClass =
   "rounded-lg border border-white bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40";
 
 const amberPill = "border-amber-400/40 text-amber-300";
-const STAGE_PILL: Record<OrderStage, { label: string; title: string; className: string }> = {
+const skyPill = "border-sky-400/40 text-sky-300";
+const greenPill = "border-green-500/40 bg-green-500/10 text-green-400";
+// What the card's pill says for the one job the order is waiting on.
+const JOB_PILL: Record<OrderJob, { label: string; title: string; className: string }> = {
   pack: {
     label: "To pack",
-    title: "Records on this order aren't in a box yet",
+    title: "Items on this order aren't in a box yet",
     className: amberPill,
   },
   label: {
@@ -80,23 +94,27 @@ const STAGE_PILL: Record<OrderStage, { label: string; title: string; className: 
     title: "A manual tracking number hasn't been pushed to PayPal",
     className: amberPill,
   },
-  sync: {
-    label: "Labeled · fee not recorded",
-    title: "Every box has tracking; the PayPal fee isn't recorded yet — Sync from PayPal reads it once PayPal publishes the transaction",
-    className: "border-sky-400/40 text-sky-300",
+  dropoff: {
+    label: "To drop off",
+    title: "A labeled box on this order is still in the house — mark it dropped off once it's at the post office",
+    className: amberPill,
   },
-  done: {
-    label: "Fulfilled",
-    title: "Every record is in a labeled box and the costs are recorded — the drop-off pill says whether the boxes have left",
-    className: "border-green-500/40 bg-green-500/10 text-green-400",
+  sync: {
+    label: "Fee not recorded",
+    title: "The boxes have left; the PayPal fee isn't recorded yet — Sync from PayPal reads it once PayPal publishes the transaction",
+    className: skyPill,
+  },
+  finish: {
+    label: "After the sale",
+    title: "The boxes have left — tick off the after-sale list, then mark the order done",
+    className: skyPill,
+  },
+  none: {
+    label: "Shipped",
+    title: "Every box has left and the costs are recorded",
+    className: greenPill,
   },
 };
-
-// A fulfilled order stays under "completed" this long after its last
-// shipment update, then moves to the archive. Keyed to fulfillment (not the
-// sale date) so an order still in transit never archives early — the window
-// covers delivery plus an it-arrived-damaged grace period.
-const ARCHIVE_AFTER_DAYS = 21;
 
 export function FulfillmentPanel({
   records,
@@ -114,6 +132,7 @@ export function FulfillmentPanel({
   pushToast,
   confirm,
   defaultThreadUrl,
+  focusOrderId = null,
 }: {
   records: DbRecord[]; // sold records only
   shipments: Shipment[];
@@ -136,7 +155,24 @@ export function FulfillmentPanel({
   pushToast?: (kind: "error" | "success" | "info", text: string) => void;
   confirm: (message: string, confirmLabel?: string) => Promise<boolean>;
   defaultThreadUrl: string; // the saved sale-post URL (settings reddit_post_url)
+  focusOrderId?: number | null; // ?order=ID — open on this order's card
 }) {
+  // The after-sale checklist reads beyond the order's own tables: the
+  // request it came from (open or closed), its review link, and the
+  // Discogs removal.
+  const {
+    orderRequests,
+    closedRequests,
+    reviewInvites,
+    reviews,
+    removeFromDiscogs,
+    discogsStatus,
+  } = useAdmin();
+  useSlice("closedRequests");
+  const requestById = useMemo(
+    () => new Map([...closedRequests, ...orderRequests].map((r) => [r.id, r])),
+    [orderRequests, closedRequests]
+  );
   const [showDone, setShowDone] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [selected, setSelected] = useState<Record<string, number[]>>({});
@@ -167,18 +203,16 @@ export function FulfillmentPanel({
   const refunded = useMemo(() => refundedOrders(orders, records), [orders, records]);
   const [showRefunded, setShowRefunded] = useState(false);
 
-  // Fulfilled orders age out of the completed list into a month-grouped
-  // archive once the delivery/grace window has passed.
-  const archiveCutoff = Date.now() - ARCHIVE_AFTER_DAYS * 24 * 3600 * 1000;
-  const completedGroups = groups.filter(
-    (g) => g.done && g.lastActivity >= archiveCutoff
-  );
+  // Which list each card sits in: still shipping, after the sale (boxes
+  // gone, not marked done), done, or the month-grouped archive.
+  const now = Date.now();
+  const phaseOf = (g: OrderGroup) => orderPhase(g, now);
+  const shipGroups = groups.filter((g) => phaseOf(g) === "ship");
+  const afterGroups = groups.filter((g) => phaseOf(g) === "after");
+  const doneGroups = groups.filter((g) => phaseOf(g) === "done");
   const archivedGroups = groups
-    .filter((g) => g.done && g.lastActivity < archiveCutoff)
+    .filter((g) => phaseOf(g) === "archived")
     .sort((a, b) => b.lastActivity - a.lastActivity);
-  const visibleGroups = groups.filter(
-    (g) => !g.done || (showDone && g.lastActivity >= archiveCutoff)
-  );
   const archivedByMonth: [string, OrderGroup[]][] = [];
   for (const g of archivedGroups) {
     const label = new Date(g.lastActivity).toLocaleString(undefined, {
@@ -189,6 +223,20 @@ export function FulfillmentPanel({
     if (bucket) bucket[1].push(g);
     else archivedByMonth.push([label, [g]]);
   }
+
+  // ?order=ID: open whichever list holds that order and scroll to its card.
+  const focusGroup =
+    focusOrderId != null ? groups.find((g) => g.order?.id === focusOrderId) : undefined;
+  const focusPhase = focusGroup ? phaseOf(focusGroup) : null;
+  const doneOpen = showDone || focusPhase === "done";
+  const archiveOpen = showArchive || focusPhase === "archived";
+  const focusFound = !!focusGroup;
+  useEffect(() => {
+    if (focusOrderId == null || !focusFound) return;
+    document
+      .getElementById(`order-${focusOrderId}`)
+      ?.scrollIntoView({ block: "center" });
+  }, [focusOrderId, focusFound]);
 
   // Inline status under the card; outcomes (not progress text) also go to
   // the page toast stack when one is wired in.
@@ -237,7 +285,7 @@ export function FulfillmentPanel({
         mode: "manual",
       });
     } catch (e) {
-      note(g.key, e instanceof Error ? e.message : "Couldn't create the parcel", "error");
+      note(g.key, e instanceof Error ? e.message : "Couldn't create the box", "error");
       return;
     } finally {
       setBusy(null);
@@ -249,7 +297,7 @@ export function FulfillmentPanel({
 
   async function deleteParcel(s: Shipment) {
     if (busy) return;
-    if (!(await confirm("Delete this parcel? Its tracking number is discarded.", "Delete parcel")))
+    if (!(await confirm("Delete this box? Its tracking number is discarded and its items go back to loose.", "Delete box")))
       return;
     setBusy(`ship-${s.id}`);
     const { error } = await supabase.from("shipments").delete().eq("id", s.id);
@@ -503,7 +551,7 @@ export function FulfillmentPanel({
         })
         .in("id", followerIds);
       if (shipError) {
-        note(g.key, `Updating parcels failed: ${shipError.message}`, "error");
+        note(g.key, `Updating boxes failed: ${shipError.message}`, "error");
         return;
       }
       const followerSet = new Set(followerIds);
@@ -714,41 +762,122 @@ export function FulfillmentPanel({
     }
   }
 
+  // Close the order: everything after the sale is finished (or the seller
+  // says it is — the confirm names whatever the tables still show open).
+  async function markDone(g: OrderGroup, items: AfterSaleItem[]) {
+    const order = g.order;
+    if (!order || busy) return;
+    const open = openAfterSale(items);
+    if (
+      open.length > 0 &&
+      !(await confirm(
+        `Still open on ${buyerLabel(g.buyer, g.buyerEmail, "this buyer")}'s order:\n\n${open
+          .map((i) => `• ${i.label} — ${i.detail}`)
+          .join("\n")}\n\nMark it done anyway?`,
+        "Mark done"
+      ))
+    )
+      return;
+    await saveCompleted(g, new Date().toISOString());
+  }
+
+  async function saveCompleted(g: OrderGroup, completedAt: string | null) {
+    const order = g.order;
+    if (!order) return;
+    setBusy(g.key);
+    try {
+      const saved = await setOrderCompleted(supabase, order.id, completedAt);
+      onOrdersChange((prev) => prev.map((o) => (o.id === saved.id ? { ...o, ...saved } : o)));
+      note(g.key, "");
+      pushToast?.(
+        completedAt ? "success" : "info",
+        completedAt
+          ? `${buyerLabel(g.buyer, g.buyerEmail, "Order")} — order done ✓`
+          : `${buyerLabel(g.buyer, g.buyerEmail, "Order")} — order reopened`
+      );
+    } catch (e) {
+      note(g.key, e instanceof Error ? e.message : "Couldn't save the order", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // A hand-over marked by mistake: the order goes back on the packing
+  // table as it was before.
+  async function undoHandOver(g: OrderGroup) {
+    const boxes = g.shipments.filter(handDelivered);
+    if (boxes.length === 0 || busy) return;
+    if (
+      !(await confirm(
+        `Undo the hand-over for ${buyerLabel(g.buyer, g.buyerEmail, "this buyer")}'s order?\n\nIt goes back on the packing table, waiting on a label, as it was before it was marked handed over.`,
+        "Undo hand-over"
+      ))
+    )
+      return;
+    setBusy(g.key);
+    try {
+      const plan = await undoHandOverDb(supabase, boxes);
+      const gone = new Set(plan.deleteIds);
+      const patches = new Map(plan.reverts.map((r) => [r.id, r.patch]));
+      onShipmentsChange((prev) =>
+        prev
+          .filter((s) => !gone.has(s.id))
+          .map((s) => (patches.has(s.id) ? { ...s, ...patches.get(s.id) } : s))
+      );
+      note(g.key, "Hand-over undone — the order is back on Pack.", "info");
+    } catch (e) {
+      note(g.key, e instanceof Error ? e.message : "Couldn't undo the hand-over", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Sequential, to be gentle on Discogs rate limits. Each record's
+  // outcome lands in discogsStatus; the checklist re-reads the records.
+  const [removing, setRemoving] = useState<string | null>(null);
+  async function removeOrderFromDiscogs(g: OrderGroup) {
+    if (removing) return;
+    setRemoving(g.key);
+    try {
+      for (const r of g.records) {
+        if (r.discogs_release_id && !r.discogs_removed) await removeFromDiscogs(r);
+      }
+    } finally {
+      setRemoving(null);
+    }
+  }
+
   const recordLabel = (id: number) => {
     const r = byId.get(id);
     return r ? `${r.artist} — ${r.title}` : `#${id}`;
   };
 
-  const doneCount = completedGroups.length;
-  // Orders inside the archive window whose invoice has no PayPal fee yet.
+  // Orders not yet archived whose invoice has no PayPal fee recorded.
   const syncTargets = groups.filter(
     (g) =>
       !!g.invoiceId &&
-      (!g.done || g.lastActivity >= archiveCutoff) &&
+      phaseOf(g) !== "archived" &&
       invoiceById.get(g.invoiceId)?.paypal_fee == null
   );
+  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
   return (
-    <div className="mt-3">
-      <p className="text-sm text-neutral-400">
-        One card per order, longest-waiting first. The pill says what&rsquo;s
-        left on it; the bright button does that job.
-      </p>
-      <details className="mt-1 text-sm text-neutral-400">
+    <div className="mt-6">
+      <details className="text-sm text-neutral-400">
         <summary className="cursor-pointer text-neutral-500 transition hover:text-white">
           How tracking and costs sync with PayPal
         </summary>
         <p className="mt-2 max-w-3xl">
-          One card per order. Split each order into parcels, one
-          tracking number per parcel. Tracking comes from dropping the label
-          PDF on the Labels page or typing it into a manual parcel; a manual
-          parcel&rsquo;s number can be pushed to PayPal (PayPal emails the
+          One card per order. Split each order into boxes, one tracking
+          number per box. Tracking comes from dropping the label PDF on the
+          Labels page or typing it into a box made here; a manual
+          box&rsquo;s number can be pushed to PayPal (PayPal emails the
           buyer). &ldquo;Sync from PayPal&rdquo; records the PayPal fee, the
           shipping charged, and the buyer&rsquo;s address. It cannot bring
           back tracking for labels bought from PayPal — PayPal never exposes
-          those through its API — so click such a parcel&rsquo;s
+          those through its API — so click such a box&rsquo;s
           &ldquo;manual&rdquo; chip to mark it &ldquo;PayPal label&rdquo; instead
-          of pushing. Each parcel takes its postage cost, and each invoice
+          of pushing. Each box takes its postage cost, and each invoice
           the PayPal fee and shipping charged — those feed the Net stat and
           the tax records.
         </p>
@@ -756,8 +885,8 @@ export function FulfillmentPanel({
       {notes["panel"] ? (
         <p className="mt-2 text-xs text-yellow-400">{notes["panel"]}</p>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {syncTargets.length > 0 ? (
+      {syncTargets.length > 0 ? (
+        <div className="mt-3">
           <button
             type="button"
             onClick={() => syncAll(syncTargets)}
@@ -767,39 +896,68 @@ export function FulfillmentPanel({
           >
             {syncingAll
               ? "Syncing…"
-              : `Sync ${syncTargets.length} order${syncTargets.length === 1 ? "" : "s"} from PayPal`}
+              : `Sync ${plural(syncTargets.length, "order")} from PayPal`}
           </button>
-        ) : null}
-        {doneCount > 0 ? (
+        </div>
+      ) : null}
+
+      <h2 id="to-ship" className="mt-8 scroll-mt-24 text-xl font-medium">
+        To ship{" "}
+        <span className="text-sm text-neutral-400">
+          ({plural(shipGroups.length, "order")}, longest-waiting first)
+        </span>
+      </h2>
+      {shipGroups.length === 0 ? (
+        <EmptyState>
+          Nothing to ship. A paid order shows up here until its last box has left.
+        </EmptyState>
+      ) : (
+        <div className="mt-3 grid gap-3">{shipGroups.map(renderGroup)}</div>
+      )}
+
+      {afterGroups.length > 0 ? (
+        <>
+          <h2 id="after-sale" className="mt-10 scroll-mt-24 text-xl font-medium">
+            After the sale{" "}
+            <span className="text-sm text-neutral-400">
+              ({plural(afterGroups.length, "shipped order")} to finish)
+            </span>
+          </h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            The boxes have left. Tick off what&rsquo;s left on each, then mark it done.
+          </p>
+          <div className="mt-3 grid gap-3">{afterGroups.map(renderGroup)}</div>
+        </>
+      ) : null}
+
+      {doneGroups.length > 0 ? (
+        <div className="mt-8">
           <button
             type="button"
             onClick={() => setShowDone((v) => !v)}
+            aria-expanded={doneOpen}
+            title={`Shipped in the last ${ARCHIVE_AFTER_DAYS} days with nothing left to do`}
             className={smallButtonClass}
           >
-            {showDone ? "Hide" : "Show"} {doneCount} completed order
-            {doneCount === 1 ? "" : "s"}
+            {doneOpen ? "Hide" : "Show"} {plural(doneGroups.length, "done order")}
           </button>
-        ) : null}
-      </div>
-      {visibleGroups.length === 0 ? (
-        <p className="mt-3 text-sm text-neutral-400">
-          Nothing to fulfill — sold records with a buyer show up here.
-        </p>
-      ) : (
-        <div className="mt-3 grid gap-3">{visibleGroups.map(renderGroup)}</div>
-      )}
+          {doneOpen ? (
+            <div className="mt-3 grid gap-3">{doneGroups.map(renderGroup)}</div>
+          ) : null}
+        </div>
+      ) : null}
       {archivedGroups.length > 0 ? (
         <div className="mt-6">
           <button
             type="button"
             onClick={() => setShowArchive((v) => !v)}
-            title={`Orders fully fulfilled more than ${ARCHIVE_AFTER_DAYS} days ago`}
+            aria-expanded={archiveOpen}
+            title={`Orders whose boxes left more than ${ARCHIVE_AFTER_DAYS} days ago`}
             className={smallButtonClass}
           >
-            {showArchive ? "Hide" : "Show"} archive ({archivedGroups.length}{" "}
-            order{archivedGroups.length === 1 ? "" : "s"})
+            {archiveOpen ? "Hide" : "Show"} archive ({plural(archivedGroups.length, "order")})
           </button>
-          {showArchive
+          {archiveOpen
             ? archivedByMonth.map(([label, gs]) => (
                 <div key={label} className="mt-4">
                   <h4 className="text-sm font-medium text-neutral-500">
@@ -837,7 +995,7 @@ export function FulfillmentPanel({
                     ? ` · shipped before the refund, left sold: ${kept
                         .map((r) => `${r.artist} — ${r.title}`)
                         .join("; ")}`
-                    : " · records back up for sale"}
+                    : " · items back up for sale"}
                 </li>
               ))}
             </ul>
@@ -847,7 +1005,7 @@ export function FulfillmentPanel({
     </div>
   );
 
-  // Shared order-card renderer for the active/completed list and the archive.
+  // Shared order-card renderer for every list on the page.
   function renderGroup(g: OrderGroup) {
     const invoiceValue = invoiceEdits[g.key] ?? g.invoiceId;
     const invoice = invoiceById.get(invoiceValue.trim());
@@ -871,7 +1029,25 @@ export function FulfillmentPanel({
       `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     const pushables = g.shipments.filter(pushable);
     const paid = !!invoice?.paid_at;
-    const stage = orderStage(g, invoice);
+    const job = nextJob(g, invoice);
+    const gone = orderGone(g);
+    const completedAt = g.order?.completed_at ?? null;
+    // Only orders can be marked done, and only once the completed_at
+    // column exists (it reads as undefined until the migration is applied).
+    const canMarkDone = gone && g.order?.completed_at === null;
+    const pill =
+      job === "none" && completedAt
+        ? { ...JOB_PILL.none, label: "Done", title: "Marked done" }
+        : JOB_PILL[job];
+    const timeline = orderTimeline(g, {
+      invoice,
+      request: g.order?.request_id != null ? requestById.get(g.order.request_id) : null,
+    });
+    const checklist = gone ? afterSaleChecklist(g, { invites: reviewInvites, reviews }, now) : [];
+    const onDiscogs = g.records.filter((r) => !!r.discogs_release_id && !r.discogs_removed);
+    const discogsNote = onDiscogs.map((r) => discogsStatus[r.id]).find(Boolean);
+    const handedOver = g.shipments.some(handDelivered);
+    const focused = focusOrderId != null && g.order?.id === focusOrderId;
     // The address comes with the payment; without it Pack has nowhere to
     // send the box.
     const needsAddress =
@@ -882,7 +1058,10 @@ export function FulfillmentPanel({
     return (
               <div
                 key={g.key}
-                className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                id={g.order ? `order-${g.order.id}` : undefined}
+                className={`scroll-mt-24 rounded-2xl border bg-white/5 p-4 ${
+                  focused ? "border-amber-400/60" : "border-white/10"
+                }`}
               >
                 <div className="flex flex-wrap items-center gap-3">
                   {g.order ? (
@@ -920,7 +1099,7 @@ export function FulfillmentPanel({
                     <span
                       className="text-sm text-green-400"
                       title={
-                        `Records ${money(recordsTotal)}` +
+                        `Items ${money(recordsTotal)}` +
                         (credit > 0
                           ? ` − credit ${money(credit)}${g.order?.credit_note ? ` (${g.order.credit_note})` : ""}`
                           : "") +
@@ -941,56 +1120,33 @@ export function FulfillmentPanel({
                     </span>
                   ) : null}
                   <span className="text-xs text-neutral-500">
-                    {g.records.length} record{g.records.length === 1 ? "" : "s"}{" "}
-                    · {g.shipments.length} parcel
-                    {g.shipments.length === 1 ? "" : "s"}
+                    {plural(g.records.length, "item")} ·{" "}
+                    {plural(g.shipments.length, "box", "boxes")}
                   </span>
-                  {paid ? (
-                    <span
-                      className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-400"
-                      title="PayPal reported this invoice paid on the last sync"
-                    >
-                      Paid{" "}
-                      {new Date(invoice!.paid_at!).toLocaleDateString()}
-                    </span>
-                  ) : null}
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-xs ${STAGE_PILL[stage].className}`}
-                    title={STAGE_PILL[stage].title}
+                    className={`rounded-full border px-2 py-0.5 text-xs ${pill.className}`}
+                    title={pill.title}
                   >
-                    {STAGE_PILL[stage].label}
+                    {pill.label}
                   </span>
-                  {(() => {
-                    // A label isn't a drop-off: say whether the boxes left.
-                    const drop = dropOffState(g.shipments);
-                    if (drop.state === "none") return null;
-                    return drop.state === "waiting" ? (
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-xs ${amberPill}`}
-                        title="A labeled box on this order is still in the house — Mark dropped off once it's at the post office"
-                      >
-                        Not dropped off
-                      </span>
-                    ) : (
-                      <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs text-neutral-400">
-                        {drop.inPerson ? "Handed over" : "Dropped off"}{" "}
-                        {new Date(drop.sentAt as string).toLocaleDateString()}
-                      </span>
-                    );
-                  })()}
                 </div>
+
+                <OrderTimeline steps={timeline} />
 
                 {/* The one job left on this order gets the bright button; the
                     rest stay available beside it. */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {stage === "pack" ? (
+                  {job === "pack" ? (
                     <Link href="/admin/pack" className={linkClass}>
-                      Pack {g.unassigned.length} record
-                      {g.unassigned.length === 1 ? "" : "s"} →
+                      Pack {plural(g.unassigned.length, "item")} →
                     </Link>
-                  ) : stage === "label" ? (
+                  ) : job === "label" ? (
                     <Link href="/admin/labels" className={linkClass}>
                       Add labels →
+                    </Link>
+                  ) : job === "dropoff" ? (
+                    <Link href="/admin/ship" className={linkClass}>
+                      Drop off →
                     </Link>
                   ) : null}
                   {pushables.length > 0 ? (
@@ -1000,7 +1156,7 @@ export function FulfillmentPanel({
                       disabled={groupBusy}
                       title="Send this order's manual tracking numbers to PayPal — the buyer gets a shipping email"
                       className={
-                        stage === "push" && !needsAddress ? primaryButtonClass : buttonClass
+                        job === "push" && !needsAddress ? primaryButtonClass : buttonClass
                       }
                     >
                       Push {pushables.length} to PayPal
@@ -1011,9 +1167,9 @@ export function FulfillmentPanel({
                       type="button"
                       onClick={() => syncFromPayPal(g)}
                       disabled={groupBusy || syncingAll}
-                      title="Record the invoice's PayPal fee and shipping charge and read the buyer's address. Tracking for labels bought from PayPal never comes back this way — drop the label PDF on the Labels page, or type it in and mark the parcel 'PayPal label'"
+                      title="Record the invoice's PayPal fee and shipping charge and read the buyer's address. Tracking for labels bought from PayPal never comes back this way — drop the label PDF on the Labels page, or type it in and mark the box 'PayPal label'"
                       className={
-                        stage === "sync" || needsAddress ? primaryButtonClass : buttonClass
+                        job === "sync" || needsAddress ? primaryButtonClass : buttonClass
                       }
                     >
                       {groupBusy ? "Working…" : "Sync from PayPal"}
@@ -1064,6 +1220,83 @@ export function FulfillmentPanel({
                     No ship-to address on this order yet — Sync from PayPal
                     reads it off the payment.
                   </p>
+                ) : null}
+
+                {gone ? (
+                  <AfterSale
+                    items={checklist}
+                    actions={{
+                      review:
+                        checklist.find((i) => i.key === "review")?.state === "todo" ? (
+                          <Link
+                            href="/admin/reviews"
+                            className="text-xs text-neutral-300 underline underline-offset-2 transition hover:text-white"
+                          >
+                            Ask on Reviews →
+                          </Link>
+                        ) : null,
+                      discogs:
+                        onDiscogs.length > 0 ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => removeOrderFromDiscogs(g)}
+                              disabled={removing !== null}
+                              title="Takes this order's records out of your Discogs collection. Can't be undone from here."
+                              className={smallButtonClass}
+                            >
+                              {removing === g.key ? "Removing…" : `Remove ${onDiscogs.length}`}
+                            </button>
+                            {discogsNote ? (
+                              <span className="text-xs text-yellow-400">{discogsNote}</span>
+                            ) : null}
+                          </>
+                        ) : null,
+                    }}
+                  >
+                    {canMarkDone ? (
+                      <button
+                        type="button"
+                        onClick={() => markDone(g, checklist)}
+                        disabled={groupBusy}
+                        title="Close this order — it moves to the done list"
+                        className={job === "finish" ? primaryButtonClass : buttonClass}
+                      >
+                        Mark done
+                      </button>
+                    ) : null}
+                    {completedAt ? (
+                      <>
+                        <span className="text-xs text-neutral-400">
+                          Done{" "}
+                          {new Date(completedAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => saveCompleted(g, null)}
+                          disabled={groupBusy}
+                          title="Put this order back under After the sale"
+                          className={smallButtonClass}
+                        >
+                          Reopen
+                        </button>
+                      </>
+                    ) : null}
+                    {handedOver ? (
+                      <button
+                        type="button"
+                        onClick={() => undoHandOver(g)}
+                        disabled={groupBusy}
+                        title="Marked handed over by mistake? Puts the order back on the packing table"
+                        className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white disabled:opacity-40"
+                      >
+                        Undo hand-over
+                      </button>
+                    ) : null}
+                  </AfterSale>
                 ) : null}
 
                 <details className="mt-3 text-sm">
@@ -1166,7 +1399,7 @@ export function FulfillmentPanel({
                 {g.unassigned.length > 0 ? (
                   <div className="mt-3 rounded-xl border border-white/10 p-3">
                     <p className="text-xs text-neutral-400">
-                      Not in a parcel yet:
+                      Not in a box yet:
                     </p>
                     <div className="mt-2 flex flex-col gap-1">
                       {g.unassigned.map((r) => (
@@ -1212,7 +1445,7 @@ export function FulfillmentPanel({
                       }
                       className={`mt-2 ${smallButtonClass}`}
                     >
-                      New parcel ({(selected[g.key] ?? []).length} selected)
+                      New box ({(selected[g.key] ?? []).length} selected)
                     </button>
                   </div>
                 ) : null}
@@ -1227,10 +1460,13 @@ export function FulfillmentPanel({
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm text-neutral-300">
-                          Parcel {i + 1}{" "}
-                          <span className="text-neutral-500" title="The Box # on the mailer and its packing slip">
-                            · Box #{s.id}
-                          </span>
+                          <span title="The Box # on the mailer and its packing slip">Box #{s.id}</span>
+                          {g.shipments.length > 1 ? (
+                            <span className="text-neutral-500">
+                              {" "}
+                              · {i + 1} of {g.shipments.length}
+                            </span>
+                          ) : null}
                         </span>
                         {s.packed_at ? (
                           <span
@@ -1238,6 +1474,14 @@ export function FulfillmentPanel({
                             title="Sealed on the pack page with every record checked in"
                           >
                             Packed {new Date(s.packed_at).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                        {s.sent_at && !handDelivered(s) ? (
+                          <span
+                            className="rounded-full border border-white/15 px-2 py-0.5 text-xs text-neutral-400"
+                            title="Marked dropped off on the Drop off page"
+                          >
+                            Dropped off {new Date(s.sent_at).toLocaleDateString()}
                           </span>
                         ) : null}
                         {handDelivered(s) ? (
@@ -1392,7 +1636,7 @@ export function FulfillmentPanel({
                             <button
                               type="button"
                               onClick={() => toggleMember(s, id, false)}
-                              title="Remove from this parcel"
+                              title="Take out of this box"
                               className="text-neutral-500 transition hover:text-white"
                             >
                               ×
@@ -1404,7 +1648,7 @@ export function FulfillmentPanel({
                             key={r.id}
                             type="button"
                             onClick={() => toggleMember(s, r.id, true)}
-                            title="Add to this parcel"
+                            title="Add to this box"
                             className={smallButtonClass}
                           >
                             + {r.artist} — {r.title}
@@ -1413,7 +1657,7 @@ export function FulfillmentPanel({
                         {(s.record_ids ?? []).length === 0 &&
                         g.unassigned.length === 0 ? (
                           <span className="text-xs text-neutral-500">
-                            No records assigned.
+                            Nothing in this box.
                           </span>
                         ) : null}
                       </div>

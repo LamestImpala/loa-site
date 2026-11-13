@@ -5,20 +5,21 @@ import Link from "next/link";
 import { useSelectedLayoutSegment } from "next/navigation";
 import {
   sellCount,
-  sendCount,
   shipCount,
   shipHref,
   stockCount,
   type Worklist,
 } from "@/lib/admin/worklist";
+import { ShipSteps } from "../_ship/ship-steps";
 import { useWorklist } from "./use-worklist";
 import { Pill, Tabs } from "./primitives";
 
 // The admin's five destinations, in the order a sale moves. `segments` are
 // the path pieces under /admin that belong to each (null is /admin itself);
 // `count` is the work waiting there, shown as a badge when it isn't zero.
-// Ship and Stock are several pages each — `pages` become a row of tabs
-// under the header while you're on one of them.
+// Stock is several pages — its `pages` become a row of tabs under the
+// header while you're on one of them. Ship is several pages too, but they
+// are steps in a line, so it gets the stepper (ShipSteps) instead.
 type Page = {
   segment: string;
   href: string;
@@ -36,36 +37,9 @@ type Destination = {
   pages?: Page[];
 };
 
-const SHIP_PAGES: Page[] = [
-  {
-    segment: "pick",
-    href: "/admin/pick",
-    label: "Pick list",
-    count: (w) => w.toPull,
-    countLabel: "to pull",
-  },
-  {
-    segment: "pack",
-    href: "/admin/pack",
-    label: "Pack",
-    count: (w) => w.toPack,
-    countLabel: "to pack",
-  },
-  {
-    segment: "labels",
-    href: "/admin/labels",
-    label: "Labels",
-    count: (w) => w.needLabels,
-    countLabel: "boxes without a label",
-  },
-  {
-    segment: "ship",
-    href: "/admin/ship",
-    label: "Send",
-    count: sendCount,
-    countLabel: "to drop off, push or sync",
-  },
-];
+// Path pieces under /admin that belong to Ship: Pick, Pack, Labels, and
+// "ship" itself for Drop off (/admin/ship) and Orders (/admin/ship/orders).
+const SHIP_SEGMENTS = ["pick", "pack", "labels", "ship"];
 
 const STOCK_PAGES: Page[] = [
   {
@@ -97,10 +71,9 @@ const DESTINATIONS: Destination[] = [
   {
     label: "Ship",
     href: shipHref,
-    segments: SHIP_PAGES.map((p) => p.segment),
+    segments: SHIP_SEGMENTS,
     count: shipCount,
     countLabel: "shipping jobs waiting",
-    pages: SHIP_PAGES,
   },
   {
     label: "Stock",
@@ -171,11 +144,12 @@ export function AdminNav() {
   );
 }
 
-// The pages inside Ship or Stock, as tabs under the header — only while
-// you're on one of them.
+// Under the header while you're inside Ship or Stock: Ship's steps, or
+// Stock's pages as tabs.
 export function AdminSubNav() {
   const segment = useSelectedLayoutSegment();
   const work = useWorklist();
+  if (segment && SHIP_SEGMENTS.includes(segment)) return <ShipSteps />;
   const dest = DESTINATIONS.find((d) => d.pages && d.segments.includes(segment));
   if (!dest?.pages) return null;
   return (

@@ -75,6 +75,10 @@ const emptyItemDraft = (kind: NewItemDraft["kind"]): NewItemDraft => ({
 // filters back after a trip to another admin page.
 let lastCatalogQuery = "";
 
+// Where a sold record's order card lives on the Orders page.
+const orderHref = (r: { order_id?: number | null }) =>
+  r.order_id != null ? `/admin/ship/orders?order=${r.order_id}` : "/admin/ship/orders";
+
 export function CatalogPage() {
   const router = useRouter();
   const {
@@ -277,13 +281,13 @@ export function CatalogPage() {
       .contains("record_ids", [r.id]);
     setSaving(r.id, false);
     if (parcelErr) {
-      pushToast("error", `Couldn't check parcels: ${parcelErr.message}`);
+      pushToast("error", `Couldn't check boxes: ${parcelErr.message}`);
       return;
     }
     if ((parcels ?? []).length > 0) {
       pushToast(
         "error",
-        `"${r.artist} — ${r.title}" is in a parcel — remove it on the Send page first.`
+        `"${r.artist} — ${r.title}" is in a box — take it out on its order's card (Ship → Orders) first.`
       );
       return;
     }
@@ -496,7 +500,7 @@ export function CatalogPage() {
       // Un-selling erases the sale — make sure it's deliberate.
       if (
         !(await confirm(
-          `Un-sell ${name}? It goes back on the shop, and its sale is cleared: buyer, sold price and date, invoice link, and its place in any parcel.${
+          `Un-sell ${name}? It goes back on the shop, and its sale is cleared: buyer, sold price and date, invoice link, and its place in any box.${
             r.discogs_removed ? " It already came out of your Discogs collection — re-add it there." : ""
           }`,
           "Un-sell"
@@ -1520,11 +1524,11 @@ export function CatalogPage() {
                             {(r.buyer_username ?? "").trim() ? (
                               <button
                                 type="button"
-                                onClick={() => router.push("/admin/ship#fulfillment")}
-                                title="The swap-bot trade confirmation for this order is copied from its card on the Send page"
+                                onClick={() => router.push(orderHref(r))}
+                                title="The swap-bot trade confirmation for this order is copied from its card on the Orders page"
                                 className="whitespace-nowrap text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                               >
-                                confirm on Send
+                                confirm on Orders
                               </button>
                             ) : null}
                           </div>
@@ -1553,23 +1557,23 @@ export function CatalogPage() {
                               placeholder="sold for"
                               className={`w-24 ${inputClass}`}
                             />
-                            {/* Tracking lives on parcels on the Send page —
+                            {/* Tracking lives on boxes on the Orders page —
                                 shown read-only here so the two can't disagree */}
                             {r.tracking_number ? (
                               <span
                                 className="font-mono text-xs text-neutral-400"
-                                title="Tracking number, managed per parcel on the Send page"
+                                title="Tracking number, managed per box on the Orders page"
                               >
                                 {r.tracking_number}
                               </span>
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => router.push("/admin/ship#fulfillment")}
-                                title="Tracking numbers are managed per parcel on the Send page"
+                                onClick={() => router.push(orderHref(r))}
+                                title="Tracking numbers are managed per box on the Orders page"
                                 className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                               >
-                                add tracking on Send
+                                add tracking on Orders
                               </button>
                             )}
                           </div>

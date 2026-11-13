@@ -6,7 +6,7 @@ import { integrityIssues } from "@/lib/admin/integrity";
 import { useAdmin } from "./admin-provider";
 
 // States that went quietly wrong anywhere in a sale (lib/admin/integrity),
-// each with a jump to where it's fixed. Shown on Today and on Send; nothing
+// each with a jump to where it's fixed. Shown on Today and on Orders; nothing
 // renders when there's nothing to fix.
 export function NeedsFixing() {
   const { records, shipments, invoices, orders, byId, readdToDiscogs, discogsReadding } =

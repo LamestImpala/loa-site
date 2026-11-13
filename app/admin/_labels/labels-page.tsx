@@ -328,7 +328,7 @@ export function LabelsPage() {
             Tracking saved on {savedBoxes} box{savedBoxes === 1 ? "" : "es"}.
           </span>
           <Link href="/admin/ship" className={nextStepLinkClass}>
-            Stick them on, then drop off and sync on Send →
+            Stick them on, then Drop off →
           </Link>
         </NextStep>
       ) : null}

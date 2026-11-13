@@ -3,10 +3,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderRequest } from "../supabase.ts";
 import {
+  ordersCount,
   sellCount,
-  sendCount,
   shipCount,
   shipHref,
+  shipSteps,
   stockCount,
   worklist,
 } from "./worklist.ts";
@@ -50,11 +51,12 @@ test("nothing to do is all zeros", () => {
     toSend: 0,
     toPush: 0,
     toSync: 0,
+    toFinish: 0,
     toUnlist: 0,
     priceApprovals: 0,
   });
   assert.equal(sellCount(w), 0);
-  assert.equal(sendCount(w), 0);
+  assert.equal(ordersCount(w), 0);
   assert.equal(shipCount(w), 0);
   assert.equal(stockCount(w), 0);
 });
@@ -81,7 +83,7 @@ test("manual tracking PayPal hasn't heard about counts as a push", () => {
     NOW
   );
   assert.equal(w.toPush, 1);
-  assert.equal(sendCount(w), 1);
+  assert.equal(ordersCount(w), 1);
 });
 
 test("only new requests count, not loaded ones", () => {
@@ -272,13 +274,76 @@ test("pending price changes count toward Stock, and stay off the sell and ship b
   assert.equal(shipCount(w), 0);
 });
 
-test("the Ship badge adds up its four pages, and Ship opens the first with work", () => {
+test("the Ship badge adds up its steps, and Ship opens the first with work", () => {
   const none = worklist(empty, NOW);
-  assert.equal(shipHref(none), "/admin/ship");
-  const w = { ...none, toPack: 2, needLabels: 1, toSend: 1, toPush: 1, toSync: 1 };
-  assert.equal(shipCount(w), 6);
+  assert.equal(shipHref(none), "/admin/ship/orders", "nothing waiting: the orders");
+  const w = { ...none, toPack: 2, needLabels: 1, toSend: 1, toPush: 1, toSync: 1, toFinish: 2 };
+  assert.equal(shipCount(w), 8);
   assert.equal(shipHref(w), "/admin/pack");
   assert.equal(shipHref({ ...w, toPull: 3 }), "/admin/pick");
   assert.equal(shipHref({ ...w, toPack: 0 }), "/admin/labels");
   assert.equal(shipHref({ ...w, toPack: 0, needLabels: 0 }), "/admin/ship");
+  assert.equal(shipHref({ ...w, toPack: 0, needLabels: 0, toSend: 0 }), "/admin/ship/orders");
+});
+
+test("the Ship steps: Pick, Pack, Labels, Drop off in order, then Orders, each with its count", () => {
+  const w = {
+    ...worklist(empty, NOW),
+    toPull: 4,
+    toPack: 3,
+    needLabels: 2,
+    toSend: 1,
+    toPush: 1,
+    toSync: 1,
+    toFinish: 1,
+  };
+  assert.deepEqual(
+    shipSteps(w).map((s) => [s.label, s.href, s.count]),
+    [
+      ["Pick", "/admin/pick", 4],
+      ["Pack", "/admin/pack", 3],
+      ["Labels", "/admin/labels", 2],
+      ["Drop off", "/admin/ship", 1],
+      ["Orders", "/admin/ship/orders", 3],
+    ]
+  );
+});
+
+test("a shipped order waits to be marked done; marked, unmarkable and old ones don't", () => {
+  const sent = iso(NOW - DAY);
+  const box = (orderId: number, recordId: number, over = {}) =>
+    shipment({
+      order_id: orderId,
+      record_ids: [recordId],
+      tracking_code: "9400",
+      status: "shipped",
+      mode: "paypal",
+      sent_at: sent,
+      updated_at: sent,
+      ...over,
+    });
+  const w = worklist(
+    {
+      ...empty,
+      orders: [
+        order({ id: 1, status: "paid", completed_at: null }), // shipped, not marked
+        order({ id: 2, status: "paid", completed_at: iso(NOW) }), // marked done
+        order({ id: 3, status: "paid" }), // column not there yet
+        order({ id: 4, status: "paid", completed_at: null }), // labeled, still in the house
+        order({ id: 5, status: "paid", completed_at: null }), // left a month ago
+      ],
+      records: [1, 2, 3, 4, 5].map((id) => rec({ id, sold: true, order_id: id })),
+      shipments: [
+        box(1, 1),
+        box(2, 2),
+        box(3, 3),
+        box(4, 4, { sent_at: null }),
+        box(5, 5, { sent_at: iso(NOW - 30 * DAY), updated_at: iso(NOW - 30 * DAY) }),
+      ],
+    },
+    NOW
+  );
+  assert.equal(w.toFinish, 1);
+  assert.equal(w.toSend, 1);
+  assert.equal(ordersCount(w), 1);
 });

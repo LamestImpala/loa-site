@@ -12,8 +12,8 @@ import {
   buttonClass,
 } from "./ui";
 
-// Page chrome shared by every /admin page: the five destinations, the tabs
-// inside Ship and Stock, account controls and the gear menu, the load-error
+// Page chrome shared by every /admin page: the five destinations, the
+// steps inside Ship and the tabs inside Stock, account controls and the gear menu, the load-error
 // banner, and the toast / confirm / clipboard-fallback overlays. It also
 // owns the PayPal invoice check, so a payment is noticed whichever page
 // the admin is opened on.

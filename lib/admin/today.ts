@@ -110,7 +110,7 @@ export function todayGroups(w: Worklist): TodayGroup[] {
     {
       key: "after",
       label: "After the sale",
-      href: "/admin/ship#fulfillment",
+      href: "/admin/ship/orders",
       rows: [
         {
           key: "push",
@@ -120,13 +120,19 @@ export function todayGroups(w: Worklist): TodayGroup[] {
             "order with tracking to push to PayPal",
             "orders with tracking to push to PayPal"
           ),
-          href: "/admin/ship#fulfillment",
+          href: "/admin/ship/orders",
         },
         {
           key: "sync",
           n: w.toSync,
           label: pl(w.toSync, "order to sync from PayPal", "orders to sync from PayPal"),
-          href: "/admin/ship#fulfillment",
+          href: "/admin/ship/orders",
+        },
+        {
+          key: "finish",
+          n: w.toFinish,
+          label: pl(w.toFinish, "shipped order to mark done", "shipped orders to mark done"),
+          href: "/admin/ship/orders#after-sale",
         },
         {
           key: "discogs",
@@ -176,4 +182,10 @@ const MOVED: Record<string, string> = {
 
 export function movedInboxHash(hash: string): string | null {
   return MOVED[hash] ?? null;
+}
+
+// /admin/ship used to hold the order cards under #fulfillment; they have
+// their own page now. Where an old Ship #anchor lives; null = stay put.
+export function movedShipHash(hash: string): string | null {
+  return hash === "#fulfillment" ? "/admin/ship/orders" : null;
 }

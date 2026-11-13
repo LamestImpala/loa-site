@@ -198,3 +198,24 @@ export async function releaseOrder(
   }
   return ((data ?? []) as { id: number }[]).map((r) => r.id);
 }
+
+// Mark an order done once its after-sale checklist is finished, or (null)
+// reopen it. The order's status is untouched — "paid" stays "paid".
+export async function setOrderCompleted(
+  supabase: SupabaseClient,
+  orderId: number,
+  completedAt: string | null
+): Promise<Order> {
+  const { data, error } = await supabase
+    .from("orders")
+    .update({ completed_at: completedAt, updated_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .select()
+    .single();
+  if (error) {
+    throw new Error(
+      `Couldn't ${completedAt ? "mark the order done" : "reopen the order"}: ${error.message}`
+    );
+  }
+  return data as Order;
+}

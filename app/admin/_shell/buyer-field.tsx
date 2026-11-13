@@ -38,8 +38,8 @@ export function BuyerField({
         placeholder={email ? "buyer name" : "reddit buyer"}
         title={
           email
-            ? `Email buyer (${email}) — renaming here updates every record and parcel in the order`
-            : "The buyer's Reddit name for this whole order — renaming it here updates every record and parcel in it"
+            ? `Email buyer (${email}) — renaming here updates every item and box in the order`
+            : "The buyer's Reddit name for this whole order — renaming it here updates every item and box in it"
         }
         className={`w-40 font-medium ${inputClass}`}
       />
