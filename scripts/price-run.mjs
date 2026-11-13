@@ -1,9 +1,11 @@
 /*
  * Daily Discogs price run.
  *
- * For every listed, unsold record with a Discogs release ID, fetches the
+ * For every listed, unsold record with a Discogs release ID — and every
+ * draft still at $0 (added in the admin, not on the shop yet) — fetches the
  * Discogs price suggestions (all grades) and the release's market stats,
- * then plans a target price with planPrice():
+ * then plans a target price with planPrice(). A draft's first price also
+ * publishes it (firstPricePatch):
  *
  *   - Tier factor on the grade suggestion. Scarce-and-wanted releases
  *     (≤SCARCE_MAX_FOR_SALE copies, want/have ≥ SCARCE_MIN_DEMAND) ask the
@@ -210,6 +212,15 @@ export function applyMode(price, target, reason = null) {
   if (target < price) return "queue";
   if (reason === "climb") return "auto";
   return (target - price) / price <= THRESHOLD ? "auto" : "queue";
+}
+
+// What an automatic price writes. Items added in the admin start as drafts,
+// off the shop; a draft record left at $0 is waiting for this run, so its
+// first price also puts it on the shop. Anything else just gets the price.
+export function firstPricePatch(r, target) {
+  return r.draft === true && Number(r.price) === 0
+    ? { price: target, listed: true, draft: false }
+    : { price: target };
 }
 
 // --- eBay Browse API (optional second market signal) ---
@@ -473,19 +484,29 @@ async function main() {
   if (!DRY_RUN) await backfillCoverImages();
   if (!DRY_RUN) await backfillReleaseDetails();
 
-  let query = supabase
-    .from("records")
-    .select("id, artist, title, media, price, discogs_release_id, created_at, hold_until")
-    .eq("kind", "record")
-    .eq("listed", true)
-    .eq("sold", false)
-    .not("discogs_release_id", "is", null);
-  // ONLY_IDS is a spot-check mode, so hand-priced records are included;
-  // the normal run leaves admin-locked prices alone.
-  query = ONLY_IDS.length
-    ? query.in("id", ONLY_IDS)
-    : query.eq("manual_price", false);
-  const { data: records, error } = await query;
+  // Everything on the shop, plus drafts still at $0 — a draft with a price
+  // is the owner's to publish, so the run leaves it alone.
+  const recordsQuery = (withDrafts) => {
+    const query = supabase
+      .from("records")
+      .select(
+        `id, artist, title, media, price, discogs_release_id, created_at, hold_until${withDrafts ? ", draft" : ""}`
+      )
+      .eq("kind", "record")
+      .eq("sold", false)
+      .not("discogs_release_id", "is", null);
+    const scoped = withDrafts
+      ? query.or("listed.eq.true,and(draft.eq.true,price.eq.0)")
+      : query.eq("listed", true);
+    // ONLY_IDS is a spot-check mode, so hand-priced records are included;
+    // the normal run leaves admin-locked prices alone.
+    return ONLY_IDS.length ? scoped.in("id", ONLY_IDS) : scoped.eq("manual_price", false);
+  };
+  let { data: records, error } = await recordsQuery(true);
+  if (error && /draft/.test(error.message)) {
+    // Migration not applied yet — price the shop as before.
+    ({ data: records, error } = await recordsQuery(false));
+  }
   if (error) throw error;
 
   const { data: pendingRows, error: pendingErr } = await supabase
@@ -543,6 +564,7 @@ async function main() {
   let implausible = 0;
   let errors = 0;
   let reservedSkips = 0;
+  let published = 0;
 
   let run = { id: null };
   if (!DRY_RUN) {
@@ -701,11 +723,18 @@ async function main() {
         const entry = { ...base, old_price: price, new_price: target, reason };
         const pct = price === 0 ? 0 : Number(((target - price) / price).toFixed(4));
         if (mode === "auto") {
-          await setPrice(r.id, { price: target });
+          const patch = firstPricePatch(r, target);
+          await setPrice(r.id, patch);
           autoApplied++;
           if (reason === "climb") climbs++;
+          if (patch.listed) published++;
           price = target;
-          summary.push({ ...entry, pct, action: "applied" });
+          summary.push({
+            ...entry,
+            pct,
+            action: "applied",
+            ...(patch.listed ? { published: true } : {}),
+          });
         } else if (!hasPending.has(r.id) && !wasRejected(r.id, target)) {
           await queueChange(r.id, price, target, pct);
           hasPending.add(r.id);
@@ -761,13 +790,14 @@ async function main() {
   }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only, ${climbs} climb steps), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only, ${climbs} climb steps, ${published} drafts priced and published), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
+  const newOnShop = summary.filter((s) => s.published);
   if (
     !DRY_RUN &&
-    (flagged > 0 || pendingCuts.length > 0) &&
+    (flagged > 0 || pendingCuts.length > 0 || newOnShop.length > 0) &&
     process.env.RESEND_API_KEY
   ) {
     const REASON_LABEL = {
@@ -815,6 +845,12 @@ sets the suggested price ($6 over that listing).</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`
         : "";
 
+    const publishedSection =
+      newOnShop.length > 0
+        ? `<p><strong>Now on the shop</strong> — ${newOnShop.length === 1 ? "this draft" : "these drafts"} got a first price and went live:</p>
+<ul>${newOnShop.map((s) => `<li>${s.artist} — ${s.title}: $${s.new_price} (${REASON_LABEL[s.reason] ?? "priced"})</li>`).join("")}</ul>`
+        : "";
+
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -824,8 +860,12 @@ sets the suggested price ($6 over that listing).</p>
       body: JSON.stringify({
         from: "Records Price Run <onboarding@resend.dev>",
         to: [REPORT_EMAIL],
-        subject: `Price run: ${flagged + pendingCuts.length} awaiting approval (${decays} decay steps), ${autoApplied} small raises applied`,
+        subject:
+          flagged + pendingCuts.length > 0
+            ? `Price run: ${flagged + pendingCuts.length} awaiting approval (${decays} decay steps), ${autoApplied} small raises applied`
+            : `Price run: ${newOnShop.length} draft${newOnShop.length === 1 ? "" : "s"} priced and now on the shop`,
         html: `<p>${checked} records checked, ${autoApplied} small raises auto-applied (${climbs} weekly climb steps toward lowest + $6), ${flagged + pendingCuts.length} changes waiting for approval (no cut is ever applied without it), ${implausible} cheapest listings ignored as not comparable.</p>
+${publishedSection}
 ${flaggedSection}
 ${cutsSection}`,
       }),

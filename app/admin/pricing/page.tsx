@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PricingPage } from "../_pricing/pricing-page";
 
 export const metadata: Metadata = {
-  title: "Pricing — Late Onset Audiophile",
+  title: "Pricing — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

@@ -52,3 +52,41 @@ export function approvalBlock(
   if (Number(r.price) !== Number(p.old_price)) return `price is now $${r.price}`;
   return null;
 }
+
+type RunLine = PriceRun["summary"][number];
+
+// What set a run's target price, in the words the Pricing page's cards and
+// its run history share.
+export const REASON_TEXT: Record<NonNullable<RunLine["reason"]>, string> = {
+  suggestion: "85% of the Discogs suggestion for its grade",
+  scarce: "scarce & wanted, full suggestion",
+  stocked: "stocked release (30+ copies), 70% of suggestion",
+  decay: "unsold 30+ days, 5% time decay",
+  ebay: "capped at eBay median for this pressing",
+  lowest: "$6 over comparable cheapest listing",
+  climb: "weekly climb toward cheapest listing + $6",
+};
+
+// Why the run suggested a pending change: the line it wrote for this record
+// at this price — from the run that flagged it when that one is loaded,
+// else the newest run that suggested the same price. Null when the change
+// is older than the runs on hand.
+export function changeReason(
+  p: Pick<PendingPriceChange, "record_id" | "run_id" | "suggested_price">,
+  runs: PriceRun[]
+): string | null {
+  const queued = (s: RunLine) =>
+    s.record_id === p.record_id &&
+    (s.action === "flagged" || s.action === "above-lowest") &&
+    Number(s.new_price) === Number(p.suggested_price);
+  const own = p.run_id != null ? runs.find((r) => r.id === p.run_id) : undefined;
+  const line =
+    own?.summary?.find(queued) ?? runs.flatMap((r) => r.summary ?? []).find(queued);
+  if (!line) return null;
+  if (line.action === "above-lowest") {
+    return `priced above a comparable cheapest Discogs listing${
+      line.lowest != null ? ` ($${line.lowest})` : ""
+    } — the suggestion is $6 over it`;
+  }
+  return line.reason ? REASON_TEXT[line.reason] : null;
+}

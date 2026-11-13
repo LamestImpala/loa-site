@@ -9,6 +9,7 @@ import { HOLD_HOURS, holdExpiry, liveInvoiceOn, requestForOrder } from "@/lib/ad
 import { parseMoney, saleItem, saleReplyText } from "@/lib/admin/sales";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { DEFAULT_FILTERS, filterRecords } from "@/lib/admin/catalog-filter";
+import { isDraft } from "@/lib/admin/records";
 import type { PhotoAttachment } from "@/lib/admin/attachments";
 import { useAdmin } from "../_shell/admin-provider";
 import { PhotoPicker } from "../_shell/photo-picker";
@@ -485,7 +486,9 @@ export function SaleDesk({ desk, paste }: { desk: Desk; paste: PasteDmState }) {
               results.map((r, i) => {
                 const flags = [
                   ...recordFlags(r),
-                  ...(r.listed ? [] : ["hidden from the shop"]),
+                  ...(r.listed
+                    ? []
+                    : [isDraft(r) ? "draft, not on the shop yet" : "hidden from the shop"]),
                 ];
                 return (
                   <li key={r.id}>

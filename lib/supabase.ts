@@ -69,6 +69,11 @@ export type DbRecord = {
   created_at?: string; // used for "new this week" merchandising
   sold: boolean;
   listed: boolean;
+  // admin-only; true while an item added in the admin has never been on the
+  // shop (see isDraft in lib/admin/records.ts). Absent on rows read before
+  // the 20261115 migration is applied — the admin then adds items the old
+  // way (listed at once) rather than send a write that fails.
+  draft?: boolean;
   buyer_username?: string; // admin-only; not selected on the public page
   tracking_number?: string; // admin-only; mirrored from shipments.tracking_code
   sold_price?: number | null; // admin-only; final price the record sold for
@@ -168,6 +173,7 @@ export type Invoice = {
 export type PendingPriceChange = {
   id: number;
   record_id: number;
+  run_id?: number | null; // the price run that flagged it
   old_price: number;
   suggested_price: number;
   pct_change: number;
@@ -263,6 +269,7 @@ export type PriceRun = {
     // listing, the eBay median, or the unsold-30-days time decay
     reason?: "suggestion" | "scarce" | "stocked" | "lowest" | "climb" | "ebay" | "decay";
     action: "applied" | "flagged" | "above-lowest" | "undercut";
+    published?: boolean; // a draft's first price, which also put it on the shop
   }[];
 };
 

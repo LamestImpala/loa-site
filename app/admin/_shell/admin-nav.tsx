@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSelectedLayoutSegment } from "next/navigation";
 import {
+  catalogCount,
   sellCount,
   shipCount,
   shipHref,
@@ -46,8 +47,8 @@ const STOCK_PAGES: Page[] = [
     segment: "catalog",
     href: "/admin/catalog",
     label: "Catalog",
-    count: (w) => w.toUnlist,
-    countLabel: "shipped records to remove from Discogs",
+    count: catalogCount,
+    countLabel: "drafts to publish or shipped records to remove from Discogs",
   },
   {
     segment: "pricing",

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ReviewsSection } from "../_reviews/reviews-section";
 
 export const metadata: Metadata = {
-  title: "Reviews — Late Onset Audiophile",
+  title: "Reviews — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

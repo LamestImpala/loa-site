@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { SellPage } from "../_sell/sell-page";
 
 export const metadata: Metadata = {
-  title: "Sell — Late Onset Audiophile",
+  title: "Sell — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

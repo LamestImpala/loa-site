@@ -8,6 +8,7 @@ import {
   OFF_MARKET_HIGH,
   OFF_MARKET_LOW,
   filterRecords,
+  filtersActive,
   filtersFromQuery,
   filtersToQuery,
   sortRecords,
@@ -141,18 +142,46 @@ test("the catalog view round-trips through the URL, defaults left out", () => {
     shown: "hidden",
     sold: "unsold",
     interest: "clicked-no-request",
+    status: "draft",
   };
   const query = filtersToQuery(view, "price-desc");
   assert.equal(
     query.toString(),
-    "q=pink+floyd&kind=record&genre=Rock&collection=none&letter=P&shown=hidden&sold=unsold&interest=clicked-no-request&sort=price-desc"
+    "q=pink+floyd&kind=record&genre=Rock&collection=none&letter=P&shown=hidden&sold=unsold&interest=clicked-no-request&status=draft&sort=price-desc"
   );
   assert.deepEqual(filtersFromQuery(query), { filters: view, sort: "price-desc" });
 });
 
 test("unrecognised URL values fall back to the defaults", () => {
   const parsed = filtersFromQuery(
-    new URLSearchParams("shown=maybe&sold=&interest=x&sort=random&record=12")
+    new URLSearchParams("shown=maybe&sold=&interest=x&status=nope&sort=random&record=12")
   );
   assert.deepEqual(parsed, { filters: DEFAULT_FILTERS, sort: "artist" });
+});
+
+test("status filter: drafts, held, needs photos and $0", () => {
+  const records = [
+    rec({ id: 1, price: 60 }), // on the shop, $40+, stock cover only
+    rec({ id: 2, price: 60, photo_urls: ["a.jpg"] }),
+    rec({ id: 3, price: 0, listed: false, draft: true }), // waiting for its first price
+    rec({ id: 4, price: 25, listed: false, draft: true }),
+    rec({ id: 5, price: 25, listed: false }), // hidden on purpose, not a draft
+    rec({ id: 6, price: 25, hold_until: iso(NOW + DAY) }),
+    rec({ id: 7, price: 25, hold_until: iso(NOW - DAY) }), // hold lapsed
+    rec({ id: 8, price: 0, sold: true }), // a sold record's price is history
+    rec({ id: 9, price: 25, listed: true, draft: true }), // published: the flag no longer counts
+  ];
+  const by = (status: CatalogFilters["status"]) => ids(filterRecords(records, withF({ status }), ctx));
+  assert.deepEqual(by("draft"), [3, 4]);
+  assert.deepEqual(by("held"), [6]);
+  assert.deepEqual(by("needs-photos"), [1]);
+  assert.deepEqual(by("unpriced"), [3]);
+  assert.deepEqual(by("all"), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+});
+
+test("filtersActive: anything narrowing the list, but not the sort", () => {
+  assert.equal(filtersActive(DEFAULT_FILTERS), false);
+  assert.equal(filtersActive(withF({ status: "held" })), true);
+  assert.equal(filtersActive(withF({ search: "x" })), true);
+  assert.equal(filtersActive(withF({ letter: "B" })), true);
 });

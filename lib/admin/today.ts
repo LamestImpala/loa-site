@@ -100,6 +100,12 @@ export function todayGroups(w: Worklist): TodayGroup[] {
       href: "/admin/catalog",
       rows: [
         {
+          key: "drafts",
+          n: w.draftsToPublish,
+          label: pl(w.draftsToPublish, "draft to price or publish", "drafts to price or publish"),
+          href: "/admin/catalog?status=draft",
+        },
+        {
           key: "prices",
           n: w.priceApprovals,
           label: pl(w.priceApprovals, "price change to approve", "price changes to approve"),

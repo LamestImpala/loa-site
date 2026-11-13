@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import type { PendingPriceChange } from "@/lib/supabase";
 import {
+  REASON_TEXT,
   approvalBlock,
+  changeReason,
   forSaleById as forSaleFromRuns,
   isActionable as actionable,
 } from "@/lib/admin/pricing";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
+import { PageHeader } from "../_shell/primitives";
 import { buttonClass, pct } from "../_shell/ui";
 
 // Pricing: approve or reject the daily run's flagged moves, and read the
@@ -178,8 +182,11 @@ export function PricingPage() {
 
   return (
     <>
-      <h1 className="mt-6 text-3xl font-semibold">Pricing</h1>
-        <h2 className="mt-10 text-xl font-medium">
+      <PageHeader
+        title="Pricing"
+        description="Price changes the daily Discogs run wants your say on, and what each run did. No cut is ever applied without your approval."
+      />
+        <h2 className="mt-8 text-xl font-medium">
           Pending price changes{" "}
           <span className="text-sm text-neutral-400">
             ({pending.length} waiting · every cut, and raises over 5%, from
@@ -242,14 +249,32 @@ export function PricingPage() {
               </button>
             </div>
             <div className="mt-4 flex flex-col gap-3">
-              {visiblePending.map((p) => (
+              {visiblePending.map((p) => {
+                const record = byId.get(p.record_id);
+                const reason = changeReason(p, runs);
+                const block = approvalBlock(p, record);
+                return (
                 <div
                   key={p.id}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium">
-                      {p.records?.artist} — {p.records?.title}
+                      <Link
+                        href={`/admin/catalog?record=${p.record_id}`}
+                        title="Open this record in the Catalog"
+                        className="underline decoration-white/25 underline-offset-4 transition hover:decoration-white"
+                      >
+                        {p.records?.artist} — {p.records?.title}
+                      </Link>
+                      {record?.media ? (
+                        <span
+                          className="ml-2 text-xs font-normal text-neutral-500"
+                          title="Media / sleeve grade — the suggestion is for the media grade"
+                        >
+                          {record.media} / {record.sleeve || "—"}
+                        </span>
+                      ) : null}
                     </p>
                     <p className="mt-1 text-sm text-neutral-400">
                       ${p.old_price} → ${p.suggested_price}{" "}
@@ -267,6 +292,14 @@ export function PricingPage() {
                         </span>
                       ) : null}
                     </p>
+                    {reason ? (
+                      <p className="mt-1 text-xs text-neutral-500">Why: {reason}</p>
+                    ) : null}
+                    {block ? (
+                      <p className="mt-1 text-xs text-amber-300">
+                        Can&apos;t be approved right now — the record is {block}.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -285,7 +318,8 @@ export function PricingPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -378,22 +412,12 @@ export function PricingPage() {
                                 ({pct(s.pct)})
                               </span>{" "}
                               <span className="text-neutral-500">
-                                {s.action === "applied"
-                                  ? "auto-applied"
-                                  : "flagged for approval"}
-                                {s.reason === "stocked"
-                                  ? " · stocked release (30+ copies), 70% of suggestion"
-                                  : s.reason === "scarce"
-                                    ? " · scarce & wanted, full suggestion"
-                                    : s.reason === "decay"
-                                      ? " · unsold 30+ days, 5% time decay"
-                                      : s.reason === "ebay"
-                                        ? " · capped at eBay median for this pressing"
-                                        : s.reason === "lowest"
-                                          ? " · $6 over comparable cheapest listing"
-                                          : s.reason === "climb"
-                                            ? " · weekly climb toward cheapest listing + $6"
-                                            : ""}
+                                {s.published
+                                  ? "first price — now on the shop"
+                                  : s.action === "applied"
+                                    ? "auto-applied"
+                                    : "flagged for approval"}
+                                {s.reason ? ` · ${REASON_TEXT[s.reason]}` : ""}
                                 {s.lowest != null
                                   ? ` · lowest listing $${s.lowest}${
                                       s.lowest_plausible === false
