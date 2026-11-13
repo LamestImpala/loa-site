@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { CelestialArt } from "./celestial-art";
 import { HeroLogo } from "./logo-zoom";
 
 // The title page shared by Records, Posters and Equipment: the copy on an
@@ -14,17 +14,8 @@ export function ShopHero({ children }: { children: React.ReactNode }) {
           <HeroLogo />
           {children}
         </div>
-        {/* Decorative scene: a single engraving, never tiled. */}
-        <div className="shop-hero-art" aria-hidden>
-          <Image
-            src="/images/brand/celestial-1536.webp"
-            alt=""
-            fill
-            priority
-            sizes="(max-width: 760px) 100vw, 48vw"
-            className="shop-hero-art-img"
-          />
-        </div>
+        {/* Decorative scene: a single engraving, never tiled, drifting slowly. */}
+        <CelestialArt />
       </header>
     </div>
   );

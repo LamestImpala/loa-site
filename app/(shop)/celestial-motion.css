@@ -1,0 +1,120 @@
+/* Only the illustration moves. Keep brand marks and content outside this layer. */
+.cr-celestial {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #101e2b;
+  aspect-ratio: 3 / 2;
+  --cr-art-position: 70% 50%;
+  --cr-motion-half-cycle: 28s;
+}
+.cr-celestial__art,
+.cr-celestial__effects {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--cr-art-position);
+  transform-origin: 70% 56%;
+  transform: translate3d(-.35%, .15%, 0) scale(1.04);
+  animation: cr-celestial-drift var(--cr-motion-half-cycle) ease-in-out infinite alternate;
+  animation-play-state: paused;
+  pointer-events: none;
+  user-select: none;
+}
+.cr-celestial[data-motion="running"] .cr-celestial__art,
+.cr-celestial[data-motion="running"] .cr-celestial__effects {
+  animation-play-state: running;
+  will-change: transform;
+}
+.cr-celestial__effects { z-index: 1; }
+.cr-celestial__effects svg { position: absolute; overflow: visible; }
+.cr-celestial__twinkle {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cr-star-glimmer var(--glimmer-duration, 17s) ease-in-out infinite;
+  animation-delay: var(--glimmer-delay, 0s);
+  animation-play-state: paused;
+}
+.cr-celestial__meteor {
+  opacity: 0;
+  animation: cr-shooting-star 31s linear 6s infinite;
+  animation-play-state: paused;
+}
+.cr-celestial[data-motion="running"] .cr-celestial__twinkle,
+.cr-celestial[data-motion="running"] .cr-celestial__meteor { animation-play-state: running; }
+/* Brief, soft glints separated by long rests; the printed stars remain intact. */
+@keyframes cr-star-glimmer {
+  0%, 67%, 100% { opacity: 0; transform: scale(.85); }
+  75% { opacity: .68; transform: scale(1.13); }
+  85% { opacity: 0; transform: scale(.9); }
+}
+/* A 1.7-second gold trail, then almost half a minute of empty sky. The travel
+   is in artwork units and ends just short of the armillary's outer ring. */
+@keyframes cr-shooting-star {
+  0% { opacity: 0; transform: translate(0px, 0px); }
+  .8% { opacity: .7; }
+  4% { opacity: .55; }
+  5.5% { opacity: 0; transform: translate(66px, 118px); }
+  100% { opacity: 0; transform: translate(66px, 118px); }
+}
+@keyframes cr-celestial-drift {
+  from { transform: translate3d(-.35%, .15%, 0) scale(1.04); }
+  to { transform: translate3d(.35%, -.2%, 0) scale(1.065); }
+}
+.cr-celestial__toggle {
+  position: absolute;
+  z-index: 2;
+  right: 20px;
+  bottom: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #b48b48;
+  border-radius: 999px;
+  background: #152133;
+  color: #f6efdf;
+  font: 500 12px/1.2 system-ui, sans-serif;
+  cursor: pointer;
+}
+.cr-celestial__toggle[hidden] { display: none; }
+.cr-celestial__toggle::before {
+  content: "";
+  width: 8px;
+  height: 10px;
+  border-inline: 2px solid currentColor;
+  box-sizing: border-box;
+}
+.cr-celestial[data-motion-choice="paused"] .cr-celestial__toggle::before {
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+  border-right: 0;
+  border-left: 8px solid currentColor;
+}
+.cr-celestial__toggle:focus-visible {
+  outline: 3px solid #f6efdf;
+  outline-offset: 4px;
+}
+.cr-celestial__toggle:hover:not(:disabled) { background: #25364a; }
+.cr-celestial__toggle:disabled { cursor: default; }
+.cr-celestial__toggle:disabled::before { display: none; }
+@media (max-width: 600px) {
+  .cr-celestial { --cr-art-position: 76% 50%; }
+  .cr-celestial__toggle { right: 12px; bottom: 12px; }
+}
+/* CSS is the final authority even before JavaScript loads or if it fails. */
+@media (prefers-reduced-motion: reduce) {
+  .cr-celestial__art {
+    animation: none !important;
+    transform: none;
+    will-change: auto !important;
+  }
+  .cr-celestial__effects { display: none !important; }
+}

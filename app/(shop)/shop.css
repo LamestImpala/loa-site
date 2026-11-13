@@ -633,20 +633,45 @@ html:has(.shop) {
   opacity: 0.4;
   cursor: default;
 }
-.shop-hero-art {
+/* The engraving drifts slowly, with star glints and a shooting star
+   (celestial-art.tsx, celestial-motion.css, lib/celestial-motion.mjs).
+   Those files set the motion; the rules here only fit it to this layout.
+   The crop goes through --cr-art-position, as two percentages, because the
+   star overlay reads it to stay registered with the artwork. */
+.shop .shop-hero-art {
   position: relative;
   overflow: hidden;
   background: var(--color-ink);
+  /* The column takes the copy's height, not the engraving's own 3:2. */
+  aspect-ratio: auto;
+  /* Keep the armillary, the moon's face and the rabbit; lose quiet sky. */
+  --cr-art-position: 90% 40%;
 }
 .shop .shop-hero-art-img {
   object-fit: cover;
-  /* Keep the armillary, the moon's face and the rabbit; lose quiet sky. */
-  object-position: 90% 40%;
+}
+.shop .cr-celestial__toggle {
+  right: var(--space-4);
+  bottom: var(--space-4);
+  border-color: var(--color-accent-2);
+  background: var(--color-ink);
+  color: var(--color-ink-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.shop .cr-celestial__toggle:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+}
+.shop .cr-celestial__toggle:focus-visible {
+  outline-color: var(--color-ink-text);
 }
 /* Gold hairlines at the join, as on a mounted plate. */
 .shop-hero-art::after {
   content: "";
   position: absolute;
+  /* Above the star overlay, so a glint never crosses the join. */
+  z-index: 1;
   inset: 0 auto 0 0;
   width: 8px;
   border-left: 1px solid var(--color-accent-2);
@@ -1920,16 +1945,18 @@ html:has(.shop) {
     grid-template-columns: 1fr;
     min-height: 0;
   }
-  .shop-hero-art {
+  .shop .shop-hero-art {
     order: -1;
     aspect-ratio: 3 / 2;
     border-bottom: 1px solid var(--color-accent-2);
+    --cr-art-position: 50% 50%;
   }
   .shop-hero-art::after {
     display: none;
   }
-  .shop .shop-hero-art-img {
-    object-position: 50% 50%;
+  .shop .cr-celestial__toggle {
+    right: var(--space-3);
+    bottom: var(--space-3);
   }
   .shop-hero-copy > .shop-hero-logo + * {
     margin-bottom: var(--space-3);
