@@ -269,8 +269,9 @@ export function keyInjuries(players: Iterable<SleeperPlayer>): Map<string, Injur
 
 // ---------------------------------------------------------------------------
 // Pinnacle: the sharp book's line and the fair number it implies once the
-// vig is out. Fetched from The Odds API (bookmakers=pinnacle) by the house
-// and research jobs only, since every fetch costs 3 requests.
+// vig is out. It comes with every line sync (lib/pickem-engine.ts SYNC_BOOKS);
+// the house and research jobs fetch it themselves (bookmakers=pinnacle, 3
+// requests) only when the last one is more than 6 hours old.
 
 /** The slice of an Odds API event this reads. */
 export type OddsEventLike = {
