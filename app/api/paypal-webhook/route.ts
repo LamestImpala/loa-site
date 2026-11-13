@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { mirrorInvoice } from "@/lib/admin/invoices-db";
 import { settlePaidInvoice, type Settled } from "@/lib/admin/sales-db";
 import {
@@ -9,6 +10,8 @@ import {
   verifyWebhookSignature,
 } from "@/lib/paypal";
 import { serviceSupabase } from "@/lib/supabase-service";
+import { emailConfigured, sendEmail } from "@/lib/email";
+import { adminPaidNotificationEmail } from "@/lib/order-request";
 
 // PayPal calls this when one of our invoices changes, so a payment lands
 // as a sale without anyone opening the admin. Registered in the PayPal
@@ -24,6 +27,10 @@ import { serviceSupabase } from "@/lib/supabase-service";
 // created are touched. The fee and ship-to arrive later, via the
 // /api/paypal-costs cron. A refund still closes through Sync on the Send
 // page.
+//
+// The delivery that settles a payment also emails the admin — a paid
+// invoice is otherwise silent. The email goes out after the response and
+// never fails the webhook; a retry settles as "none", so it is sent once.
 export async function POST(req: NextRequest) {
   const webhookId = process.env.PAYPAL_WEBHOOK_ID;
   if (!webhookId || !paypalConfigured()) {
@@ -85,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     const payment = await getInvoicePayment(invoiceId);
-    const { paid } = await mirrorInvoice(supabase, invoiceId, payment);
+    const { paid, invoice } = await mirrorInvoice(supabase, invoiceId, payment);
     const settled: Settled = paid
       ? await settlePaidInvoice(supabase, invoiceId)
       : { kind: "none" };
@@ -94,6 +101,11 @@ export async function POST(req: NextRequest) {
       throw new Error(
         `sold ${settled.soldIds.length} records, then failed: ${settled.failure}`
       );
+    }
+    if (settled.kind === "sold" || settled.kind === "closed") {
+      const soldIds = settled.kind === "sold" ? settled.soldIds : [];
+      const total = invoice.total != null ? Number(invoice.total) : null;
+      after(() => notifyPaid(supabase, invoiceId, settled.orderId, soldIds, total));
     }
     console.log(
       `paypal-webhook: ${type} ${invoiceId} → ${payment.status}, ${settled.kind}${
@@ -107,5 +119,50 @@ export async function POST(req: NextRequest) {
       e instanceof Error ? e.message : e
     );
     return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+  }
+}
+
+// Tell the admin an invoice was paid. Best-effort: anything that goes
+// wrong is logged and dropped, since the sale itself is already saved.
+async function notifyPaid(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  orderId: number,
+  soldIds: number[],
+  total: number | null
+) {
+  try {
+    if (!emailConfigured()) return;
+    const [{ data: order }, { data: recs }] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("buyer_username, buyer_email")
+        .eq("id", orderId)
+        .maybeSingle(),
+      soldIds.length
+        ? supabase
+            .from("records")
+            .select("artist, title, sold_price")
+            .in("id", soldIds)
+            .order("artist")
+            .order("title")
+        : Promise.resolve({ data: [] }),
+    ]);
+    const sent = await sendEmail(
+      adminPaidNotificationEmail({
+        buyer: (order?.buyer_username as string | undefined) || "A buyer",
+        buyerEmail: (order?.buyer_email as string | null | undefined) ?? null,
+        invoiceId,
+        total: total != null && Number.isFinite(total) ? total : null,
+        items: (recs ?? []).map((r) => ({
+          artist: r.artist as string,
+          title: r.title as string,
+          price: r.sold_price != null ? Number(r.sold_price) : null,
+        })),
+      })
+    );
+    if (!sent.ok) console.error("paypal-webhook: paid email failed:", sent.error);
+  } catch (e) {
+    console.error("paypal-webhook: paid email failed:", e instanceof Error ? e.message : e);
   }
 }

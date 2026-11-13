@@ -243,7 +243,8 @@ export function CatalogPage() {
   async function removePhoto(r: DbRecord, url: string) {
     if (
       !(await confirm(
-        `Delete this photo of "${r.artist} — ${r.title}" permanently? It can't be undone.`
+        `Delete this photo of "${r.artist} — ${r.title}" permanently? It can't be undone.`,
+        "Delete photo"
       ))
     )
       return;
@@ -280,7 +281,8 @@ export function CatalogPage() {
     }
     if (
       !(await confirm(
-        `Delete "${r.artist} — ${r.title}" permanently? Its photos and price history go with it. Meant for records that were never actually sold — this can't be undone.`
+        `Delete "${r.artist} — ${r.title}" permanently? Its photos and price history go with it. Meant for records that were never actually sold — this can't be undone.`,
+        "Delete permanently"
       ))
     )
       return;
@@ -383,7 +385,8 @@ export function CatalogPage() {
     if (targets.length === 0) return;
     if (
       !(await confirm(
-        `Remove ${targets.length} shipped record${targets.length === 1 ? "" : "s"} from your Discogs collection? This can't be undone. This paces itself for Discogs' rate limit, so it takes about 2 seconds per record.`
+        `Remove ${targets.length} shipped record${targets.length === 1 ? "" : "s"} from your Discogs collection? This can't be undone. This paces itself for Discogs' rate limit, so it takes about 2 seconds per record.`,
+        "Remove from Discogs"
       ))
     )
       return;
@@ -471,7 +474,8 @@ export function CatalogPage() {
   async function releaseHold(r: DbRecord) {
     if (
       !(await confirm(
-        `Release the hold on "${r.artist} — ${r.title}" for ${buyerLabel(r.hold_buyer)}? It goes back on the shop immediately.`
+        `Release the hold on "${r.artist} — ${r.title}" for ${buyerLabel(r.hold_buyer)}? It goes back on the shop immediately.`,
+        "Release hold"
       ))
     )
       return;
@@ -486,7 +490,8 @@ export function CatalogPage() {
         !(await confirm(
           `Un-sell ${name}? It goes back on the shop, and its sale is cleared: buyer, sold price and date, invoice link, and its place in any parcel.${
             r.discogs_removed ? " It already came out of your Discogs collection — re-add it there." : ""
-          }`
+          }`,
+          "Un-sell"
         ))
       )
         return;
@@ -505,7 +510,8 @@ export function CatalogPage() {
     const buyer = (r.hold_buyer ?? "").trim();
     if (
       !(await confirm(
-        `Mark ${name} sold${buyer ? ` to ${buyerLabel(buyer)}` : " with no buyer"} for $${r.negotiated_price ?? r.price}? For a different buyer or price, use "Sell on the desk" instead.`
+        `Mark ${name} sold${buyer ? ` to ${buyerLabel(buyer)}` : " with no buyer"} for $${r.negotiated_price ?? r.price}? For a different buyer or price, use "Sell on the desk" instead.`,
+        "Mark sold"
       ))
     )
       return;
@@ -798,7 +804,8 @@ export function CatalogPage() {
     const plural = ids.length === 1 ? "" : "s";
     if (
       !(await confirm(
-        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`
+        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`,
+        value ? "Turn on" : "Turn off"
       ))
     )
       return;
@@ -1567,7 +1574,8 @@ export function CatalogPage() {
                                   onClick={async () => {
                                     if (
                                       (await confirm(
-                                        `Remove "${r.artist} — ${r.title}" from your Discogs collection? This can't be undone from here.`
+                                        `Remove "${r.artist} — ${r.title}" from your Discogs collection? This can't be undone from here.`,
+                                        "Remove from Discogs"
                                       ))
                                     )
                                       removeFromDiscogs(r);

@@ -350,7 +350,8 @@ export function InboxPage() {
       !(await confirm(
         `Mark ${targets.length} record${targets.length > 1 ? "s" : ""} sold${buyer ? ` to ${buyerLabel(buyer, deskEmail)}` : ""} for $${saleTotals.subtotal}${
           saleTotals.credit > 0 ? ` less a $${saleTotals.credit} credit` : ""
-        }? Each record's sold price is set to its agreed price.`
+        }? Each record's sold price is set to its agreed price.`,
+        "Mark sold"
       ))
     )
       return;
@@ -490,7 +491,8 @@ export function InboxPage() {
     if (selectedIds.size > 0 && differs) {
       if (
         !(await confirm(
-          `Replace the current sale desk selection (${selectedIds.size} record${selectedIds.size === 1 ? "" : "s"})?`
+          `Replace the current sale desk selection (${selectedIds.size} record${selectedIds.size === 1 ? "" : "s"})?`,
+          "Replace selection"
         ))
       )
         return false;
@@ -574,7 +576,8 @@ export function InboxPage() {
       !(await confirm(
         `Mark ${o.recs.length} record${o.recs.length > 1 ? "s" : ""} sold to ${buyerLabel(o.buyer, o.order.buyer_email, "?")} for $${o.totals.subtotal}${
           o.totals.credit > 0 ? ` less a $${o.totals.credit} credit` : ""
-        }? Each record's sold price is set to its agreed price.`
+        }? Each record's sold price is set to its agreed price.`,
+        "Mark paid"
       ))
     )
       return;
@@ -591,7 +594,8 @@ export function InboxPage() {
     if (orderBusy) return;
     if (
       !(await confirm(
-        `Release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} held for ${buyerLabel(o.buyer, o.order.buyer_email, "?")}? They go back on the shop immediately.`
+        `Release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"} held for ${buyerLabel(o.buyer, o.order.buyer_email, "?")}? They go back on the shop immediately.`,
+        "Release hold"
       ))
     )
       return;
@@ -779,7 +783,8 @@ export function InboxPage() {
     if (!id || orderBusy) return;
     if (
       !(await confirm(
-        `Cancel invoice ${id}${o.buyer ? ` for ${buyerLabel(o.buyer, o.order.buyer_email)}` : ""} on PayPal and release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`
+        `Cancel invoice ${id}${o.buyer ? ` for ${buyerLabel(o.buyer, o.order.buyer_email)}` : ""} on PayPal and release ${o.recs.length} record${o.recs.length === 1 ? "" : "s"}? The buyer's payment link stops working.`,
+        "Cancel invoice"
       ))
     )
       return;

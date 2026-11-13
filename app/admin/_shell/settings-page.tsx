@@ -80,7 +80,7 @@ export function SettingsPage() {
       : !isIsoDay(from) || !isIsoDay(until)
         ? "Pick both the first and last day away."
         : from > until
-          ? "“Back on” can’t be before “Away from”."
+          ? "“Last day away” can’t be before “Away from”."
           : effectiveShipsOn <= until
             ? "Orders have to ship after you’re back."
             : "";
@@ -178,7 +178,7 @@ export function SettingsPage() {
               />
             </label>
             <label className={labelClass}>
-              Back on (last day away)
+              Last day away
               <input
                 type="date"
                 value={until}

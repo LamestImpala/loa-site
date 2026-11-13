@@ -27,6 +27,13 @@ export function NextUp() {
       urgent: true,
     },
     {
+      key: "messages",
+      n: w.newMessages,
+      href: "#messages",
+      text: plural(w.newMessages, "new message", "new messages"),
+      urgent: true,
+    },
+    {
       key: "expired",
       n: w.expiredHolds,
       href: "#open-orders",
@@ -67,6 +74,12 @@ export function NextUp() {
       text: `${plural(w.toSend, "box", "boxes")} to drop off →`,
     },
     {
+      key: "push",
+      n: w.toPush,
+      href: "/admin/ship#fulfillment",
+      text: `${plural(w.toPush, "order has", "orders have")} tracking to push to PayPal →`,
+    },
+    {
       key: "sync",
       n: w.toSync,
       href: "/admin/ship#fulfillment",
@@ -77,6 +90,12 @@ export function NextUp() {
       n: w.toUnlist,
       href: "/admin/catalog",
       text: `${w.toUnlist} labeled to remove from Discogs →`,
+    },
+    {
+      key: "prices",
+      n: w.priceApprovals,
+      href: "/admin/pricing",
+      text: `${plural(w.priceApprovals, "price change", "price changes")} to approve →`,
     },
   ].filter((c) => c.n > 0);
 

@@ -65,7 +65,8 @@ export function ShipPage() {
       !(await confirm(
         `Mark ${n} labeled box${n === 1 ? "" : "es"} as dropped off?\n\n${going
           .map((s) => `• Box #${s.id} — ${buyerLabel(s.buyer_username, orderEmail(s), "?")}`)
-          .join("\n")}\n\nThey come off the order sheet.`
+          .join("\n")}\n\nThey come off the order sheet.`,
+        "Mark dropped off"
       ))
     )
       return;

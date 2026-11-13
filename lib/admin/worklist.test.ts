@@ -44,6 +44,7 @@ test("nothing to do is all zeros", () => {
     toPush: 0,
     toSync: 0,
     toUnlist: 0,
+    priceApprovals: 0,
   });
   assert.equal(inboxCount(w), 0);
   assert.equal(sendCount(w), 0);
@@ -251,4 +252,11 @@ test("pending reviews count toward the Inbox badge; published and hidden don't",
   const w = worklist({ ...empty, reviews }, NOW);
   assert.equal(w.pendingReviews, 1);
   assert.equal(inboxCount(w), 1);
+});
+
+test("pending price changes are counted, and stay off the inbox and send badges", () => {
+  const w = worklist({ ...empty, pendingPrices: [{}, {}, {}] }, NOW);
+  assert.equal(w.priceApprovals, 3);
+  assert.equal(inboxCount(w), 0);
+  assert.equal(sendCount(w), 0);
 });

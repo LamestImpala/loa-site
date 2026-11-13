@@ -41,6 +41,15 @@ export function proxy(request: NextRequest) {
       return NextResponse.redirect(url, 308);
     }
 
+    // The admin lives on the LOA host only. Older notification emails
+    // linked to it here; forward them (the browser keeps the #hash).
+    if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+      return NextResponse.redirect(
+        new URL(pathname + request.nextUrl.search, `https://www.${LOA_HOST}`),
+        307
+      );
+    }
+
     // Serve the (shop) subtree; anything outside it belongs to LOA.
     const url = request.nextUrl.clone();
     url.pathname = pathname === "/" ? "/records" : `/records${pathname}`;

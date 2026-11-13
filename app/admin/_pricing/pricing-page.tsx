@@ -75,7 +75,8 @@ export function PricingPage() {
     const ok = (await confirm(
       `${approve ? "Approve" : "Reject"} ${list.length} pending price change${
         list.length > 1 ? "s" : ""
-      }?${approve ? " This updates the listed prices immediately." : ""}`
+      }?${approve ? " This updates the listed prices immediately." : ""}`,
+      approve ? "Approve all" : "Reject all"
     ));
     if (!ok) return;
     setBulkPendingBusy(true);

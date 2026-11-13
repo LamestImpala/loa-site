@@ -249,7 +249,7 @@ export function FulfillmentPanel({
 
   async function deleteParcel(s: Shipment) {
     if (busy) return;
-    if (!(await confirm("Delete this parcel? Its tracking number is discarded.")))
+    if (!(await confirm("Delete this parcel? Its tracking number is discarded.", "Delete parcel")))
       return;
     setBusy(`ship-${s.id}`);
     const { error } = await supabase.from("shipments").delete().eq("id", s.id);
@@ -662,7 +662,8 @@ export function FulfillmentPanel({
     if (ids.length === 0 || busy) return;
     if (
       !(await confirm(
-        `Push ${ids.length} tracking number${ids.length === 1 ? "" : "s"} to PayPal? PayPal emails the buyer a shipping notification.`
+        `Push ${ids.length} tracking number${ids.length === 1 ? "" : "s"} to PayPal? PayPal emails the buyer a shipping notification.`,
+        "Push to PayPal"
       ))
     )
       return;

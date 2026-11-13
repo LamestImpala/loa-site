@@ -132,7 +132,7 @@ test("admin review notification: stars, text, escaped html, link to the admin", 
   assert.equal(m.to, "brandoncgillihan@gmail.com");
   assert.equal(m.subject, "New 4-star review from Sam");
   assert.match(m.text, /★★★★☆/);
-  assert.match(m.text, /admin#reviews/);
+  assert.match(m.text, /https:\/\/www\.lateonsetaudiophile\.com\/admin#reviews/);
   assert.ok(m.html.includes("Great &lt;b&gt;shop&lt;/b&gt;"));
 });
 

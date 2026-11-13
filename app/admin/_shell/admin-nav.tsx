@@ -67,7 +67,13 @@ const GROUPS: { label: string; pages: Page[] }[] = [
     label: "Stock",
     pages: [
       { segment: "catalog", href: "/admin/catalog", label: "Catalog" },
-      { segment: "pricing", href: "/admin/pricing", label: "Pricing" },
+      {
+        segment: "pricing",
+        href: "/admin/pricing",
+        label: "Pricing",
+        count: (w) => w.priceApprovals,
+        countLabel: "price changes to approve",
+      },
       { segment: "reddit", href: "/admin/reddit", label: "Reddit" },
     ],
   },
