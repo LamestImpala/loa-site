@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { CatalogPage } from "../_catalog/catalog-page";
 
 export const metadata: Metadata = {
-  title: "Catalog — Late Onset Audiophile",
+  title: "Catalog — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

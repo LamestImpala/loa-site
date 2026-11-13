@@ -11,6 +11,7 @@ import { discogsReady, groupOrders, orderPhase, pushable } from "./fulfillment.t
 import { openOrders } from "./orders.ts";
 import { awaitingDropOff, openParcels, packList } from "./pack-list.ts";
 import { pickList } from "./pick-list.ts";
+import { awaitsPriceRun, isDraft } from "./records.ts";
 
 // What's waiting on the seller right now, one count per job, from the
 // tables every admin page already has. Drives the nav badges and the
@@ -36,6 +37,7 @@ export type Worklist = {
   toFinish: number; // orders whose boxes have left, not marked done yet
   toUnlist: number; // shipped records still in the owner's Discogs collection
   priceApprovals: number; // price changes from the daily run waiting on approve or reject
+  draftsToPublish: number; // drafts the price run won't publish on its own
 };
 
 export function worklist(
@@ -95,6 +97,7 @@ export function worklist(
     toFinish: groups.filter((g) => orderPhase(g, now) === "after").length,
     toUnlist: discogsReady(records, shipments, orders).length,
     priceApprovals: pendingPrices.length,
+    draftsToPublish: records.filter((r) => isDraft(r) && !awaitsPriceRun(r, now)).length,
   };
 }
 
@@ -115,10 +118,16 @@ export function shipCount(w: Worklist) {
   return w.toPull + w.toPack + w.needLabels + w.toSend + ordersCount(w);
 }
 
-// What the Stock badge counts: the Catalog's Discogs removals plus the
-// price changes waiting on Pricing.
+// What the Catalog tab counts: drafts waiting on the seller to price or
+// publish, plus shipped records to take out of the Discogs collection.
+export function catalogCount(w: Worklist) {
+  return w.draftsToPublish + w.toUnlist;
+}
+
+// What the Stock badge counts: the Catalog's jobs plus the price changes
+// waiting on Pricing.
 export function stockCount(w: Worklist) {
-  return w.toUnlist + w.priceApprovals;
+  return catalogCount(w) + w.priceApprovals;
 }
 
 // The Ship pages as the steps a paid order walks through — Pick → Pack →

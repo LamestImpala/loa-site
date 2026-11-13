@@ -69,6 +69,7 @@ test("rows link to the exact spot the job is cleared", () => {
     toFinish: 1,
     pendingReviews: 1,
     priceApprovals: 1,
+    draftsToPublish: 1,
   }).flatMap((g) => g.rows);
   const href = (key: string) => rows.find((r) => r.key === key)?.href;
   assert.equal(href("requests"), "/admin/sell#requests");
@@ -79,6 +80,7 @@ test("rows link to the exact spot the job is cleared", () => {
   assert.equal(href("finish"), "/admin/ship/orders#after-sale");
   assert.equal(href("reviews"), "/admin/reviews");
   assert.equal(href("prices"), "/admin/pricing");
+  assert.equal(href("drafts"), "/admin/catalog?status=draft");
 });
 
 test("old Inbox anchors forward to where the section moved", () => {

@@ -1,7 +1,7 @@
 import type { DbRecord, ItemKind, RecordInterest } from "../supabase.ts";
 import { KINDS, kindOf } from "../items.ts";
 import { artistLetter } from "../records.ts";
-import { holdActive } from "./records.ts";
+import { holdActive, isDraft, needsPhotos } from "./records.ts";
 import type { MarketMap } from "./market.ts";
 
 // The catalog table's filter and sort, kept pure so the rules are testable.
@@ -11,6 +11,16 @@ export type SortKey = "artist" | "price-desc" | "price-asc" | "interest" | "adde
 // grade suggestion — the audit list for deciding what to hand back to the
 // daily run (uncheck "manual").
 export type InterestFilter = "all" | "clicked-no-request" | "manual-off-market";
+// One-click views of what needs attention: drafts not on the shop yet,
+// records held for a buyer, pricier listings with only a stock cover, and
+// anything unsold still at $0.
+export type StatusFilter = "all" | "draft" | "held" | "needs-photos" | "unpriced";
+export const STATUS_FILTERS: { key: Exclude<StatusFilter, "all">; label: string }[] = [
+  { key: "draft", label: "Draft" },
+  { key: "held", label: "Held" },
+  { key: "needs-photos", label: "Needs photos" },
+  { key: "unpriced", label: "$0" },
+];
 export const OFF_MARKET_HIGH = 1.3;
 export const OFF_MARKET_LOW = 0.6;
 
@@ -23,6 +33,7 @@ export type CatalogFilters = {
   shown: "all" | "shown" | "hidden";
   sold: "all" | "sold" | "unsold";
   interest: InterestFilter;
+  status: StatusFilter;
 };
 
 export const DEFAULT_FILTERS: CatalogFilters = {
@@ -34,7 +45,27 @@ export const DEFAULT_FILTERS: CatalogFilters = {
   shown: "all",
   sold: "all",
   interest: "all",
+  status: "all",
 };
+
+export function matchesStatus(
+  r: DbRecord,
+  status: StatusFilter,
+  now: number = Date.now()
+): boolean {
+  switch (status) {
+    case "draft":
+      return isDraft(r);
+    case "held":
+      return !r.sold && holdActive(r, now);
+    case "needs-photos":
+      return needsPhotos(r);
+    case "unpriced":
+      return !r.sold && Number(r.price) === 0;
+    default:
+      return true;
+  }
+}
 
 export function filterRecords(
   records: DbRecord[],
@@ -58,6 +89,7 @@ export function filterRecords(
     if (f.shown === "hidden" && r.listed) return false;
     if (f.sold === "sold" && !r.sold) return false;
     if (f.sold === "unsold" && r.sold) return false;
+    if (!matchesStatus(r, f.status, now)) return false;
     if (f.interest === "clicked-no-request") {
       const i = ctx.interest[r.id];
       if (
@@ -124,7 +156,8 @@ const INTEREST_KEYS: InterestFilter[] = ["all", "clicked-no-request", "manual-of
 const SHOWN_KEYS: CatalogFilters["shown"][] = ["all", "shown", "hidden"];
 const SOLD_KEYS: CatalogFilters["sold"][] = ["all", "sold", "unsold"];
 const KIND_KEYS: CatalogFilters["kind"][] = ["all", ...KINDS];
-export const FILTER_PARAMS = ["q", "kind", "genre", "collection", "letter", "shown", "sold", "interest", "sort"];
+const STATUS_KEYS: StatusFilter[] = ["all", ...STATUS_FILTERS.map((s) => s.key)];
+export const FILTER_PARAMS = ["q", "kind", "genre", "collection", "letter", "shown", "sold", "interest", "status", "sort"];
 
 const oneOf = <T extends string>(keys: T[], raw: string | null, fallback: T): T =>
   keys.includes(raw as T) ? (raw as T) : fallback;
@@ -142,6 +175,7 @@ export function filtersFromQuery(
       shown: oneOf(SHOWN_KEYS, params.get("shown"), "all"),
       sold: oneOf(SOLD_KEYS, params.get("sold"), "all"),
       interest: oneOf(INTEREST_KEYS, params.get("interest"), "all"),
+      status: oneOf(STATUS_KEYS, params.get("status"), "all"),
     },
     sort: oneOf(SORT_KEYS, params.get("sort"), "artist"),
   };
@@ -157,6 +191,13 @@ export function filtersToQuery(filters: CatalogFilters, sort: SortKey): URLSearc
   if (filters.shown !== "all") out.set("shown", filters.shown);
   if (filters.sold !== "all") out.set("sold", filters.sold);
   if (filters.interest !== "all") out.set("interest", filters.interest);
+  if (filters.status !== "all") out.set("status", filters.status);
   if (sort !== "artist") out.set("sort", sort);
   return out;
+}
+
+// Whether anything is narrowing the list (the sort doesn't count) — when
+// to offer "Clear filters".
+export function filtersActive(filters: CatalogFilters): boolean {
+  return filtersToQuery(filters, "artist").toString() !== "";
 }

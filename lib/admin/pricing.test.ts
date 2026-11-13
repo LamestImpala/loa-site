@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PendingPriceChange, PriceRun } from "../supabase.ts";
-import { approvalBlock, forSaleById, isActionable } from "./pricing.ts";
+import { REASON_TEXT, approvalBlock, changeReason, forSaleById, isActionable } from "./pricing.ts";
 import { rec } from "./fixtures.ts";
 import { INVOICE_HOLD_UNTIL } from "./records.ts";
 
@@ -74,4 +74,24 @@ test("a flagged change waits while its record is sold, held, invoiced or reprice
     "a lapsed hold no longer blocks"
   );
   assert.equal(approvalBlock(p, rec({ price: 25 }), NOW), "price is now $25");
+});
+
+test("a pending change says why the run suggested it", () => {
+  const line = (over: Partial<PriceRun["summary"][number]>) => ({
+    record_id: 1, artist: "", title: "", old_price: 40, new_price: 36, pct: -0.1, action: "flagged" as const, ...over,
+  });
+  const runs: PriceRun[] = [
+    { ...run(13, []), summary: [line({ reason: "decay", new_price: 38 }), line({ record_id: 2, action: "above-lowest", new_price: 31, lowest: 25 })] },
+    { ...run(12, []), summary: [line({ reason: "lowest", new_price: 36 }), line({ record_id: 3, action: "applied", reason: "climb", new_price: 36 })] },
+  ];
+  const p = (over: Partial<PendingPriceChange>) => ({ record_id: 1, suggested_price: 36, ...over });
+  assert.equal(changeReason(p({ run_id: 12 }), runs), REASON_TEXT.lowest, "the run that flagged it");
+  assert.equal(changeReason(p({ run_id: 13, suggested_price: 38 }), runs), REASON_TEXT.decay);
+  assert.equal(changeReason(p({ run_id: 5 }), runs), REASON_TEXT.lowest, "its run isn't loaded: the newest run suggesting this price");
+  assert.equal(
+    changeReason(p({ record_id: 2, suggested_price: 31 }), runs),
+    "priced above a comparable cheapest Discogs listing ($25) — the suggestion is $6 over it"
+  );
+  assert.equal(changeReason(p({ record_id: 3 }), runs), null, "an applied move was never pending");
+  assert.equal(changeReason(p({ suggested_price: 20 }), runs), null, "no run suggested this price");
 });

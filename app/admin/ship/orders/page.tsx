@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { OrdersPage } from "../../_ship/orders-page";
 
 export const metadata: Metadata = {
-  title: "Orders — Late Onset Audiophile",
+  title: "Orders — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

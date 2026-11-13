@@ -5,7 +5,7 @@ import { AdminProvider } from "./_shell/admin-provider";
 import { AdminShell } from "./_shell/admin-shell";
 
 export const metadata: Metadata = {
-  title: "Admin — Late Onset Audiophile",
+  title: "Admin — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

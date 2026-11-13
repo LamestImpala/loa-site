@@ -1,7 +1,7 @@
 // node --test scripts/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyMode, planPrice, releaseDetails } from "./price-run.mjs";
+import { applyMode, firstPricePatch, planPrice, releaseDetails } from "./price-run.mjs";
 import { releaseDetailsFromDiscogs } from "../lib/record-info.ts";
 
 // Stone Temple Pilots — Live In New Haven, 1994 (release 33673521), the
@@ -167,4 +167,15 @@ test("a record above lowest + 6 gets a cut proposal, never an applied cut", () =
   const p = planPrice({ price: 50, suggestion: 40, lowest: 30, forSale: 12 });
   assert.equal(p.target, 36);
   assert.equal(applyMode(50, p.target, p.reason), "queue");
+});
+
+test("a $0 draft's first price also puts it on the shop", () => {
+  assert.equal(applyMode(0, 34), "auto", "an unpriced record is priced without approval");
+  assert.deepEqual(firstPricePatch({ draft: true, price: 0 }, 34), { price: 34, listed: true, draft: false });
+  // already on the shop at $0 (added before drafts existed): just the price
+  assert.deepEqual(firstPricePatch({ draft: false, price: 0 }, 34), { price: 34 });
+  // the run fell back to the pre-migration query: no draft column on the row
+  assert.deepEqual(firstPricePatch({ price: 0 }, 34), { price: 34 });
+  // a priced record's small raise never publishes anything
+  assert.deepEqual(firstPricePatch({ draft: false, price: 33 }, 34), { price: 34 });
 });

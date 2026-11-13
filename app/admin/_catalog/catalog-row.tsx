@@ -3,7 +3,15 @@
 import { memo } from "react";
 import { KIND_LABELS, isRecord, itemSpecShort, itemSubtitle, kindOf } from "@/lib/items";
 import type { DbRecord, RecordInterest } from "@/lib/supabase";
-import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
+import {
+  PHOTO_NUDGE_PRICE,
+  awaitsPriceRun,
+  holdActive,
+  holdUntilText,
+  invoiceHold,
+  isDraft,
+  needsPhotos,
+} from "@/lib/admin/records";
 import { buyerLabel } from "@/lib/admin/buyers";
 import type { MarketStats } from "@/lib/admin/market";
 import { buttonClass, inputClass, pct } from "../_shell/ui";
@@ -26,14 +34,6 @@ type Props = {
   onSavePrice: (r: DbRecord, raw: string | undefined) => void;
   onToggleListed: (r: DbRecord, listed: boolean) => void;
 };
-
-// Records at or above this price on the shop without photos of the actual
-// copy get an "Add photos" nudge in the catalog.
-export const PHOTO_NUDGE_PRICE = 40;
-
-export function needsPhotos(r: Pick<DbRecord, "price" | "photo_urls" | "sold" | "listed">) {
-  return r.listed && !r.sold && r.price >= PHOTO_NUDGE_PRICE && !(r.photo_urls ?? []).length;
-}
 
 export const CatalogRow = memo(function CatalogRow({
   r,
@@ -62,6 +62,7 @@ export const CatalogRow = memo(function CatalogRow({
           type="checkbox"
           checked={selected}
           onChange={() => onToggleSelected(r.id)}
+          aria-label={`Select ${r.artist} — ${r.title}`}
           className="admin-checkbox"
         />
       </td>
@@ -165,6 +166,8 @@ export const CatalogRow = memo(function CatalogRow({
           checked={r.listed}
           disabled={saving}
           onChange={(e) => onToggleListed(r, e.target.checked)}
+          aria-label={`Shown on the shop: ${r.artist} — ${r.title}`}
+          title={isDraft(r) ? "Tick to publish this draft to the shop" : undefined}
           className="admin-checkbox"
         />
       </td>
@@ -182,6 +185,17 @@ export const CatalogRow = memo(function CatalogRow({
           </span>
         ) : r.listed ? (
           <span className="text-neutral-500">on shop</span>
+        ) : isDraft(r) ? (
+          <span
+            className="rounded-full border border-sky-400/40 px-2 py-0.5 text-sky-300"
+            title={
+              awaitsPriceRun(r)
+                ? "Not on the shop yet — the next price run sets its price and publishes it"
+                : "Not on the shop yet — open it to set a price and publish"
+            }
+          >
+            {awaitsPriceRun(r) ? "Draft · pricing at 6 AM" : "Draft"}
+          </span>
         ) : (
           <span className="text-neutral-600">hidden</span>
         )}

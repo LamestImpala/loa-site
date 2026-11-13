@@ -10,6 +10,13 @@ export const inputClass =
   "rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-white/30 focus:outline-none";
 export const buttonClass =
   "rounded-lg border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white";
+// The one main action on a page or in a drawer.
+export const primaryButtonClass =
+  "rounded-lg border border-white bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40 disabled:hover:bg-white";
+// A panel that slides over the right edge of the page (the Catalog's item
+// details and its add form).
+export const drawerClass =
+  "fixed inset-y-0 right-0 z-40 flex w-[460px] max-w-full flex-col overflow-y-auto border-l border-white/15 bg-neutral-950 p-5 shadow-2xl";
 export const smallButtonClass =
   "rounded-md border border-white/15 px-2 py-1 text-xs text-neutral-300 transition hover:bg-white hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-300";
 

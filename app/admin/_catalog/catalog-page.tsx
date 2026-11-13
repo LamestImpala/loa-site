@@ -5,71 +5,62 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LETTERS, artistLetter, bundleBreakdown } from "@/lib/records";
 import type { DbRecord } from "@/lib/supabase";
-import { releaseDetailsFromDiscogs, type ReleaseDetails } from "@/lib/record-info";
 import { HOLD_HOURS, holdExpiry } from "@/lib/admin/orders";
 import { buyerLabel } from "@/lib/admin/buyers";
-import { holdActive, holdUntilText, invoiceHold } from "@/lib/admin/records";
+import {
+  PUBLISH_PATCH,
+  awaitsPriceRun,
+  holdActive,
+  holdUntilText,
+  invoiceHold,
+  isDraft,
+  publishBlock,
+} from "@/lib/admin/records";
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { bucketEventsByDay } from "@/lib/admin/interest";
-import { detectCollection } from "@/lib/admin/collection";
 import {
+  DEFAULT_FILTERS,
   FILTER_PARAMS,
+  STATUS_FILTERS,
   filterRecords,
+  filtersActive,
   filtersFromQuery,
   filtersToQuery,
+  matchesStatus,
   sortRecords,
   type CatalogFilters,
   type InterestFilter,
   type SortKey,
+  type StatusFilter,
 } from "@/lib/admin/catalog-filter";
 import { discogsStatusText, useAdmin, useSlice } from "../_shell/admin-provider";
+import { NoteField } from "../_shell/inline-fields";
+import { PageHeader } from "../_shell/primitives";
+import { AddItemDrawer, GRADES } from "./add-item";
 import { CatalogRow } from "./catalog-row";
-import { ConditionSelect, DetailsEditor, DetailsInputs } from "./item-fields";
+import { DetailsEditor } from "./item-fields";
+import { uploadRecordPhotos } from "./photos";
 import { KINDS, KIND_LABELS, isRecord, itemSubtitle, kindOf } from "@/lib/items";
-import type { ItemDetails, ItemKind } from "@/lib/supabase";
-import { blurOnEnter, buttonClass, inputClass, pct } from "../_shell/ui";
+import {
+  blurOnEnter,
+  buttonClass,
+  drawerClass,
+  inputClass,
+  pct,
+  primaryButtonClass,
+} from "../_shell/ui";
 
-const GRADES = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P"];
+// What the three name fields are called for each kind of item: a poster's
+// band and print name, a piece of gear's brand and model.
+const NAME_LABELS = {
+  record: { artist: "Artist", title: "Title" },
+  poster: { artist: "Band", title: "Poster title" },
+  gear: { artist: "Brand", title: "Model" },
+} as const;
 
-type NewRecordDraft = {
-  discogs_release_id: number;
-  artist: string;
-  title: string;
-  pressing: string;
-  media: string;
-  sleeve: string;
-  price: string;
-  cover_image: string;
-  genres: string; // comma-separated in the form; stored as text[]
-  collection: string;
-  details: ReleaseDetails; // tracklist, country, barcode, styles for the record page
-};
-
-// A poster or a piece of equipment typed in by hand — nothing on Discogs
-// to fetch. Brand goes in artist and model in title for gear.
-type NewItemDraft = {
-  kind: Exclude<ItemKind, "record">;
-  artist: string;
-  title: string;
-  price: string;
-  condition: string;
-  notes: string;
-  details: ItemDetails;
-};
-
-const emptyItemDraft = (kind: NewItemDraft["kind"]): NewItemDraft => ({
-  kind,
-  artist: kind === "poster" ? "Pearl Jam" : "",
-  title: "",
-  price: "0",
-  condition: "",
-  notes: "",
-  details: {},
-});
-
-
-// The catalog: every record, with filters, the listings table, per-record
-// editing, holds, sold state, Discogs removal, and adding a record.
+// The catalog: every item, with filters, the listings table, per-item
+// editing, drafts and publishing, holds, sold state, Discogs removal, and
+// adding an item.
 // Where this session last left the catalog's view, as a query string —
 // the nav link is a bare /admin/catalog, so this is what brings the
 // filters back after a trip to another admin page.
@@ -163,23 +154,34 @@ export function CatalogPage() {
   const [soldFilter, setSoldFilter] = useState<"all" | "sold" | "unsold">(
     initialView.filters.sold
   );
-  const viewQuery = useMemo(
-    () =>
-      filtersToQuery(
-        {
-          search,
-          kind: kindFilter,
-          genre: genreFilter,
-          collection: collectionFilter,
-          letter: letterFilter,
-          shown: shownFilter,
-          sold: soldFilter,
-          interest: interestFilter,
-        },
-        sortBy
-      ).toString(),
-    [search, kindFilter, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, sortBy]
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialView.filters.status);
+  const filters = useMemo<CatalogFilters>(
+    () => ({
+      search,
+      kind: kindFilter,
+      genre: genreFilter,
+      collection: collectionFilter,
+      letter: letterFilter,
+      shown: shownFilter,
+      sold: soldFilter,
+      interest: interestFilter,
+      status: statusFilter,
+    }),
+    [search, kindFilter, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, statusFilter]
   );
+  const viewQuery = useMemo(() => filtersToQuery(filters, sortBy).toString(), [filters, sortBy]);
+  // Back to the whole list; the sort stays.
+  function clearFilters() {
+    setSearch(DEFAULT_FILTERS.search);
+    setKindFilter(DEFAULT_FILTERS.kind);
+    setGenreFilter(DEFAULT_FILTERS.genre);
+    setCollectionFilter(DEFAULT_FILTERS.collection);
+    setLetterFilter(DEFAULT_FILTERS.letter);
+    setShownFilter(DEFAULT_FILTERS.shown);
+    setSoldFilter(DEFAULT_FILTERS.sold);
+    setInterestFilter(DEFAULT_FILTERS.interest);
+    setStatusFilter(DEFAULT_FILTERS.status);
+  }
   // history.replaceState keeps useSearchParams in sync without a
   // navigation, so typing in the search box never re-routes.
   useEffect(() => {
@@ -216,14 +218,44 @@ export function CatalogPage() {
     },
     []
   );
+  // The "Add item" drawer shares the right edge with the details drawer, so
+  // opening one closes the other.
+  const [adding, setAdding] = useState(false);
+  const openRow = useCallback(
+    (id: number | null) => {
+      if (id != null) setAdding(false);
+      openDrawer(id);
+    },
+    [openDrawer]
+  );
   useEffect(() => {
-    if (openId == null) return;
+    if (openId == null && !adding) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") openDrawer(null);
+      if (e.key !== "Escape") return;
+      if (adding) setAdding(false);
+      else openDrawer(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openId, openDrawer]);
+  }, [openId, adding, openDrawer]);
+
+  // Rows carry `draft` once the records.draft migration is applied; until
+  // then items are added the old way and nothing is ever a draft.
+  const draftsSupported = useMemo(() => records.some((r) => r.draft !== undefined), [records]);
+
+  function onAdded(added: DbRecord) {
+    setAdding(false);
+    const name = `"${added.artist} — ${added.title}"`;
+    pushToast(
+      "success",
+      !isDraft(added)
+        ? `Added ${name} ✓`
+        : awaitsPriceRun(added)
+          ? `Saved ${name} as a draft — the next price run prices it and puts it on the shop.`
+          : `Saved ${name} as a draft — publish it from its drawer when it's ready.`
+    );
+    openDrawer(added.id);
+  }
 
   const [uploadingId, setUploadingId] = useState<number | null>(null);
 
@@ -231,18 +263,7 @@ export function CatalogPage() {
     if (!files || files.length === 0) return;
     setUploadingId(r.id);
     try {
-      const urls: string[] = [];
-      for (const file of Array.from(files)) {
-        const path = `${r.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]+/g, "_")}`;
-        const { error } = await supabase.storage
-          .from("record-photos")
-          .upload(path, file);
-        if (error) throw new Error(error.message);
-        const { data } = supabase.storage
-          .from("record-photos")
-          .getPublicUrl(path);
-        urls.push(data.publicUrl);
-      }
+      const urls = await uploadRecordPhotos(supabase, r.id, Array.from(files));
       await updateRecord(r.id, {
         photo_urls: [...(r.photo_urls ?? []), ...urls],
       });
@@ -470,9 +491,28 @@ export function CatalogPage() {
     }
   }
 
+  // Put a draft on the shop. It needs a price above $0 (and a record its
+  // grades) first — the shop would otherwise show a $0 tag.
+  const publish = useCallback(
+    async (r: DbRecord) => {
+      const name = `"${r.artist} — ${r.title}"`;
+      const block = publishBlock(r);
+      if (block) {
+        pushToast("error", `Can't publish ${name} yet — ${block}.`);
+        return;
+      }
+      if (await updateRecord(r.id, PUBLISH_PATCH, { quiet: true })) {
+        pushToast("success", `${name} is on the shop ✓`);
+      }
+    },
+    [pushToast, updateRecord]
+  );
+
   // Hiding is reversible, so it gets an Undo toast rather than a confirm.
+  // Ticking Shown on a draft is publishing it.
   const toggleListed = useCallback(
     async (r: DbRecord, listed: boolean) => {
+      if (listed && isDraft(r)) return publish(r);
       const ok = await updateRecord(r.id, { listed });
       if (!ok || listed) return;
       pushToast("info", `Hidden "${r.artist} — ${r.title}" from the shop`, {
@@ -480,8 +520,18 @@ export function CatalogPage() {
         onClick: () => updateRecord(r.id, { listed: true }),
       });
     },
-    [pushToast, updateRecord]
+    [publish, pushToast, updateRecord]
   );
+
+  // Artist, title and pressing, edited in the drawer. A blank artist or
+  // title is dropped (the field snaps back): every list names items by them.
+  async function saveName(r: DbRecord, field: "artist" | "title" | "pressing", next: string) {
+    if (field !== "pressing" && !next) {
+      pushToast("error", `The ${NAME_LABELS[kindOf(r)][field].toLowerCase()} can't be blank.`);
+      return;
+    }
+    await updateRecord(r.id, { [field]: next });
+  }
 
   async function releaseHold(r: DbRecord) {
     if (
@@ -555,27 +605,16 @@ export function CatalogPage() {
   );
 
   const filteredRecords = useMemo(
-    () =>
-      sortRecords(
-        filterRecords(
-          records,
-          {
-            search,
-            kind: kindFilter,
-            genre: genreFilter,
-            collection: collectionFilter,
-            letter: letterFilter,
-            shown: shownFilter,
-            sold: soldFilter,
-            interest: interestFilter,
-          },
-          { interest, market }
-        ),
-        sortBy,
-        interest
-      ),
-    [records, search, sortBy, kindFilter, genreFilter, collectionFilter, letterFilter, shownFilter, soldFilter, interestFilter, interest, market]
+    () => sortRecords(filterRecords(records, filters, { interest, market }), sortBy, interest),
+    [records, filters, sortBy, interest, market]
   );
+  // How many items each status chip would show, across the whole catalog.
+  const statusCounts = useMemo(() => {
+    const now = Date.now();
+    return Object.fromEntries(
+      STATUS_FILTERS.map((s) => [s.key, records.filter((r) => matchesStatus(r, s.key, now)).length])
+    ) as Record<StatusFilter, number>;
+  }, [records]);
 
   // From records, not filteredRecords — selection survives filter changes.
   const selectedRecords = useMemo(
@@ -630,198 +669,36 @@ export function CatalogPage() {
 
   const [bulkSaving, setBulkSaving] = useState(false);
 
-  // --- Add record ---
-  const [newRelInput, setNewRelInput] = useState("");
-  const [fetchingRelease, setFetchingRelease] = useState(false);
-  const [draft, setDraft] = useState<NewRecordDraft | null>(null);
-  const [addError, setAddError] = useState("");
-  const [addingRecord, setAddingRecord] = useState(false);
-  // What the add form is for: a record (fetched from Discogs) or a
-  // poster / piece of equipment typed in by hand.
-  const [addKind, setAddKind] = useState<ItemKind>("record");
-  const [itemDraft, setItemDraft] = useState<NewItemDraft>(() => emptyItemDraft("poster"));
-
-  function pickAddKind(kind: ItemKind) {
-    setAddKind(kind);
-    setAddError("");
-    if (kind !== "record" && itemDraft.kind !== kind) setItemDraft(emptyItemDraft(kind));
-  }
-
-  // Insert the poster or gear row, then open its drawer: photos upload
-  // against the row's id, so they're added there.
-  async function addItem() {
-    const d = itemDraft;
-    const price = Number(d.price);
-    if (!d.artist.trim() || !d.title.trim() || !Number.isFinite(price) || price < 0) {
-      setAddError(
-        d.kind === "gear"
-          ? "Brand, model, and a valid price (0 is fine) are required."
-          : "Band, poster title, and a valid price (0 is fine) are required."
-      );
-      return;
-    }
-    setAddError("");
-    setAddingRecord(true);
-    const details: ItemDetails = {};
-    for (const [k, v] of Object.entries(d.details) as [keyof ItemDetails, string | undefined][]) {
-      if (v && v.trim()) details[k] = v.trim();
-    }
-    const { data, error } = await supabase
-      .from("records")
-      .insert({
-        kind: d.kind,
-        artist: d.artist.trim(),
-        title: d.title.trim(),
-        price,
-        condition: d.condition || null,
-        details,
-        notes: d.notes.trim(),
-        pressing: "",
-        media: "",
-        sleeve: "",
-        cover_image: "",
-        genres: [],
-        collection: null,
-        discogs_release_id: null,
-        manual_price: true, // nothing on Discogs to price it from
-        tracklist: [],
-        country: "",
-        barcode: "",
-        styles: [],
-      })
-      .select()
-      .single();
-    setAddingRecord(false);
-    if (error) {
-      setAddError(error.message);
-      return;
-    }
-    const added = data as DbRecord;
-    setRecords((prev) =>
-      [...prev, added].sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title))
-    );
-    setItemDraft(emptyItemDraft(d.kind));
-    pushToast("success", `Added ${added.artist} — ${added.title}. Add photos in the drawer.`);
-    openDrawer(added.id);
-  }
-
-  async function fetchReleaseDetails() {
-    setAddError("");
-    // accept a bare ID or a pasted Discogs URL
-    const match = newRelInput.match(/release\/(\d+)/) ?? newRelInput.match(/(\d+)/);
-    if (!match) {
-      setAddError("Paste a Discogs release URL or ID.");
-      return;
-    }
-    const releaseId = Number(match[1]);
-    setFetchingRelease(true);
-    try {
-      // Server route carries the Discogs token — anonymous browser calls
-      // to api.discogs.com hit rate limits quickly.
-      const {
-        data: { session: current },
-      } = await supabase.auth.getSession();
-      const res = await fetch(`/api/discogs-release?id=${releaseId}`, {
-        headers: { Authorization: `Bearer ${current?.access_token ?? ""}` },
-      });
-      const rel = await res.json();
-      if (!res.ok) throw new Error(rel.error || `Discogs returned ${res.status}`);
-      const label = rel.labels?.[0];
-      const descriptions = (rel.formats ?? [])
-        .flatMap((f: { descriptions?: string[] }) => f.descriptions ?? [])
-        .join(", ");
-      const pressing = [
-        rel.year ? String(rel.year) : null,
-        [label?.name, label?.catno].filter(Boolean).join(" ") || null,
-        descriptions || null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const primary =
-        rel.images?.find((im: { type: string }) => im.type === "primary") ??
-        rel.images?.[0];
-      setDraft({
-        discogs_release_id: releaseId,
-        artist: rel.artists?.map((a: { name: string }) => a.name).join(", ") ?? "",
-        title: rel.title ?? "",
-        pressing,
-        media: "NM",
-        sleeve: "NM",
-        price: "0",
-        cover_image: primary?.uri ?? rel.thumb ?? "",
-        genres: (rel.genres ?? []).join(", "),
-        collection: detectCollection(rel),
-        details: releaseDetailsFromDiscogs(rel),
-      });
-    } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to fetch release");
-    } finally {
-      setFetchingRelease(false);
-    }
-  }
-
-  async function addRecord() {
-    if (!draft) return;
-    const price = Number(draft.price);
-    if (!draft.artist.trim() || !draft.title.trim() || !Number.isFinite(price) || price < 0) {
-      setAddError("Artist, title, and a valid price (0 is fine) are required.");
-      return;
-    }
-    setAddingRecord(true);
-    const { data, error } = await supabase
-      .from("records")
-      .insert({
-        artist: draft.artist.trim(),
-        title: draft.title.trim(),
-        pressing: draft.pressing.trim(),
-        media: draft.media,
-        sleeve: draft.sleeve,
-        price,
-        cover_image: draft.cover_image,
-        discogs_release_id: draft.discogs_release_id,
-        genres: draft.genres
-          .split(",")
-          .map((g) => g.trim())
-          .filter(Boolean),
-        collection: draft.collection.trim() || null,
-        ...draft.details,
-      })
-      .select()
-      .single();
-    setAddingRecord(false);
-    if (error) {
-      setAddError(error.message);
-      return;
-    }
-    setRecords((prev) =>
-      [...prev, data as DbRecord].sort((a, b) =>
-        (a.artist + a.title).localeCompare(b.artist + b.title)
-      )
-    );
-    setDraft(null);
-    setNewRelInput("");
-  }
-
   // Show or hide every record currently shown by the search filter. There
   // is deliberately no bulk sell or un-sell: a sale belongs to one buyer's
   // order, so it goes through the sale desk or the drawer, one order at a
   // time.
   async function toggleAllFiltered(field: "listed", value: boolean) {
-    const ids = filteredRecords
-      .filter((r) => r[field] !== value)
-      .map((r) => r.id);
-    if (ids.length === 0) return;
+    const changing = filteredRecords.filter((r) => r[field] !== value);
+    // Turning Shown on publishes any drafts in the list — except ones with
+    // no price (or grades) yet, which stay drafts.
+    const notReady = value ? changing.filter((r) => isDraft(r) && publishBlock(r)) : [];
+    const ids = changing.filter((r) => !notReady.includes(r)).map((r) => r.id);
+    const skipped =
+      notReady.length > 0
+        ? ` ${notReady.length} draft${notReady.length === 1 ? "" : "s"} with no price yet stay${notReady.length === 1 ? "s" : ""} off the shop.`
+        : "";
+    if (ids.length === 0) {
+      if (skipped) pushToast("info", `Nothing to show.${skipped}`);
+      return;
+    }
     const label = "Shown";
     const plural = ids.length === 1 ? "" : "s";
     if (
       !(await confirm(
-        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?`,
+        `Set ${label} ${value ? "ON" : "OFF"} for all ${ids.length} record${plural} in the current filter?${skipped}`,
         value ? "Turn on" : "Turn off"
       ))
     )
       return;
     setBulkSaving(true);
-    const patch: Partial<DbRecord> = { [field]: value };
+    const patch: Partial<DbRecord> =
+      value && draftsSupported ? PUBLISH_PATCH : { [field]: value };
     const { error } = await supabase
       .from("records")
       .update({ ...patch, updated_at: new Date().toISOString() })
@@ -840,19 +717,27 @@ export function CatalogPage() {
 
   return (
     <>
-      <h1 className="mt-6 text-3xl font-semibold">Catalog</h1>
-        {/* Records editor */}
-        <h2 className="mt-12 text-xl font-medium">
-            Listings{" "}
-            <span className="text-sm text-neutral-400">
-              ({records.length} records)
-            </span>
-        </h2>
-        <p className="mt-1 text-sm text-neutral-400">
-          Shown controls whether a record appears on /records at all; Sold
-          keeps it visible with a SOLD badge.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+      <PageHeader
+        title="Catalog"
+        description={
+          draftsSupported
+            ? "Everything you sell. A new item starts as a draft, off the shop until it has a price. Shown controls whether an item is on the shop at all; Sold keeps it visible with a SOLD badge."
+            : "Everything you sell. Shown controls whether an item is on the shop at all; Sold keeps it visible with a SOLD badge."
+        }
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              openDrawer(null);
+              setAdding(true);
+            }}
+            className={primaryButtonClass}
+          >
+            Add item
+          </button>
+        }
+      />
+        <div className="mt-6 flex flex-wrap gap-2">
           <input
             type="search"
             value={search}
@@ -977,9 +862,44 @@ export function CatalogPage() {
             );
           })}
         </div>
+        {/* One-click views of what needs attention; the number is how many
+            items each would show. */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Status">
+          {STATUS_FILTERS.filter((s) => draftsSupported || s.key !== "draft").map((s) => {
+            const active = statusFilter === s.key;
+            const n = statusCounts[s.key];
+            return (
+              <button
+                key={s.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setStatusFilter(active ? "all" : s.key)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+                  active
+                    ? "border-white bg-white text-black"
+                    : n > 0
+                      ? "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                      : "border-white/10 text-neutral-600 hover:text-neutral-300"
+                }`}
+              >
+                {s.label}
+                <span className={active ? "text-neutral-600" : "text-neutral-500"}>{n}</span>
+              </button>
+            );
+          })}
+          {filtersActive(filters) ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="ml-1 text-xs text-neutral-400 underline underline-offset-2 transition hover:text-white"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <p className="text-sm text-neutral-500">
-            {filteredRecords.length} of {records.length} records
+            {filteredRecords.length} of {records.length} items
           </p>
           {(() => {
             // Shipped only — a paid order can still be refunded, and the
@@ -1174,8 +1094,14 @@ export function CatalogPage() {
                     colSpan={6}
                     className="px-4 py-10 text-center text-sm text-neutral-500"
                   >
-                    No records match the current filters — try clearing the
-                    search or a filter above.
+                    Nothing matches the current filters.{" "}
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="text-neutral-300 underline underline-offset-2 transition hover:text-white"
+                    >
+                      Clear filters
+                    </button>
                   </td>
                 </tr>
               ) : null}
@@ -1190,7 +1116,7 @@ export function CatalogPage() {
                   stats={market[r.id]}
                   interest={interest[r.id]}
                   onToggleSelected={toggleSelected}
-                  onOpen={openDrawer}
+                  onOpen={openRow}
                   onDraftPrice={setPriceDraft}
                   onSavePrice={savePrice}
                   onToggleListed={toggleListed}
@@ -1207,11 +1133,13 @@ export function CatalogPage() {
               const edited =
                 priceEdits[r.id] !== undefined &&
                 priceEdits[r.id] !== String(r.price);
+              const names = NAME_LABELS[kindOf(r)];
+              const blocked = isDraft(r) ? publishBlock(r) : null;
               return (
                 <aside
                   role="dialog"
                   aria-label={`${r.artist} — ${r.title}`}
-                  className="fixed inset-y-0 right-0 z-40 flex w-[460px] max-w-full flex-col overflow-y-auto border-l border-white/15 bg-neutral-950 p-5 shadow-2xl"
+                  className={drawerClass}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-3">
@@ -1246,9 +1174,65 @@ export function CatalogPage() {
                     </button>
                   </div>
 
+                  {isDraft(r) ? (
+                    <div className="mt-4 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3">
+                      <p className="text-sm font-medium text-sky-200">
+                        Draft — not on the shop yet
+                      </p>
+                      <p className="mt-1 text-xs text-neutral-400">
+                        {awaitsPriceRun(r)
+                          ? "The next price run (6 AM) sets its price from Discogs and puts it on the shop. To publish sooner, set a price below."
+                          : blocked
+                            ? `To publish it, ${blocked}.`
+                            : "It has a price — publish it when the listing looks right."}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={!!blocked || savingIds.has(r.id)}
+                        onClick={() => publish(r)}
+                        className={`mt-2 ${primaryButtonClass}`}
+                      >
+                        Publish to the shop
+                      </button>
+                    </div>
+                  ) : null}
+
                   <h3 className="mt-5 text-[11px] uppercase tracking-wide text-neutral-500">
                     Listing
                   </h3>
+                      <div className="mt-2 flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <NoteField
+                            key={`artist-${r.id}`}
+                            value={r.artist}
+                            placeholder={names.artist}
+                            title={`${names.artist} — saves when you click away`}
+                            disabled={savingIds.has(r.id)}
+                            onSave={(next) => saveName(r, "artist", next)}
+                            className="min-w-0 flex-1"
+                          />
+                          <NoteField
+                            key={`title-${r.id}`}
+                            value={r.title}
+                            placeholder={names.title}
+                            title={`${names.title} — saves when you click away`}
+                            disabled={savingIds.has(r.id)}
+                            onSave={(next) => saveName(r, "title", next)}
+                            className="min-w-0 flex-[1.4]"
+                          />
+                        </div>
+                        {isRecord(r) ? (
+                          <NoteField
+                            key={`pressing-${r.id}`}
+                            value={r.pressing}
+                            placeholder="Pressing"
+                            title="Pressing (year · label · format) — saves when you click away"
+                            disabled={savingIds.has(r.id)}
+                            onSave={(next) => saveName(r, "pressing", next)}
+                            className="w-full"
+                          />
+                        ) : null}
+                      </div>
                       {!isRecord(r) ? (
                         <DetailsEditor
                           r={r}
@@ -1297,6 +1281,7 @@ export function CatalogPage() {
                             }
                             className={`${inputClass} [&>option]:bg-neutral-900`}
                           >
+                            {r.media ? null : <option value="">Grade…</option>}
                             {GRADES.map((g) => (
                               <option key={g}>{g}</option>
                             ))}
@@ -1312,6 +1297,7 @@ export function CatalogPage() {
                             }
                             className={`${inputClass} [&>option]:bg-neutral-900`}
                           >
+                            {r.sleeve ? null : <option value="">Grade…</option>}
                             {GRADES.map((g) => (
                               <option key={g}>{g}</option>
                             ))}
@@ -1807,227 +1793,13 @@ export function CatalogPage() {
             })()
           : null}
 
-        {/* Add record / poster / equipment */}
-        <h2 className="mt-12 text-xl font-medium">Add an item</h2>
-        <div className="mt-3 inline-flex rounded-lg border border-white/15 p-0.5 text-sm" role="tablist">
-          {KINDS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="tab"
-              aria-selected={addKind === k}
-              onClick={() => pickAddKind(k)}
-              className={`rounded-md px-3 py-1 transition ${
-                addKind === k ? "bg-white text-black" : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              {KIND_LABELS[k]}
-            </button>
-          ))}
-        </div>
-        {addKind !== "record" ? (
-          <>
-            <p className="mt-2 text-sm text-neutral-400">
-              {addKind === "poster"
-                ? "Band, poster title (the show or print name), price, condition and the show details. Photos go on after it's added."
-                : "Brand, model, price, condition, what works and what's in the box. Photos go on after it's added."}
-            </p>
-            <div className="mt-3 flex max-w-2xl flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  type="text"
-                  value={itemDraft.artist}
-                  onChange={(e) => setItemDraft({ ...itemDraft, artist: e.target.value })}
-                  placeholder={addKind === "poster" ? "Band" : "Brand"}
-                  className={`flex-1 ${inputClass}`}
-                />
-                <input
-                  type="text"
-                  value={itemDraft.title}
-                  onChange={(e) => setItemDraft({ ...itemDraft, title: e.target.value })}
-                  placeholder={addKind === "poster" ? "Poster title, e.g. Wrigley Field 2016 Night 1" : "Model"}
-                  className={`flex-[2] ${inputClass}`}
-                />
-              </div>
-              <DetailsInputs
-                kind={addKind}
-                values={itemDraft.details}
-                onChange={(key, value) =>
-                  setItemDraft((prev) => ({ ...prev, details: { ...prev.details, [key]: value } }))
-                }
-              />
-              <textarea
-                value={itemDraft.notes}
-                onChange={(e) => setItemDraft({ ...itemDraft, notes: e.target.value })}
-                placeholder="Notes shown to buyers"
-                rows={2}
-                className={`w-full max-w-md resize-y ${inputClass}`}
-              />
-              <div className="flex flex-wrap items-center gap-3">
-                <ConditionSelect
-                  kind={addKind}
-                  value={itemDraft.condition}
-                  onChange={(condition) => setItemDraft({ ...itemDraft, condition })}
-                />
-                <label className="flex items-center gap-2 text-sm text-neutral-400">
-                  $
-                  <input
-                    type="number"
-                    min="0"
-                    value={itemDraft.price}
-                    onChange={(e) => setItemDraft({ ...itemDraft, price: e.target.value })}
-                    className={`w-24 ${inputClass}`}
-                  />
-                </label>
-                <button type="button" onClick={addItem} disabled={addingRecord} className={buttonClass}>
-                  {addingRecord ? "Adding…" : `Add ${KIND_LABELS[addKind].toLowerCase()}`}
-                </button>
-              </div>
-              {addError ? <p className="text-sm text-red-400">{addError}</p> : null}
-            </div>
-          </>
-        ) : (
-          <>
-        <p className="mt-1 text-sm text-neutral-400">
-          Paste a Discogs release URL or ID and Fetch fills in the details and
-          cover art. Leave the price at 0 and the next run will set it to the
-          cheapest comparable Discogs listing + $6, or 85% of the Discogs
-          suggested price for its grade when there isn&apos;t one.
-        </p>
-        <div className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row">
-          <input
-            type="text"
-            value={newRelInput}
-            onChange={(e) => setNewRelInput(e.target.value)}
-            placeholder="https://www.discogs.com/release/16426854-…  or  16426854"
-            className={`flex-1 ${inputClass}`}
+        {adding ? (
+          <AddItemDrawer
+            draftsSupported={draftsSupported}
+            onClose={() => setAdding(false)}
+            onAdded={onAdded}
           />
-          <button
-            type="button"
-            onClick={fetchReleaseDetails}
-            disabled={fetchingRelease}
-            className={buttonClass}
-          >
-            {fetchingRelease ? "Fetching…" : "Fetch"}
-          </button>
-        </div>
-        {addError ? (
-          <p className="mt-2 text-sm text-red-400">{addError}</p>
         ) : null}
-        {draft ? (
-          <div className="mt-4 flex max-w-2xl flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex gap-4">
-              {draft.cover_image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={draft.cover_image}
-                  alt="Cover"
-                  className="h-24 w-24 rounded-lg object-cover"
-                />
-              ) : null}
-              <div className="flex flex-1 flex-col gap-2">
-                <input
-                  type="text"
-                  value={draft.artist}
-                  onChange={(e) => setDraft({ ...draft, artist: e.target.value })}
-                  placeholder="Artist"
-                  className={inputClass}
-                />
-                <input
-                  type="text"
-                  value={draft.title}
-                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="Title"
-                  className={inputClass}
-                />
-                <input
-                  type="text"
-                  value={draft.pressing}
-                  onChange={(e) =>
-                    setDraft({ ...draft, pressing: e.target.value })
-                  }
-                  placeholder="Pressing"
-                  className={inputClass}
-                />
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={draft.genres}
-                    onChange={(e) =>
-                      setDraft({ ...draft, genres: e.target.value })
-                    }
-                    placeholder="Genres (comma-separated)"
-                    className={`flex-1 ${inputClass}`}
-                  />
-                  <input
-                    type="text"
-                    value={draft.collection}
-                    onChange={(e) =>
-                      setDraft({ ...draft, collection: e.target.value })
-                    }
-                    placeholder="Collection (VMP…)"
-                    className={`w-36 ${inputClass}`}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                Media
-                <select
-                  value={draft.media}
-                  onChange={(e) => setDraft({ ...draft, media: e.target.value })}
-                  className={`${inputClass} [&>option]:bg-neutral-900`}
-                >
-                  {GRADES.map((g) => (
-                    <option key={g}>{g}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                Sleeve
-                <select
-                  value={draft.sleeve}
-                  onChange={(e) =>
-                    setDraft({ ...draft, sleeve: e.target.value })
-                  }
-                  className={`${inputClass} [&>option]:bg-neutral-900`}
-                >
-                  {GRADES.map((g) => (
-                    <option key={g}>{g}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-neutral-400">
-                $
-                <input
-                  type="number"
-                  min="0"
-                  value={draft.price}
-                  onChange={(e) => setDraft({ ...draft, price: e.target.value })}
-                  className={`w-24 ${inputClass}`}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={addRecord}
-                disabled={addingRecord}
-                className={buttonClass}
-              >
-                {addingRecord ? "Adding…" : "Add record"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDraft(null)}
-                className="text-sm text-neutral-500 transition hover:text-white"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : null}
-          </>
-        )}
     </>
   );
 }

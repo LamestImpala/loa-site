@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SettingsPage } from "../_shell/settings-page";
 
 export const metadata: Metadata = {
-  title: "Admin settings — Late Onset Audiophile",
+  title: "Admin settings — Curiouser Records",
   robots: { index: false, follow: false },
 };
 

@@ -8,10 +8,11 @@ import {
   shipCount,
   shipHref,
   shipSteps,
+  catalogCount,
   stockCount,
   worklist,
 } from "./worklist.ts";
-import { DAY, invoice, iso, order, rec, shipment } from "./fixtures.ts";
+import { DAY, invoice, iso, order, poster, rec, shipment } from "./fixtures.ts";
 
 const NOW = new Date("2026-09-20T12:00:00.000Z").getTime();
 
@@ -54,6 +55,7 @@ test("nothing to do is all zeros", () => {
     toFinish: 0,
     toUnlist: 0,
     priceApprovals: 0,
+    draftsToPublish: 0,
   });
   assert.equal(sellCount(w), 0);
   assert.equal(ordersCount(w), 0);
@@ -272,6 +274,26 @@ test("pending price changes count toward Stock, and stay off the sell and ship b
   assert.equal(stockCount(w), 3);
   assert.equal(sellCount(w), 0);
   assert.equal(shipCount(w), 0);
+});
+
+test("drafts count toward Stock once they need the seller, not while the price run has them", () => {
+  const added = iso(NOW - 2 * 3600 * 1000);
+  const draft = { listed: false, draft: true, created_at: added };
+  const records = [
+    rec({ ...draft, price: 0, discogs_release_id: 123 }), // the next run prices and publishes it
+    rec({ ...draft, price: 25, discogs_release_id: 123 }), // priced by hand: needs Publish
+    rec({ ...draft, price: 0, discogs_release_id: null }), // nothing for the run to price it from
+    rec({ ...draft, price: 0, discogs_release_id: 123, manual_price: true }), // the run skips hand-priced
+    rec({ ...draft, price: 0, discogs_release_id: 123, created_at: iso(NOW - 3 * DAY) }), // the run had its chance
+    poster({ ...draft, price: 0 }),
+    rec({ listed: false, price: 25 }), // hidden on purpose
+    rec({ ...draft, listed: true, price: 25 }), // already published
+  ];
+  const w = worklist({ ...empty, records }, NOW);
+  assert.equal(w.draftsToPublish, 5);
+  assert.equal(catalogCount(w), 5);
+  assert.equal(stockCount(w), 5);
+  assert.equal(sellCount(w), 0);
 });
 
 test("the Ship badge adds up its steps, and Ship opens the first with work", () => {
