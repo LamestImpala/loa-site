@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
   if (live) {
     return NextResponse.json(
       {
-        error: `These records are already on invoice ${live} — cancel it under Open orders first, then invoice again.`,
+        error: `These records are already on invoice ${live} — cancel it under Awaiting payment on the Sell page first, then invoice again.`,
         invoiceId: live,
       },
       { status: 409 }
@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
     if (stampError) {
       console.error("paypal-invoice: failed to stamp invoice id:", stampError.message);
     }
-    // The pending-order row: this is what the admin's Open orders
+    // The pending-order row: this is what the admin's Awaiting payment
     // panel lists, payment link included.
     const row = {
       paypal_invoice_id: result.invoiceId,
@@ -325,10 +325,10 @@ export async function POST(req: NextRequest) {
           ? "Couldn't save the invoice id on the records — link it by hand on the Send page."
           : null,
         orderError
-          ? `Couldn't save the order (${orderError}) — the invoice is out, but it won't be listed under Open orders.`
+          ? `Couldn't save the order (${orderError}) — the invoice is out, but it won't be listed under Awaiting payment.`
           : null,
         rowError
-          ? "Couldn't save the pending order — copy the payment link now; it won't be listed under Open orders."
+          ? "Couldn't save the pending order — copy the payment link now; it won't be listed under Awaiting payment."
           : null,
       ]
         .filter(Boolean)

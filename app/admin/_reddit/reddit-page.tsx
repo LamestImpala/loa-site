@@ -29,8 +29,8 @@ export function RedditPage() {
     setPostUrl,
     postedInfo,
     setPostedInfo,
-    selectedIds,
-    setSelectedIds,
+    weeklyIds,
+    setWeeklyIds,
     setSelectionMode,
     pushToast,
     copyText,
@@ -42,10 +42,10 @@ export function RedditPage() {
     () => new Map(records.map((r) => [r.id, r])),
     [records]
   );
-  // Weekly picks are whatever is selected on the Records page, minus sold.
+  // The weekly picks (their own selection, apart from the sale desk), minus sold.
   const saleRecords = useMemo(
-    () => records.filter((r) => selectedIds.has(r.id) && !r.sold),
-    [records, selectedIds]
+    () => records.filter((r) => weeklyIds.has(r.id) && !r.sold),
+    [records, weeklyIds]
   );
 
   const [postUrlStatus, setPostUrlStatus] = useState<"idle" | "saved">("idle");
@@ -134,7 +134,7 @@ export function RedditPage() {
   // Seed the weekly post (see pickWeekly for the ranking rules).
   function randomizeWeeklyPicks() {
     const picks = pickWeekly(records, market, postedInfo.ids);
-    setSelectedIds(new Set(picks.map((r) => r.id)));
+    setWeeklyIds(new Set(picks.map((r) => r.id)));
     setSelectionMode("weekly");
     pushToast(
       "info",
@@ -143,10 +143,10 @@ export function RedditPage() {
   }
 
   async function copyWeeklyPost() {
-    const picks = records.filter((r) => selectedIds.has(r.id) && offerable(r));
+    const picks = records.filter((r) => weeklyIds.has(r.id) && offerable(r));
     if (picks.length === 0) return;
     const skipped = records.filter(
-      (r) => selectedIds.has(r.id) && !r.sold && !offerable(r)
+      (r) => weeklyIds.has(r.id) && !r.sold && !offerable(r)
     ).length;
     if (skipped > 0) {
       pushToast(
@@ -308,12 +308,12 @@ export function RedditPage() {
     <>
       <h1 className="mt-6 text-3xl font-semibold">Reddit</h1>
         <p className="mt-1 text-sm text-neutral-400">
-          The weekly post uses the records ticked in the listings table&rsquo;s
-          &ldquo;Sel&rdquo; column — start with &ldquo;Pick 20: drops + scarce&rdquo;
-          (biggest recent price drops first, then highest Discogs want/have
-          ratio, scarcest breaking ties; a
-          weekly-post bar appears above the listings instead of the sale
-          desk) and adjust the checkboxes, or pick by hand. Each row shows
+          The weekly post has its own picks, separate from the sale desk —
+          start with &ldquo;Pick 20: drops + scarce&rdquo; (biggest recent
+          price drops first, then highest Discogs want/have ratio, scarcest
+          breaking ties), then &ldquo;Adjust picks on Catalog&rdquo; to tick
+          or untick them in the &ldquo;Sel&rdquo; column, or pick by hand
+          there. Each row shows
           price, year, and grades, with the title linked to its Discogs
           release. Copy, and the list is remembered so you can post an
           update later with sold records crossed out (no price shown).
@@ -333,8 +333,9 @@ export function RedditPage() {
           </button>
           <Link
             href="/admin/catalog"
+            onClick={() => setSelectionMode("weekly")}
             className="text-sm text-neutral-400 underline underline-offset-2 transition hover:text-white"
-            title="The picks are the Sel checkboxes in the listings table"
+            title="Turns the Catalog's Sel checkboxes into weekly picks until you click Done picking there"
           >
             Adjust picks on Catalog
           </Link>
@@ -343,11 +344,11 @@ export function RedditPage() {
             onClick={copyWeeklyPost}
             className={buttonClass}
             disabled={saleRecords.length === 0}
-            title="Builds the weekly post from the records selected in the listings table"
+            title="Builds the weekly post from the weekly picks"
           >
             {isCopied("weekly")
               ? "Copied!"
-              : `Copy weekly post (${saleRecords.length} selected)`}
+              : `Copy weekly post (${saleRecords.length} picked)`}
           </button>
           <button
             type="button"
@@ -369,7 +370,7 @@ export function RedditPage() {
         (saleRecords.length < 10 || saleRecords.length > 20) ? (
           <p className="mt-2 text-xs text-amber-400">
             Tip: 10&ndash;20 records works well for a weekly post — you have{" "}
-            {saleRecords.length} selected.
+            {saleRecords.length} picked.
           </p>
         ) : null}
         {postedInfo.posted_at ? (

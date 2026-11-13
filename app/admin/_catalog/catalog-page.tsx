@@ -106,13 +106,21 @@ export function CatalogPage() {
     renameBuyer,
     releaseHold: releaseRecordHold,
     unsellRecords,
-    selectedIds,
-    setSelectedIds,
+    saleIds,
+    setSaleIds,
+    weeklyIds,
+    setWeeklyIds,
     selectionMode,
     setSelectionMode,
     toggleSelected,
-    clearSelection,
+    clearSaleDesk,
+    clearWeeklyPicks,
   } = useAdmin();
+  // The Sel checkboxes edit one of two selections: the sale desk, or —
+  // while picking for the weekly Reddit post — the weekly picks.
+  const picking = selectionMode === "weekly";
+  const selectedIds = picking ? weeklyIds : saleIds;
+  const setSelectedIds = picking ? setWeeklyIds : setSaleIds;
 
   // The view (search, filters, sort) starts from the URL — or, arriving
   // on a bare /admin/catalog, from where this session last left it — and
@@ -446,7 +454,7 @@ export function CatalogPage() {
     const buyer = holdBuyerInput.trim().replace(/^u\//, "");
     if (!buyer) return;
     // Same path as the desk's hold: the order is what lists it under the
-    // inbox's Open orders.
+    // Sell page's Awaiting payment.
     if (!(await placeOrder([r], buyer, "held"))) return;
     const ok = await updateRecord(r.id, {
       hold_buyer: buyer,
@@ -526,9 +534,8 @@ export function CatalogPage() {
   // Start a sale for this record on the Sell page's sale desk, where the buyer,
   // a negotiated price and the invoice are set.
   function sellOnDesk(r: DbRecord) {
-    setSelectionMode("sale");
-    setSelectedIds((prev) => new Set(prev).add(r.id));
-    router.push("/admin/sell");
+    setSaleIds((prev) => new Set(prev).add(r.id));
+    router.push("/admin/sell#sale-desk");
   }
 
   // Daily history for the record open in the drawer.
@@ -1002,9 +1009,8 @@ export function CatalogPage() {
             );
           })()}
         </div>
-        {selectedIds.size > 0 && selectionMode === "weekly" ? (
+        {picking ? (
           <div
-            id="sale-desk"
             className="sticky top-12 z-10 mt-4 rounded-2xl border border-neutral-700 bg-neutral-950/95 p-4 backdrop-blur"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1014,14 +1020,16 @@ export function CatalogPage() {
                 </span>{" "}
                 <span className="text-neutral-400">
                   picked for the weekly post — adjust with the Sel checkboxes.
+                  The sale desk is untouched.
                 </span>
               </p>
               <button
                 type="button"
-                onClick={clearSelection}
+                onClick={clearWeeklyPicks}
+                title="Drop the weekly picks and go back to selecting for the sale desk"
                 className="text-xs text-neutral-500 underline transition hover:text-white"
               >
-                Clear
+                Clear picks
               </button>
             </div>
             {offFilterSelectedCount > 0 ? (
@@ -1043,16 +1051,15 @@ export function CatalogPage() {
                 type="button"
                 onClick={() => setSelectionMode("sale")}
                 className={buttonClass}
-                title="Treat this selection as a sale instead — opens the sale desk"
+                title="Keep these picks for the Reddit page and hand the Sel checkboxes back to the sale desk"
               >
-                Open sale desk
+                Done picking
               </button>
             </div>
           </div>
         ) : null}
-        {selectedIds.size > 0 && selectionMode === "sale" ? (
+        {!picking && saleIds.size > 0 ? (
           <div
-            id="sale-desk"
             className="sticky top-2 z-10 mt-4 rounded-2xl border border-amber-400/30 bg-neutral-950/95 p-4 backdrop-blur"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1061,7 +1068,7 @@ export function CatalogPage() {
                   {saleRecords.length} record{saleRecords.length === 1 ? "" : "s"}
                 </span>{" "}
                 <span className="text-neutral-400">
-                  selected for the sale desk · Subtotal ${saleTotals.subtotal}
+                  on the sale desk · Subtotal ${saleTotals.subtotal}
                   {saleSoldCount > 0
                     ? ` · ${saleSoldCount} already sold`
                     : ""}
@@ -1069,7 +1076,7 @@ export function CatalogPage() {
               </p>
               <div className="flex items-center gap-3">
                 <Link
-                  href="/admin/sell"
+                  href="/admin/sell#sale-desk"
                   className={buttonClass}
                   title="Copy the reply, hold, mark sold or invoice these on the Sell page"
                 >
@@ -1077,7 +1084,7 @@ export function CatalogPage() {
                 </Link>
                 <button
                   type="button"
-                  onClick={clearSelection}
+                  onClick={clearSaleDesk}
                   className="text-xs text-neutral-500 underline transition hover:text-white"
                 >
                   Clear
@@ -1106,7 +1113,11 @@ export function CatalogPage() {
                     Sel
                     <input
                       type="checkbox"
-                      title="Select/deselect all records in the current search for the sale desk"
+                      title={
+                        picking
+                          ? "Pick/unpick all records in the current search for the weekly post"
+                          : "Select/deselect all records in the current search for the sale desk"
+                      }
                       checked={
                         filteredRecords.length > 0 &&
                         filteredRecords.every((r) => selectedIds.has(r.id))
@@ -1633,7 +1644,7 @@ export function CatalogPage() {
                               href="/admin/sell#open-orders"
                               className="self-start text-neutral-500 underline underline-offset-2 transition hover:text-white"
                             >
-                              On invoice {r.paypal_invoice_id} — cancel it under Open orders
+                              On invoice {r.paypal_invoice_id} — cancel it under Awaiting payment on Sell
                             </Link>
                           ) : (
                             <button
@@ -1684,7 +1695,7 @@ export function CatalogPage() {
                             setHoldEditId(r.id);
                             setHoldBuyerInput(r.hold_buyer ?? "");
                           }}
-                          title={`Reserve for a buyer for ${HOLD_HOURS} hours — the public card shows On hold, and the hold lists under Open orders`}
+                          title={`Reserve for a buyer for ${HOLD_HOURS} hours — the public card shows On hold, and the hold lists under Awaiting payment on the Sell page`}
                           className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-white"
                         >
                           Hold…
