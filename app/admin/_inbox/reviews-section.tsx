@@ -24,9 +24,10 @@ import {
 } from "@/lib/admin/reviews-db";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { useAdmin } from "../_shell/admin-provider";
+import { PageHeader } from "../_shell/primitives";
 import { buttonClass, inputClass, smallButtonClass, timeAgo, useCopied } from "../_shell/ui";
 
-// The Inbox's Reviews section. Buyer reviews arrive pending (from the
+// Reviews (/admin/reviews). Buyer reviews arrive pending (from the
 // emailed or copied /review link) and go public only when published;
 // featured ones are quoted first on the shop home. Reviews from Discogs,
 // eBay or Reddit are typed in below and go live at once. "Ask for a
@@ -314,10 +315,15 @@ export function ReviewsSection() {
 
   return (
     <>
-      <h2 id="reviews" className="mt-10 scroll-mt-24 text-xl font-medium">
-        Reviews{" "}
+      <PageHeader
+        title="Reviews"
+        description="Buyer reviews wait here until you publish them; published ones show on the shop home as a rating and up to three quotes, featured first."
+      />
+
+      <h2 className="mt-8 text-xl font-medium">
+        To publish{" "}
         {pending.length > 0 ? (
-          <span className="text-sm text-amber-400">({pending.length} to publish)</span>
+          <span className="text-sm text-amber-400">({pending.length})</span>
         ) : (
           <span className="text-sm text-neutral-400">
             ({published.length} published
@@ -325,18 +331,13 @@ export function ReviewsSection() {
           </span>
         )}
       </h2>
-      <p className="mt-1 text-sm text-neutral-400">
-        Buyer reviews wait here until you publish them; published ones show on
-        the shop home as a rating and up to three quotes, featured first.
-      </p>
-
       {pending.length > 0 ? (
         <div className="mt-3 grid gap-3">{pending.map(card)}</div>
       ) : (
         <p className="mt-3 text-sm text-neutral-400">No reviews waiting.</p>
       )}
 
-      <h3 className="mt-6 text-lg font-medium">Ask for a review</h3>
+      <h2 className="mt-10 text-xl font-medium">Ask for a review</h2>
       <p className="mt-1 text-sm text-neutral-400">
         Buyers whose boxes went out (or were handed over) in the last 60 days.
         Email buyers get their link automatically 10 days after drop-off. For Reddit buyers, copy a
@@ -406,7 +407,7 @@ export function ReviewsSection() {
         </ul>
       )}
 
-      <h3 className="mt-6 text-lg font-medium">
+      <h2 className="mt-10 text-xl font-medium">
         <button
           type="button"
           onClick={() => setImportOpen((v) => !v)}
@@ -415,7 +416,7 @@ export function ReviewsSection() {
         >
           Add a review from Discogs, eBay or Reddit {importOpen ? "▾" : "▸"}
         </button>
-      </h3>
+      </h2>
       {importOpen ? (
         <form onSubmit={submitImport} className="mt-3 grid max-w-3xl gap-2">
           <div className="flex flex-wrap gap-2">
@@ -483,7 +484,7 @@ export function ReviewsSection() {
 
       {shown.length > 0 || hiddenCount > 0 ? (
         <>
-          <h3 className="mt-6 flex flex-wrap items-baseline gap-3 text-lg font-medium">
+          <h2 className="mt-10 flex flex-wrap items-baseline gap-3 text-xl font-medium">
             All reviews
             {hiddenCount > 0 ? (
               <button
@@ -494,7 +495,7 @@ export function ReviewsSection() {
                 {showHidden ? "Hide hidden" : `Show ${hiddenCount} hidden`}
               </button>
             ) : null}
-          </h3>
+          </h2>
           <div className="mt-3 grid gap-3">{shown.map(card)}</div>
         </>
       ) : null}

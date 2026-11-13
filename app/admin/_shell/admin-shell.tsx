@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import { useAdmin } from "./admin-provider";
-import { AdminNav } from "./admin-nav";
+import { AdminNav, AdminSubNav, GearMenu } from "./admin-nav";
+import { PaypalCheckProvider } from "./paypal-check";
 import {
   ClipboardFallbackModal,
   ConfirmDialog,
@@ -11,8 +12,11 @@ import {
   buttonClass,
 } from "./ui";
 
-// Page chrome shared by every /admin page: nav, account controls, the
-// load-error banner, and the toast / clipboard-fallback overlays.
+// Page chrome shared by every /admin page: the five destinations, the tabs
+// inside Ship and Stock, account controls and the gear menu, the load-error
+// banner, and the toast / confirm / clipboard-fallback overlays. It also
+// owns the PayPal invoice check, so a payment is noticed whichever page
+// the admin is opened on.
 export function AdminShell({ children }: { children: ReactNode }) {
   const {
     supabase,
@@ -73,8 +77,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
             >
               Sign out
             </button>
+            <GearMenu />
           </div>
         </div>
+
+        <AdminSubNav />
 
         {loadError ? (
           <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -90,7 +97,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
         ) : null}
 
-        {children}
+        <PaypalCheckProvider>{children}</PaypalCheckProvider>
       </section>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

@@ -3,9 +3,9 @@ import { buyerLabel } from "./buyers.ts";
 import { awaitingDropOff } from "./pack-list.ts";
 
 // Things that went quietly wrong: states no button leads to on purpose,
-// left behind by a closed tab, a failed write, or a hand edit. The Send
-// page lists them with a jump to where each is fixed, so nothing rots
-// unseen. Pure — no React, no Supabase.
+// left behind by a closed tab, a failed write, or a hand edit. Today and
+// the Send page list them with a jump to where each is fixed, so nothing
+// rots unseen. Pure — no React, no Supabase.
 
 // A labeled box still in the house after this long is probably forgotten.
 export const UNSENT_AFTER_DAYS = 3;
@@ -42,13 +42,13 @@ export function integrityIssues(
       issues.push({
         key: `no-invoice-${o.id}`,
         text: `${buyerLabel(o.buyer_username, o.buyer_email)}'s order is invoiced, but invoice ${o.paypal_invoice_id} isn't saved here — Check PayPal on it, or cancel it`,
-        href: "/admin#open-orders",
+        href: "/admin/sell#open-orders",
       });
     } else if (inv.paid_at) {
       issues.push({
         key: `paid-unsold-${o.id}`,
         text: `Invoice ${o.paypal_invoice_id} (${buyerLabel(o.buyer_username, o.buyer_email)}) is paid, but its records aren't marked sold — Check PayPal on it`,
-        href: "/admin#open-orders",
+        href: "/admin/sell#open-orders",
       });
     }
   }

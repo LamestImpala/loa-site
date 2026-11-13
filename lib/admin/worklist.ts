@@ -14,7 +14,7 @@ import { pickList } from "./pick-list.ts";
 
 // What's waiting on the seller right now, one count per job, from the
 // tables every admin page already has. Drives the nav badges and the
-// inbox "Next up" strip. Pure — no React, no Supabase.
+// Today page's to-do list (today.ts). Pure — no React, no Supabase.
 
 // A fulfilled order stops asking for its PayPal fee after this long —
 // the fulfillment panel's archive window.
@@ -96,13 +96,35 @@ export function worklist(
   };
 }
 
-// What the Inbox badge counts: the things only the Inbox can clear.
-export function inboxCount(w: Worklist) {
-  return w.newRequests + w.newMessages + w.pendingReviews + w.expiredHolds + w.staleInvoices;
+// What the Sell badge counts: the things only the Sell page can clear.
+// Orders simply waiting on the buyer aren't the seller's move.
+export function sellCount(w: Worklist) {
+  return w.newRequests + w.newMessages + w.expiredHolds + w.staleInvoices;
 }
 
 // What the Send badge counts: every job after the label — drop off, push
 // tracking, sync the fee.
 export function sendCount(w: Worklist) {
   return w.toSend + w.toPush + w.toSync;
+}
+
+// What the Ship badge counts: the four Ship pages' badges added up.
+export function shipCount(w: Worklist) {
+  return w.toPull + w.toPack + w.needLabels + sendCount(w);
+}
+
+// What the Stock badge counts: the Catalog's Discogs removals plus the
+// price changes waiting on Pricing.
+export function stockCount(w: Worklist) {
+  return w.toUnlist + w.priceApprovals;
+}
+
+// Where "Ship" in the nav goes: the first step of Pick → Pack → Labels →
+// Send with work waiting, so one click lands on the next thing to do.
+// With nothing waiting it opens the orders on Send.
+export function shipHref(w: Worklist) {
+  if (w.toPull > 0) return "/admin/pick";
+  if (w.toPack > 0) return "/admin/pack";
+  if (w.needLabels > 0) return "/admin/labels";
+  return "/admin/ship";
 }

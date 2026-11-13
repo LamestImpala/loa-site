@@ -2,18 +2,19 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { integrityIssues } from "@/lib/admin/integrity";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { awaitingDropOff } from "@/lib/admin/pack-list";
 import { useAdmin } from "../_shell/admin-provider";
+import { NeedsFixing } from "../_shell/needs-fixing";
 import { FulfillmentPanel } from "../fulfillment-panel";
 import { buttonClass } from "../_shell/ui";
 
 // Send: everything after the labels are printed, in the order it happens —
 // the boxes go to the post office (Mark dropped off), PayPal hears about
 // tracking and the fee, and the buyer confirms the trade. The last stop
-// of Pick → Pack → Labels → Send. "Needs fixing" on top lists states that
-// went quietly wrong anywhere in a sale, each with a jump to its fix.
+// of Pick → Pack → Labels → Send. "Needs fixing" on top (also on Today)
+// lists states that went quietly wrong anywhere in a sale, each with a
+// jump to its fix.
 export function ShipPage() {
   const {
     supabase,
@@ -32,17 +33,11 @@ export function ShipPage() {
     copyText,
     pushToast,
     confirm,
-    readdToDiscogs,
-    discogsReadding,
   } = useAdmin();
   // An email buyer's address lives on the order, not the parcel.
   const orderEmail = (s: { order_id?: number | null }) =>
     s.order_id != null ? (orders.find((o) => o.id === s.order_id)?.buyer_email ?? null) : null;
 
-  const issues = useMemo(
-    () => integrityIssues({ records, shipments, invoices, orders }),
-    [records, shipments, invoices, orders]
-  );
   const dropOff = useMemo(
     () => awaitingDropOff(shipments, orders),
     [shipments, orders]
@@ -101,42 +96,7 @@ export function ShipPage() {
         tracking it can&rsquo;t see and sync the fee — and confirm the trade.
       </p>
 
-      {issues.length > 0 ? (
-        <section
-          aria-label="Needs fixing"
-          className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4"
-        >
-          <h2 className="font-medium text-red-200">
-            Needs fixing{" "}
-            <span className="text-sm font-normal text-red-300/80">
-              ({issues.length})
-            </span>
-          </h2>
-          <ul className="mt-2 grid gap-1.5 text-sm text-red-100">
-            {issues.map((i) => (
-              <li key={i.key} className="flex flex-wrap items-baseline gap-x-2">
-                <span>{i.text}</span>
-                {i.readdRecordId && byId.get(i.readdRecordId) ? (
-                  <button
-                    type="button"
-                    disabled={discogsReadding.has(i.readdRecordId)}
-                    onClick={() => readdToDiscogs(byId.get(i.readdRecordId!)!)}
-                    className="text-xs text-red-200 underline underline-offset-2 transition hover:text-white disabled:opacity-50"
-                  >
-                    {discogsReadding.has(i.readdRecordId) ? "Re-adding…" : "Re-add →"}
-                  </button>
-                ) : null}
-                <Link
-                  href={i.href}
-                  className="text-xs text-red-300 underline underline-offset-2 transition hover:text-white"
-                >
-                  Fix →
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <NeedsFixing />
 
       <h2 id="drop-off" className="mt-10 scroll-mt-24 text-xl font-medium">
         Drop off{" "}

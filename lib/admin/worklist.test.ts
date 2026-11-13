@@ -2,7 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OrderRequest } from "../supabase.ts";
-import { inboxCount, sendCount, worklist } from "./worklist.ts";
+import {
+  sellCount,
+  sendCount,
+  shipCount,
+  shipHref,
+  stockCount,
+  worklist,
+} from "./worklist.ts";
 import { DAY, invoice, iso, order, rec, shipment } from "./fixtures.ts";
 
 const NOW = new Date("2026-09-20T12:00:00.000Z").getTime();
@@ -46,8 +53,10 @@ test("nothing to do is all zeros", () => {
     toUnlist: 0,
     priceApprovals: 0,
   });
-  assert.equal(inboxCount(w), 0);
+  assert.equal(sellCount(w), 0);
   assert.equal(sendCount(w), 0);
+  assert.equal(shipCount(w), 0);
+  assert.equal(stockCount(w), 0);
 });
 
 test("manual tracking PayPal hasn't heard about counts as a push", () => {
@@ -103,7 +112,8 @@ test("open orders split into expired holds and stale invoices", () => {
   assert.equal(w.openOrders, 4);
   assert.equal(w.expiredHolds, 1);
   assert.equal(w.staleInvoices, 1);
-  assert.equal(inboxCount(w), 2);
+  // The two orders just waiting on the buyer aren't the seller's move.
+  assert.equal(sellCount(w), 2);
 });
 
 test("pull, pack and label counts follow a paid order through the table", () => {
@@ -247,16 +257,28 @@ test("shipped records still on Discogs are counted once their order is fully tra
   );
 });
 
-test("pending reviews count toward the Inbox badge; published and hidden don't", () => {
+test("pending reviews are counted for the Reviews badge, not Sell; published and hidden aren't", () => {
   const reviews = [{ status: "pending" as const }, { status: "published" as const }, { status: "hidden" as const }];
   const w = worklist({ ...empty, reviews }, NOW);
   assert.equal(w.pendingReviews, 1);
-  assert.equal(inboxCount(w), 1);
+  assert.equal(sellCount(w), 0);
 });
 
-test("pending price changes are counted, and stay off the inbox and send badges", () => {
+test("pending price changes count toward Stock, and stay off the sell and ship badges", () => {
   const w = worklist({ ...empty, pendingPrices: [{}, {}, {}] }, NOW);
   assert.equal(w.priceApprovals, 3);
-  assert.equal(inboxCount(w), 0);
-  assert.equal(sendCount(w), 0);
+  assert.equal(stockCount(w), 3);
+  assert.equal(sellCount(w), 0);
+  assert.equal(shipCount(w), 0);
+});
+
+test("the Ship badge adds up its four pages, and Ship opens the first with work", () => {
+  const none = worklist(empty, NOW);
+  assert.equal(shipHref(none), "/admin/ship");
+  const w = { ...none, toPack: 2, needLabels: 1, toSend: 1, toPush: 1, toSync: 1 };
+  assert.equal(shipCount(w), 6);
+  assert.equal(shipHref(w), "/admin/pack");
+  assert.equal(shipHref({ ...w, toPull: 3 }), "/admin/pick");
+  assert.equal(shipHref({ ...w, toPack: 0 }), "/admin/labels");
+  assert.equal(shipHref({ ...w, toPack: 0, needLabels: 0 }), "/admin/ship");
 });

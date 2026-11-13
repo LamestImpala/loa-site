@@ -1,5 +1,5 @@
-import { InboxPage } from "./_inbox/inbox-page";
+import { TodayPage } from "./_today/today-page";
 
-export default function AdminInboxPage() {
-  return <InboxPage />;
+export default function AdminTodayPage() {
+  return <TodayPage />;
 }

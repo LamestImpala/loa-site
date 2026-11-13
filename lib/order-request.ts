@@ -14,7 +14,7 @@ export const MAX_NAME = 80;
 export const MAX_MESSAGE = 1000;
 export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const SHOP_URL = "https://curiouserrecords.com";
-export const ADMIN_REQUESTS_URL = `${ADMIN_URL}#requests`;
+export const ADMIN_REQUESTS_URL = `${ADMIN_URL}/sell#requests`;
 
 export type OrderRequestBody = {
   recordIds: number[];
@@ -130,13 +130,13 @@ export function adminNotificationEmail(a: RequestEmailArgs) {
     "",
     a.message ? `Their note:\n${a.message}\n` : "",
     `Load it into the sale desk: ${ADMIN_REQUESTS_URL}`,
-    `Reply to this email to answer ${a.buyerEmail}, or reply from the Inbox as ${ORDERS_ADDRESS}.`,
+    `Reply to this email to answer ${a.buyerEmail}, or reply from the admin's Sell page as ${ORDERS_ADDRESS}.`,
   ]
     .filter((l) => l !== "")
     .join("\n");
   const html = `<p><strong>${escapeHtml(who)}</strong> wants to buy ${what} (Ref: <code>${a.refCode}</code>).</p>${q.html}${
     a.message ? `<p><em>Their note:</em></p><blockquote>${escapeHtml(a.message).replace(/\n/g, "<br>")}</blockquote>` : ""
-  }<p><a href="${ADMIN_REQUESTS_URL}">Load it into the sale desk</a></p><p style="color:#666">Reply to this email to answer ${escapeHtml(a.buyerEmail)}, or reply from the Inbox as ${ORDERS_ADDRESS}.</p>`;
+  }<p><a href="${ADMIN_REQUESTS_URL}">Load it into the sale desk</a></p><p style="color:#666">Reply to this email to answer ${escapeHtml(a.buyerEmail)}, or reply from the admin's Sell page as ${ORDERS_ADDRESS}.</p>`;
   return { to: ADMIN_EMAIL, subject, text, html, replyTo: a.buyerEmail };
 }
 

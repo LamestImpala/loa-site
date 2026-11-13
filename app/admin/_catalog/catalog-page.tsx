@@ -523,12 +523,12 @@ export function CatalogPage() {
     }
   }
 
-  // Start a sale for this record on the inbox sale desk, where the buyer,
+  // Start a sale for this record on the Sell page's sale desk, where the buyer,
   // a negotiated price and the invoice are set.
   function sellOnDesk(r: DbRecord) {
     setSelectionMode("sale");
     setSelectedIds((prev) => new Set(prev).add(r.id));
-    router.push("/admin");
+    router.push("/admin/sell");
   }
 
   // Daily history for the record open in the drawer.
@@ -1069,9 +1069,9 @@ export function CatalogPage() {
               </p>
               <div className="flex items-center gap-3">
                 <Link
-                  href="/admin"
+                  href="/admin/sell"
                   className={buttonClass}
-                  title="Copy the reply, hold, mark sold or invoice these on the Inbox page"
+                  title="Copy the reply, hold, mark sold or invoice these on the Sell page"
                 >
                   Open sale desk
                 </Link>
@@ -1630,7 +1630,7 @@ export function CatalogPage() {
                           </span>
                           {invoiceHold(r) ? (
                             <Link
-                              href="/admin#open-orders"
+                              href="/admin/sell#open-orders"
                               className="self-start text-neutral-500 underline underline-offset-2 transition hover:text-white"
                             >
                               On invoice {r.paypal_invoice_id} — cancel it under Open orders

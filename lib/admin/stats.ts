@@ -1,6 +1,6 @@
 import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
 
-// The inbox stats tiles: collection value, what sold, and what actually
+// The Numbers tiles on Today: collection value, what sold, and what actually
 // landed in the account. Pure — no React, no Supabase.
 
 const sum = (list: DbRecord[], pick: (r: DbRecord) => number) =>
