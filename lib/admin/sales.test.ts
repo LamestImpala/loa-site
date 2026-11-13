@@ -5,6 +5,8 @@ import type { OrderRequest } from "../supabase.ts";
 import {
   finishedRequests,
   parseMoney,
+  partlySoldRequests,
+  requestProgress,
   saleItem,
   salePrice,
   saleReplyText,
@@ -99,6 +101,25 @@ test("an open request finishes once this sale sells its last record", () => {
   ];
   const done = finishedRequests(requests, new Set([1]), byId);
   assert.deepEqual(done.map((r) => r.id), [1, 3]);
+});
+
+test("a sale that leaves a request half-sold names it, so it can be closed by hand", () => {
+  const byId = new Map([
+    [1, rec({ id: 1 })],
+    [2, rec({ id: 2, sold: true })],
+    [3, rec({ id: 3 })],
+  ]);
+  const requests = [
+    request(1, "loaded", [1, 2]), // finished by this sale
+    request(2, "loaded", [1, 3]), // 3 is still for sale
+    request(3, "new", [1, 9]), // 9 is gone from the system
+    request(4, "loaded", [3]), // untouched
+    request(5, "dismissed", [1, 3]),
+  ];
+  const partly = partlySoldRequests(requests, new Set([1]), byId);
+  assert.deepEqual(partly.map((r) => r.id), [2, 3]);
+  assert.deepEqual(requestProgress(requests[0], byId), { sold: 1, total: 2 });
+  assert.deepEqual(requestProgress(requests[2], byId), { sold: 0, total: 2 });
 });
 
 test("un-selling pulls records out of parcels and cancels an order left empty", () => {

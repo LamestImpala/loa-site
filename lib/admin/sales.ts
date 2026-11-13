@@ -79,6 +79,34 @@ export function finishedRequests(
   );
 }
 
+// Open requests a sale touched but didn't finish: some of their records
+// just sold, others are still for sale (or gone from the system). Nothing
+// closes these by itself, so the seller is offered a way to.
+export function partlySoldRequests(
+  requests: OrderRequest[],
+  justSold: Set<number>,
+  byId: Map<number, DbRecord>
+): OrderRequest[] {
+  const finished = new Set(finishedRequests(requests, justSold, byId).map((r) => r.id));
+  return requests.filter(
+    (req) =>
+      (req.status === "loaded" || req.status === "new") &&
+      !finished.has(req.id) &&
+      req.record_ids.some((id) => justSold.has(id))
+  );
+}
+
+// How much of a request has sold: for the card's "2 of 3 sold".
+export function requestProgress(
+  req: Pick<OrderRequest, "record_ids">,
+  byId: Map<number, Pick<DbRecord, "sold">>
+): { sold: number; total: number } {
+  return {
+    sold: req.record_ids.filter((id) => byId.get(id)?.sold).length,
+    total: req.record_ids.length,
+  };
+}
+
 // The record patch that undoes a sale: back on the shop (listed is never
 // touched by a sale), out of its order, a fresh start on the pick list,
 // and cleared of the dead sale's buyer, price, invoice and tracking so the

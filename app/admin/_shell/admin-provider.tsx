@@ -38,16 +38,17 @@ import {
   type PlacedOrder,
 } from "@/lib/admin/orders-db";
 import { discogsReady } from "@/lib/admin/fulfillment";
-import { unsellPlan, unsoldPatch } from "@/lib/admin/sales";
+import { partlySoldRequests, unsellPlan, unsoldPatch } from "@/lib/admin/sales";
 import { markSold, type SaleTerms } from "@/lib/admin/sales-db";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { useAdminSession } from "../admin-gate";
 import type { ConfirmRequest, Toast } from "./ui";
 
 // Everything the admin pages share: the signed-in Supabase client, the
-// loaded tables, the toast/clipboard helpers, and the sale-desk selection.
-// It lives in the /admin layout, so it survives navigation between pages —
-// select records on one page, invoice them on another.
+// loaded tables, the toast/clipboard helpers, the sale desk and the weekly
+// Reddit picks. It lives in the /admin layout, so it survives navigation
+// between pages — put records on the desk on one page, invoice them on
+// another.
 
 export type PostedInfo = { ids: number[]; posted_at: string | null };
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
@@ -62,7 +63,9 @@ export type SliceName =
   | "events"
   | "visits"
   | "market"
-  | "redditPosts";
+  | "redditPosts"
+  | "closedRequests"
+  | "closedMessages";
 export type SliceStatus = "idle" | "loading" | "loaded" | "error";
 const SLICE_NAMES: SliceName[] = [
   "pending",
@@ -72,6 +75,8 @@ const SLICE_NAMES: SliceName[] = [
   "visits",
   "market",
   "redditPosts",
+  "closedRequests",
+  "closedMessages",
 ];
 
 // What /api/email-reply takes. orderId files the note against a paid
@@ -109,13 +114,24 @@ type AdminContextValue = {
   // Mail to orders@ (inbound, not yet archived) for the Sell page.
   messages: ShopMessage[];
   setMessages: Setter<ShopMessage[]>;
-  // Mail sent as orders@ against a request or an order, so its card can
-  // say it was answered.
+  // Mail sent as orders@ (the newest 200), so a conversation shows both
+  // sides and a card can say it was answered.
   sentMessages: ShopMessage[];
   setSentMessages: Setter<ShopMessage[]>;
   // Send mail as orders@ through /api/email-reply (the Resend key lives on
   // the server). False when it didn't go — already toasted.
   sendShopEmail: (body: ShopEmailBody) => Promise<boolean>;
+  // Close an open request (completed = sold or settled, dismissed = not
+  // going anywhere) with an Undo toast, and put a closed one back.
+  closeRequest: (req: OrderRequest, status: "completed" | "dismissed") => Promise<boolean>;
+  restoreRequest: (req: OrderRequest) => Promise<boolean>;
+  // Un-archive mail, each message to the status it's handed in with.
+  restoreMessages: (mail: ShopMessage[]) => Promise<boolean>;
+  // The Sell page's Closed view (lazy slices): requests completed or
+  // dismissed, and archived mail, newest first.
+  closedRequests: OrderRequest[];
+  closedMessages: ShopMessage[];
+  setClosedMessages: Setter<ShopMessage[]>;
   // Shop reviews (newest first) and review links, for the Reviews page.
   reviews: ShopReview[];
   setReviews: Setter<ShopReview[]>;
@@ -216,10 +232,14 @@ type AdminContextValue = {
   // an order left empty cancelled. No confirm — callers ask first.
   unsellRecords: (targets: DbRecord[]) => Promise<boolean>;
 
-  // Sale-desk selection. `selectionMode` says why records are selected:
-  // the sale desk (default) or the weekly Reddit post.
-  selectedIds: Set<number>;
-  setSelectedIds: Setter<Set<number>>;
+  // Two separate selections: what's on the sale desk, and the picks for
+  // the weekly Reddit post. `selectionMode` says which one the Catalog's
+  // Sel checkboxes edit — the desk (default) or the weekly picks — so
+  // working a sale never disturbs the picks, and the other way round.
+  saleIds: Set<number>;
+  setSaleIds: Setter<Set<number>>;
+  weeklyIds: Set<number>;
+  setWeeklyIds: Setter<Set<number>>;
   selectionMode: "sale" | "weekly";
   setSelectionMode: Setter<"sale" | "weekly">;
   saleBuyer: string;
@@ -243,8 +263,12 @@ type AdminContextValue = {
   // Shipping quoted for the equipment on the desk, added to the invoice.
   saleGearShipping: string;
   setSaleGearShipping: Setter<string>;
+  // Tick or untick a record in whichever selection the mode points at.
   toggleSelected: (id: number) => void;
-  clearSelection: () => void;
+  // Empty the desk: its records, buyer and terms. The weekly picks stay.
+  clearSaleDesk: () => void;
+  // Drop the weekly picks and hand the checkboxes back to the desk.
+  clearWeeklyPicks: () => void;
 };
 
 // How a Discogs removal went. "ambiguous" = the collection has more than
@@ -334,7 +358,11 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [closedRequests, setClosedRequests] = useState<OrderRequest[]>([]);
+  const [closedMessages, setClosedMessages] = useState<ShopMessage[]>([]);
+
+  const [saleIds, setSaleIds] = useState<Set<number>>(new Set());
+  const [weeklyIds, setWeeklyIds] = useState<Set<number>>(new Set());
   const [selectionMode, setSelectionMode] = useState<"sale" | "weekly">("sale");
   const [saleBuyer, setSaleBuyer] = useState("");
   const [saleEmail, setSaleEmail] = useState("");
@@ -427,7 +455,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           return false;
         }
         const sent = json.sent;
-        if (sent && (sent.request_id != null || sent.order_id != null)) {
+        if (sent) {
           setSentMessages((prev) => [sent, ...prev.filter((m) => m.id !== sent.id)]);
         }
         return true;
@@ -540,6 +568,29 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           setRedditPosts((res.data ?? []) as RedditPost[]);
           return ok();
         }
+        case "closedRequests": {
+          const res = await supabase
+            .from("order_requests")
+            .select("*")
+            .in("status", ["completed", "dismissed"])
+            .order("updated_at", { ascending: false })
+            .limit(50);
+          if (res.error) return fail("Closed requests", res.error.message);
+          setClosedRequests((res.data ?? []) as OrderRequest[]);
+          return ok();
+        }
+        case "closedMessages": {
+          const res = await supabase
+            .from("shop_messages")
+            .select("*")
+            .eq("direction", "in")
+            .eq("status", "archived")
+            .order("received_at", { ascending: false })
+            .limit(50);
+          if (res.error) return fail("Archived messages", res.error.message);
+          setClosedMessages((res.data ?? []) as ShopMessage[]);
+          return ok();
+        }
       }
     },
     [supabase, pushToast]
@@ -617,9 +668,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .from("shop_messages")
           .select("*")
           .eq("direction", "out")
-          .or("request_id.not.is.null,order_id.not.is.null")
           .order("received_at", { ascending: false })
-          .limit(100),
+          .limit(200),
         supabase
           .from("shop_reviews")
           .select("*")
@@ -1119,20 +1169,28 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     recordsRef.current = records;
   }, [records]);
-  const toggleSelected = useCallback((id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    // Seed the buyer input from an active hold the first time it's useful
-    setSaleBuyer((prev) => {
-      if (prev.trim()) return prev;
-      const r = recordsRef.current.find((x) => x.id === id);
-      return r && holdActive(r) && r.hold_buyer ? r.hold_buyer : prev;
-    });
-  }, []);
+  const toggleSelected = useCallback(
+    (id: number) => {
+      const flip = (prev: Set<number>) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      };
+      if (selectionMode === "weekly") {
+        setWeeklyIds(flip);
+        return;
+      }
+      setSaleIds(flip);
+      // Seed the buyer input from an active hold the first time it's useful
+      setSaleBuyer((prev) => {
+        if (prev.trim()) return prev;
+        const r = recordsRef.current.find((x) => x.id === id);
+        return r && holdActive(r) && r.hold_buyer ? r.hold_buyer : prev;
+      });
+    },
+    [selectionMode]
+  );
 
   // Release one record's hold. The record leaves a held order (which is
   // cancelled once empty); an invoiced order keeps it, since the invoice
@@ -1143,7 +1201,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (invoiceHold(r)) {
       pushToast(
         "error",
-        `On invoice ${r.paypal_invoice_id ?? ""} — cancel it under Open orders to release the record.`
+        `On invoice ${r.paypal_invoice_id ?? ""} — cancel it under Awaiting payment on the Sell page to release the record.`
       );
       return false;
     }
@@ -1273,6 +1331,19 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         return false;
       }
       pushToast("success", `Marked ${result.soldIds.length} sold ✓`);
+      // A request this sale only half-finished would sit open forever:
+      // say so, with a way to close it.
+      const justSold = new Set(result.soldIds);
+      for (const req of partlySoldRequests(orderRequests, justSold, byId)) {
+        const left = req.record_ids.filter(
+          (id) => !justSold.has(id) && !byId.get(id)?.sold
+        ).length;
+        pushToast(
+          "info",
+          `Request ${req.ref_code} still has ${left} of ${req.record_ids.length} record${req.record_ids.length === 1 ? "" : "s"} unsold.`,
+          { label: "Close request", onClick: () => void closeRequest(req, "completed") }
+        );
+      }
       return true;
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Mark sold failed");
@@ -1280,9 +1351,119 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  function clearSelection() {
-    setSelectedIds(new Set());
-    setSelectionMode("sale");
+  // --- Order requests: close and reopen ---
+  // Closing a request files its mail away with it (the buyer's messages
+  // filed against it are archived), so nothing of a finished conversation
+  // is left behind on the Sell page. Undo brings both back.
+  async function closeRequest(req: OrderRequest, status: "completed" | "dismissed") {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("order_requests")
+      .update({ status, updated_at: now })
+      .eq("id", req.id);
+    if (error) {
+      pushToast("error", `Couldn't update the request: ${error.message}`);
+      return false;
+    }
+    setOrderRequests((prev) => prev.filter((r) => r.id !== req.id));
+    setClosedRequests((prev) => [
+      { ...req, status, updated_at: now },
+      ...prev.filter((r) => r.id !== req.id),
+    ]);
+    let mail = messages.filter((m) => m.request_id === req.id);
+    if (mail.length > 0) {
+      const { error: mailError } = await supabase
+        .from("shop_messages")
+        .update({ status: "archived", updated_at: now })
+        .in(
+          "id",
+          mail.map((m) => m.id)
+        );
+      // Best-effort: mail that didn't archive just stays under Conversations.
+      if (mailError) mail = [];
+      else {
+        const gone = new Set(mail.map((m) => m.id));
+        setMessages((prev) => prev.filter((m) => !gone.has(m.id)));
+        setClosedMessages((prev) => [
+          ...mail.map((m) => ({ ...m, status: "archived" as const })),
+          ...prev.filter((m) => !gone.has(m.id)),
+        ]);
+      }
+    }
+    // The card leaves the open list, so offer a way back.
+    pushToast(
+      "info",
+      `Request ${req.ref_code} ${status === "dismissed" ? "dismissed" : "closed"}.`,
+      { label: "Undo", onClick: () => void restoreRequest(req, mail) }
+    );
+    return true;
+  }
+
+  // Back to the open list. An Undo passes the request and its mail as
+  // they were; reopening from the Closed view brings the request back as
+  // "loaded" (already seen, so it doesn't count as new) with whatever
+  // archived mail is filed against it, as read.
+  async function restoreRequest(req: OrderRequest, mail?: ShopMessage[]) {
+    const status: OrderRequest["status"] = req.status === "new" ? "new" : "loaded";
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("order_requests")
+      .update({ status, updated_at: now })
+      .eq("id", req.id);
+    if (error) {
+      pushToast("error", `Couldn't restore the request: ${error.message}`);
+      return false;
+    }
+    setClosedRequests((prev) => prev.filter((r) => r.id !== req.id));
+    setOrderRequests((prev) =>
+      prev.some((r) => r.id === req.id)
+        ? prev
+        : [...prev, { ...req, status, updated_at: now }].sort((a, b) =>
+            b.created_at.localeCompare(a.created_at)
+          )
+    );
+    const back = (
+      mail ??
+      closedMessages
+        .filter((m) => m.request_id === req.id)
+        .map((m) => ({ ...m, status: "read" as const }))
+    ).filter((m) => m.status !== "archived");
+    if (back.length > 0) await restoreMessages(back);
+    return true;
+  }
+
+  // Un-archive mail, each message to the status it's handed in with.
+  async function restoreMessages(mail: ShopMessage[]) {
+    const now = new Date().toISOString();
+    const statuses = [...new Set(mail.map((m) => m.status))];
+    const results = await Promise.all(
+      statuses.map((status) =>
+        supabase
+          .from("shop_messages")
+          .update({ status, updated_at: now })
+          .in(
+            "id",
+            mail.filter((m) => m.status === status).map((m) => m.id)
+          )
+      )
+    );
+    const failed = results.find((r) => r.error)?.error;
+    if (failed) {
+      pushToast("error", `Couldn't restore the message: ${failed.message}`);
+      return false;
+    }
+    const ids = new Set(mail.map((m) => m.id));
+    setClosedMessages((prev) => prev.filter((m) => !ids.has(m.id)));
+    setMessages((prev) =>
+      [...prev.filter((m) => !ids.has(m.id)), ...mail].sort((a, b) =>
+        b.received_at.localeCompare(a.received_at)
+      )
+    );
+    return true;
+  }
+
+  function clearSaleDesk() {
+    setSaleIds(new Set());
     setSaleBuyer("");
     setSaleEmail("");
     setSaleChannel("reddit");
@@ -1290,6 +1471,11 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setSaleCredit("");
     setSaleCreditNote("");
     setSaleGearShipping("");
+  }
+
+  function clearWeeklyPicks() {
+    setWeeklyIds(new Set());
+    setSelectionMode("sale");
   }
 
   const value: AdminContextValue = {
@@ -1315,6 +1501,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     sentMessages,
     setSentMessages,
     sendShopEmail,
+    closeRequest,
+    restoreRequest,
+    restoreMessages,
+    closedRequests,
+    closedMessages,
+    setClosedMessages,
     reviews,
     setReviews,
     reviewInvites,
@@ -1368,8 +1560,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     releaseHold,
     unsellRecords,
     saveOrderCredit,
-    selectedIds,
-    setSelectedIds,
+    saleIds,
+    setSaleIds,
+    weeklyIds,
+    setWeeklyIds,
     selectionMode,
     setSelectionMode,
     saleBuyer,
@@ -1387,7 +1581,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     saleGearShipping,
     setSaleGearShipping,
     toggleSelected,
-    clearSelection,
+    clearSaleDesk,
+    clearWeeklyPicks,
   };
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;

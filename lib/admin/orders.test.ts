@@ -8,6 +8,7 @@ import {
   liveInvoiceOn,
   openOrders,
   pickOrder,
+  recentlyPaid,
   requestForOrder,
 } from "./orders.ts";
 import { DAY, invoice, iso, order, rec } from "./fixtures.ts";
@@ -171,4 +172,28 @@ test("a record already on a live invoice can't be invoiced again", () => {
     null
   );
   assert.equal(liveInvoiceOn([rec({ order_id: 2 })], orders), null);
+});
+
+test("recently paid: paid orders by their newest sale, newest first, inside the window", () => {
+  const orders = [
+    order({ id: 1, status: "paid", buyer_username: " amy " }),
+    order({ id: 2, status: "paid" }),
+    order({ id: 3, status: "paid" }), // paid long ago
+    order({ id: 4, status: "invoiced" }),
+    order({ id: 5, status: "paid" }), // no records left on it
+  ];
+  const records = [
+    rec({ id: 1, order_id: 1, sold: true, sold_at: iso(NOW - DAY) }),
+    rec({ id: 2, order_id: 1, sold: true, sold_at: iso(NOW - 2 * DAY) }),
+    rec({ id: 3, order_id: 2, sold: true, sold_at: iso(NOW - 3600 * 1000) }),
+    rec({ id: 4, order_id: 3, sold: true, sold_at: iso(NOW - 10 * DAY) }),
+    rec({ id: 5, order_id: 4, sold: false }),
+    rec({ id: 6, order_id: 1, sold: false }), // back on the shop: not part of the sale
+  ];
+  const paid = recentlyPaid(orders, records, NOW);
+  assert.deepEqual(paid.map((p) => p.order.id), [2, 1]);
+  assert.equal(paid[1].buyer, "amy");
+  assert.deepEqual(paid[1].recs.map((r) => r.id), [1, 2]);
+  assert.equal(paid[1].paidAt, iso(NOW - DAY));
+  assert.deepEqual(recentlyPaid(orders, records, NOW, 30).map((p) => p.order.id), [2, 1, 3]);
 });

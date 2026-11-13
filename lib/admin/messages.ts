@@ -1,7 +1,7 @@
 import type { OrderRequest, ShopMessage } from "../supabase.ts";
 import { REF_LINE_RE } from "../records.ts";
 
-// Inbound mail for the admin Inbox: pull out the ref code that ties a
+// Inbound mail for the Sell page: pull out the ref code that ties a
 // message to a saved request, and a one-line summary of the body. Pure.
 
 // "Ref: CR-XXXX" anywhere in the subject or body, else a bare CR-XXXX in
@@ -68,7 +68,7 @@ export function replySubject(subject: string | null): string {
   return /^re:/i.test(s) ? s : `Re: ${s}`;
 }
 
-// Opening line of a reply typed in the Inbox: first name when we have one.
+// Opening line of a reply typed on the Sell page: first name when we have one.
 export function replyGreeting(name: string | null | undefined): string {
   const first = (name ?? "").trim().split(/\s+/)[0];
   return `Hi${first ? ` ${first}` : ""}!\n\n`;
@@ -129,4 +129,102 @@ export function latestEmailToOrder<
     if (!best || m.received_at > best.received_at) best = m;
   }
   return best;
+}
+
+// --- Conversations: a request and its mail together ---
+
+type ThreadMessage = Pick<
+  ShopMessage,
+  "id" | "direction" | "request_id" | "ref_code" | "received_at"
+>;
+
+const oldestFirst = <T extends ThreadMessage>(a: T, b: T) =>
+  a.received_at.localeCompare(b.received_at) || a.id - b.id;
+
+const sameRef = (a: string | null, b: string) =>
+  a != null && a.toUpperCase() === b.toUpperCase();
+
+// Whether a message belongs to a request: filed against it, or (not filed
+// anywhere yet) carrying its ref code.
+function inThread(
+  m: ThreadMessage,
+  req: Pick<OrderRequest, "id" | "ref_code">
+): boolean {
+  return (
+    m.request_id === req.id ||
+    (m.request_id == null && sameRef(m.ref_code, req.ref_code))
+  );
+}
+
+// The email conversation behind a request: the buyer's mail and the
+// replies sent as orders@, oldest first, each message once.
+export function threadFor<T extends ThreadMessage>(
+  req: Pick<OrderRequest, "id" | "ref_code">,
+  inbound: T[],
+  sent: T[]
+): T[] {
+  const seen = new Set<number>();
+  return [...inbound, ...sent]
+    .filter((m) => {
+      if (seen.has(m.id) || !inThread(m, req)) return false;
+      seen.add(m.id);
+      return true;
+    })
+    .sort(oldestFirst);
+}
+
+// Mail that belongs to no open request, one conversation per sender: what
+// they wrote and what was sent back to that address, oldest first.
+// Conversations come newest first.
+export type LooseThread<T> = {
+  email: string; // the buyer's address, lowercased
+  name: string | null;
+  messages: T[]; // both directions, oldest first
+  latestIn: T; // the buyer's newest message — what a reply answers
+  newCount: number; // inbound messages nobody has read yet
+};
+
+type LooseMessage = ThreadMessage &
+  Pick<ShopMessage, "from_email" | "from_name" | "to_email" | "status" | "order_id">;
+
+export function looseThreads<T extends LooseMessage>(
+  inbound: T[],
+  sent: T[],
+  openRequests: Pick<OrderRequest, "id" | "ref_code">[]
+): LooseThread<T>[] {
+  const taken = (m: T) => openRequests.some((req) => inThread(m, req));
+  const bySender = new Map<string, T[]>();
+  for (const m of inbound) {
+    if (m.direction !== "in" || taken(m)) continue;
+    const email = m.from_email.trim().toLowerCase();
+    const list = bySender.get(email);
+    if (list) list.push(m);
+    else bySender.set(email, [m]);
+  }
+  const threads: LooseThread<T>[] = [];
+  for (const [email, theirs] of bySender) {
+    // Notes about a paid order live on its Ship card, not here.
+    const ours = sent.filter(
+      (m) =>
+        m.direction === "out" &&
+        m.order_id == null &&
+        m.to_email.trim().toLowerCase() === email &&
+        !taken(m)
+    );
+    const seen = new Set<number>();
+    const messages = [...theirs, ...ours]
+      .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)))
+      .sort(oldestFirst);
+    const latestIn = [...theirs].sort(oldestFirst)[theirs.length - 1];
+    threads.push({
+      email,
+      name: latestIn.from_name ?? theirs.find((m) => m.from_name)?.from_name ?? null,
+      messages,
+      latestIn,
+      newCount: theirs.filter((m) => m.status === "new").length,
+    });
+  }
+  return threads.sort((a, b) =>
+    b.latestIn.received_at.localeCompare(a.latestIn.received_at)
+  );
 }

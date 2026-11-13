@@ -8,11 +8,11 @@ import {
   listingPhotos,
   type PhotoAttachment,
 } from "@/lib/admin/attachments";
-import { useAdmin } from "../_shell/admin-provider";
-import { resizeImage } from "../_shell/resize-image";
-import { inputClass } from "../_shell/ui";
+import { useAdmin } from "./admin-provider";
+import { resizeImage } from "./resize-image";
+import { inputClass } from "./ui";
 
-// Photos to attach to an email from the Inbox: the listing photos of the
+// Photos to attach to an email from the admin: the listing photos of the
 // records in play, each toggleable, plus an upload button for fresh
 // shots of a copy. Uploads are resized on the way up, go to the same
 // record-photos bucket, and join the listing unless that's unticked.

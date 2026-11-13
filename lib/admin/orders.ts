@@ -179,3 +179,43 @@ export function openOrders(
           : a.order.created_at.localeCompare(b.order.created_at))
     );
 }
+
+// Orders paid in the last few days, newest first: the end of the Sell
+// page's job. Each is on the pick list now; an email buyer can be told
+// their payment landed. Paid-at is the newest sold_at among its records.
+export const RECENTLY_PAID_DAYS = 3;
+
+export type PaidOrder = {
+  order: Order;
+  buyer: string;
+  recs: DbRecord[]; // the records it sold
+  paidAt: string; // ISO
+};
+
+export function recentlyPaid(
+  orders: Order[],
+  records: DbRecord[],
+  now: number = Date.now(),
+  days: number = RECENTLY_PAID_DAYS
+): PaidOrder[] {
+  const since = now - days * 24 * 3600 * 1000;
+  const members = new Map<number, DbRecord[]>();
+  for (const r of records) {
+    if (!r.sold || r.order_id == null) continue;
+    const list = members.get(r.order_id);
+    if (list) list.push(r);
+    else members.set(r.order_id, [r]);
+  }
+  return orders
+    .filter((o) => o.status === "paid")
+    .flatMap((order) => {
+      const recs = members.get(order.id) ?? [];
+      const paidAt = recs.reduce(
+        (max, r) => (r.sold_at && r.sold_at > max ? r.sold_at : max),
+        ""
+      );
+      if (!paidAt || new Date(paidAt).getTime() < since) return [];
+      return [{ order, buyer: order.buyer_username.trim(), recs, paidAt }];
+    })
+    .sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+}

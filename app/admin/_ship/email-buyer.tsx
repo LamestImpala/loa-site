@@ -11,13 +11,13 @@ import {
 import { fetchShippingPause, formatShipDay } from "@/lib/shipping-pause";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass, inputClass } from "../_shell/ui";
-import { PhotoPicker } from "../_inbox/photo-picker";
+import { PhotoPicker } from "../_shell/photo-picker";
 
-// Email an email-form buyer about their order from the Ship page, as
-// orders@curiouserrecords.com. Once a request is paid its Inbox card is
-// gone, so this is where a "got your payment" note (or any other) goes.
-// The server files the note against the order and threads it with the
-// buyer's request, so their reply lands back in the Inbox. Renders the
+// Email an email-form buyer about their paid order, as
+// orders@curiouserrecords.com — from the order's Ship card, or from Just
+// paid on the Sell page for the "got your payment" note. The server files
+// the note against the order and threads it with the buyer's request, so
+// their reply lands back under Conversations on the Sell page. Renders the
 // button inline and the compose box on its own line (inside a flex-wrap row).
 export function EmailBuyer({
   order,
@@ -94,7 +94,7 @@ export function EmailBuyer({
         type="button"
         onClick={toggle}
         disabled={busy === "send"}
-        title={`Email ${email} as orders@curiouserrecords.com — replies come back to Messages on the Sell page`}
+        title={`Email ${email} as orders@curiouserrecords.com — replies come back to Conversations on the Sell page`}
         className={buttonClass}
       >
         {open ? "Close email" : last ? "Email buyer again" : "Email buyer"}

@@ -6,6 +6,7 @@ import {
   findRefCode,
   latestEmailToOrder,
   latestReplyTo,
+  looseThreads,
   messageSummary,
   orderEmailSubject,
   paymentReceivedText,
@@ -13,6 +14,7 @@ import {
   replySubject,
   requestForRef,
   requestReplySubject,
+  threadFor,
 } from "./messages.ts";
 
 test("ref code: Ref: line in the body, bare code in a reply subject, none otherwise", () => {
@@ -93,4 +95,72 @@ test("latest email to an order: newest outbound row for that order only", () => 
   ];
   assert.equal(latestEmailToOrder(sent, 7)?.received_at, "2026-11-03T00:00:00Z");
   assert.equal(latestEmailToOrder(sent, 9), null);
+});
+
+const mail = (
+  id: number,
+  direction: "in" | "out",
+  at: string,
+  over: Partial<{
+    request_id: number | null;
+    ref_code: string | null;
+    from_email: string;
+    from_name: string | null;
+    to_email: string;
+    status: "new" | "read" | "replied" | "archived";
+    order_id: number | null;
+  }> = {}
+) => ({
+  id,
+  direction,
+  received_at: at,
+  request_id: null,
+  ref_code: null,
+  from_email: direction === "in" ? "amy@example.com" : "orders@curiouserrecords.com",
+  from_name: direction === "in" ? "Amy" : "Curiouser Records",
+  to_email: direction === "in" ? "orders@curiouserrecords.com" : "amy@example.com",
+  status: (direction === "in" ? "read" : "archived") as "new" | "read" | "replied" | "archived",
+  order_id: null,
+  ...over,
+});
+
+test("a request's thread: its mail both ways, oldest first, by id or by ref code", () => {
+  const req = { id: 5, ref_code: "CR-AB23" };
+  const inbound = [
+    mail(3, "in", "2026-11-03T00:00:00Z", { request_id: 5 }),
+    mail(1, "in", "2026-11-01T00:00:00Z", { ref_code: "cr-ab23" }), // not filed, ref matches
+    mail(4, "in", "2026-11-04T00:00:00Z", { request_id: 6, ref_code: "CR-AB23" }), // filed elsewhere
+    mail(5, "in", "2026-11-05T00:00:00Z"), // no tie to the request
+  ];
+  const sent = [
+    mail(2, "out", "2026-11-02T00:00:00Z", { request_id: 5 }),
+    mail(3, "in", "2026-11-03T00:00:00Z", { request_id: 5 }), // the same row twice
+    mail(6, "out", "2026-11-06T00:00:00Z", { request_id: 6 }),
+  ];
+  assert.deepEqual(threadFor(req, inbound, sent).map((m) => m.id), [1, 2, 3]);
+  assert.deepEqual(threadFor({ id: 9, ref_code: "CR-ZZZZ" }, inbound, sent), []);
+});
+
+test("loose mail: one conversation per sender, minus what an open request already shows", () => {
+  const open = [{ id: 5, ref_code: "CR-AB23" }];
+  const inbound = [
+    mail(1, "in", "2026-11-01T00:00:00Z", { request_id: 5 }), // in the request's card
+    mail(2, "in", "2026-11-02T00:00:00Z", { status: "new" }),
+    mail(3, "in", "2026-11-04T00:00:00Z", { from_email: "Amy@Example.com", from_name: null, status: "new" }),
+    mail(4, "in", "2026-11-03T00:00:00Z", { from_email: "bo@example.com", from_name: "Bo", request_id: 8 }), // closed request
+  ];
+  const sent = [
+    mail(10, "out", "2026-11-02T12:00:00Z"), // answer to Amy
+    mail(11, "out", "2026-11-02T13:00:00Z", { request_id: 5 }), // the request's thread
+    mail(12, "out", "2026-11-02T14:00:00Z", { order_id: 3 }), // a paid-order note
+    mail(13, "out", "2026-11-02T15:00:00Z", { to_email: "cy@example.com" }), // nobody wrote in
+  ];
+  const threads = looseThreads(inbound, sent, open);
+  assert.deepEqual(threads.map((t) => t.email), ["amy@example.com", "bo@example.com"]);
+  assert.deepEqual(threads[0].messages.map((m) => m.id), [2, 10, 3]);
+  assert.equal(threads[0].latestIn.id, 3);
+  assert.equal(threads[0].name, "Amy", "falls back to a name from an earlier message");
+  assert.equal(threads[0].newCount, 2);
+  assert.equal(threads[1].newCount, 0);
+  assert.deepEqual(looseThreads([], sent, open), []);
 });
