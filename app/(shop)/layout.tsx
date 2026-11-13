@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { GRADES } from "@/lib/record-info";
 import { SELLER_INFO } from "@/lib/records";
+import "./celestial-motion.css";
 import "./shop.css";
 import VisitTracker from "./visit-tracker";
 import ShopNavLinks from "./shop-nav-links";
