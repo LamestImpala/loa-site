@@ -1,9 +1,10 @@
-import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
+import type { DbRecord, Invoice, Order, OrderRequest, Shipment } from "../supabase.ts";
 import { kindOf } from "../items.ts";
 
-// Fulfillment rules: how sold records and parcels group per order, what
-// PayPal already knows about a parcel, and the r/VinylCollectors trade
-// confirmation texts. Pure — no React, no Supabase.
+// Fulfillment rules: how sold records and boxes (shipments rows — "parcel"
+// in the older code) group per order, where an order stands from request
+// to drop-off, what PayPal already knows about a box, and the
+// r/VinylCollectors trade confirmation texts. Pure — no React, no Supabase.
 
 // A parcel already known to PayPal, under its current tracking number.
 export const inPayPal = (s: Shipment) =>
@@ -175,6 +176,168 @@ export function orderStage(
   if (g.shipments.some(pushable)) return "push";
   if (g.invoiceId && invoice?.paypal_fee == null) return "sync";
   return "done";
+}
+
+// Every record boxed and every box out of the house — dropped off with
+// the carrier or handed over in person. A label isn't a drop-off: a
+// tracked box can sit on the table for days.
+export function orderGone(
+  g: Pick<OrderGroup, "records" | "unassigned" | "shipments">
+): boolean {
+  return (
+    g.records.length > 0 &&
+    g.unassigned.length === 0 &&
+    g.shipments.length > 0 &&
+    g.shipments.every((s) => !!s.sent_at)
+  );
+}
+
+// The one job an order card offers as its bright button, in the order a
+// sale moves: the stage jobs up to the label, then the drop-off, the fee
+// sync, and last the after-sale checklist ("finish"). "none" = closed.
+export type OrderJob = "pack" | "label" | "push" | "dropoff" | "sync" | "finish" | "none";
+
+export function nextJob(
+  g: Pick<OrderGroup, "order" | "records" | "unassigned" | "shipments" | "invoiceId">,
+  invoice: Pick<Invoice, "paypal_fee"> | null | undefined
+): OrderJob {
+  const stage = orderStage(g, invoice);
+  if (stage === "pack" || stage === "label" || stage === "push") return stage;
+  if (!orderGone(g)) return "dropoff";
+  if (stage === "sync") return "sync";
+  return g.order?.completed_at === null ? "finish" : "none";
+}
+
+// A shipped order stays on the Orders page this long after its last box
+// update, then moves to the archive. Keyed to the boxes (not the sale
+// date) so an order still in transit never archives early — the window
+// covers delivery plus an it-arrived-damaged grace period.
+export const ARCHIVE_AFTER_DAYS = 21;
+
+// Which list an order card belongs in on the Orders page:
+//   ship      something is still in the house (loose, unlabeled, or not
+//             dropped off)
+//   after     everything has left; the after-sale checklist is open until
+//             the seller marks the order done
+//   done      marked done — or can't be marked: sales that predate the
+//             orders table, and every order until the completed_at
+//             migration is applied (the column reads as undefined)
+//   archived  left more than ARCHIVE_AFTER_DAYS ago, marked or not, so
+//             orders from before "Mark done" existed never pile up
+export type OrderPhase = "ship" | "after" | "done" | "archived";
+
+export function orderPhase(
+  g: Pick<OrderGroup, "order" | "records" | "unassigned" | "shipments" | "lastActivity">,
+  now: number = Date.now()
+): OrderPhase {
+  if (!orderGone(g)) return "ship";
+  if (g.lastActivity < now - ARCHIVE_AFTER_DAYS * 24 * 3600 * 1000) return "archived";
+  return g.order?.completed_at === null ? "after" : "done";
+}
+
+// An order's whole life as a row of steps, for its card: request →
+// invoice → paid → pulled → packed → labeled → dropped off. Steps that
+// never applied to this sale are left out (no request for a DM sale, no
+// invoice for cash, no label when it was handed over). The first step
+// not yet done is "current"; `at` is when a step happened, where the
+// tables recorded it (a label has no timestamp of its own).
+export type TimelineStep = {
+  key: "request" | "invoice" | "paid" | "pulled" | "packed" | "labeled" | "sent";
+  label: string;
+  state: "done" | "current" | "todo";
+  at: string | null;
+  detail?: string; // "2 of 3" while a step is part-way
+};
+
+const latest = (times: (string | null | undefined)[]): string | null => {
+  const known = times.filter((t): t is string => !!t);
+  return known.length ? known.reduce((a, b) => (a > b ? a : b)) : null;
+};
+const earliest = (times: (string | null | undefined)[]): string | null => {
+  const known = times.filter((t): t is string => !!t);
+  return known.length ? known.reduce((a, b) => (a < b ? a : b)) : null;
+};
+
+export function orderTimeline(
+  g: Pick<OrderGroup, "order" | "records" | "unassigned" | "shipments" | "invoiceId">,
+  ctx: {
+    invoice?: Pick<Invoice, "created_at" | "paid_at"> | null;
+    request?: Pick<OrderRequest, "created_at"> | null;
+  } = {}
+): TimelineStep[] {
+  const { invoice, request } = ctx;
+  const total = g.records.length;
+  const boxes = g.shipments;
+  const boxedIds = new Set(boxes.flatMap((s) => s.record_ids ?? []));
+  type Draft = Omit<TimelineStep, "state"> & { done: boolean };
+  const steps: Draft[] = [];
+  const add = (step: Draft) => steps.push(step);
+
+  if (g.order?.request_id != null || request) {
+    add({ key: "request", label: "Requested", done: true, at: request?.created_at ?? null });
+  }
+  if (g.invoiceId || invoice) {
+    add({ key: "invoice", label: "Invoiced", done: true, at: invoice?.created_at ?? null });
+  }
+  // The card only exists for sold records, so the sale is paid — by the
+  // invoice when there is one, else when the records were marked sold.
+  add({
+    key: "paid",
+    label: "Paid",
+    done: total > 0,
+    at: invoice?.paid_at ?? earliest(g.records.map((r) => r.sold_at)),
+  });
+
+  // A record in a box came off the shelf, whether or not it was ticked.
+  const pulled = g.records.filter((r) => !!r.picked_at || boxedIds.has(r.id));
+  add({
+    key: "pulled",
+    label: "Pulled",
+    done: total > 0 && pulled.length === total,
+    at: latest(g.records.map((r) => r.picked_at)),
+    detail: pulled.length > 0 && pulled.length < total ? `${pulled.length} of ${total}` : undefined,
+  });
+
+  const boxed = total - g.unassigned.length;
+  const packed = total > 0 && g.unassigned.length === 0 && boxes.length > 0;
+  add({
+    key: "packed",
+    label: "Packed",
+    done: packed,
+    at: packed ? latest(boxes.map((s) => s.packed_at ?? s.created_at)) : null,
+    detail: boxed > 0 && !packed ? `${boxed} of ${total}` : undefined,
+  });
+
+  const mailed = boxes.filter((s) => !handDelivered(s));
+  const inPerson = packed && mailed.length === 0;
+  if (!inPerson) {
+    const labeled = mailed.filter((s) => !!s.tracking_code).length;
+    add({
+      key: "labeled",
+      label: "Labeled",
+      done: packed && labeled === mailed.length,
+      at: null,
+      detail:
+        labeled > 0 && labeled < mailed.length ? `${labeled} of ${mailed.length} boxes` : undefined,
+    });
+  }
+
+  const sent = boxes.filter((s) => !!s.sent_at).length;
+  const gone = orderGone(g);
+  add({
+    key: "sent",
+    label: inPerson ? "Handed over" : "Dropped off",
+    done: gone,
+    at: gone ? latest(boxes.map((s) => s.sent_at)) : null,
+    detail: sent > 0 && !gone ? `${sent} of ${boxes.length} boxes` : undefined,
+  });
+
+  let currentSet = false;
+  return steps.map(({ done, ...step }) => {
+    const state: TimelineStep["state"] = done ? "done" : currentSet ? "todo" : "current";
+    if (!done) currentSet = true;
+    return { ...step, state };
+  });
 }
 
 // When the order started waiting on the seller: the order row's date, or

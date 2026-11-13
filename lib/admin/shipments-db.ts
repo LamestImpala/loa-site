@@ -123,6 +123,78 @@ export async function handOverOrder(
   return { created, patch };
 }
 
+// Undo a hand-over marked by mistake: the order goes back on the packing
+// table as it was. A box the hand-over made for the loose records (sealed
+// and handed over in the same stamp) is deleted, so its records are loose
+// again; a box that was already sealed goes back to waiting on a label —
+// "paypal" like every box sealed on the pack page, "manual" for one made
+// on the order card.
+export type HandOverUndo = {
+  deleteIds: number[];
+  reverts: { id: number; patch: Partial<Shipment> }[];
+};
+
+export function handOverUndoPlan(
+  boxes: Pick<Shipment, "id" | "mode" | "packed_at" | "sent_at">[]
+): HandOverUndo {
+  const plan: HandOverUndo = { deleteIds: [], reverts: [] };
+  for (const s of boxes) {
+    if (s.mode !== HAND_MODE) continue;
+    const madeByHandOver =
+      !!s.packed_at && !!s.sent_at && Date.parse(s.packed_at) === Date.parse(s.sent_at);
+    if (madeByHandOver) plan.deleteIds.push(s.id);
+    else
+      plan.reverts.push({
+        id: s.id,
+        patch: {
+          mode: s.packed_at ? "paypal" : "manual",
+          carrier: "USPS",
+          status: "draft",
+          sent_at: null,
+        },
+      });
+  }
+  return plan;
+}
+
+export async function undoHandOver(
+  supabase: SupabaseClient,
+  boxes: Pick<Shipment, "id" | "mode" | "packed_at" | "sent_at">[],
+  at: string = new Date().toISOString()
+): Promise<HandOverUndo> {
+  const plan = handOverUndoPlan(boxes);
+  for (const { id, patch } of plan.reverts) {
+    const { error } = await supabase
+      .from("shipments")
+      .update({ ...patch, updated_at: at })
+      .eq("id", id);
+    if (error) throw new Error(`Couldn't undo the hand-over: ${error.message}`);
+  }
+  if (plan.deleteIds.length > 0) {
+    const { error } = await supabase.from("shipments").delete().in("id", plan.deleteIds);
+    if (error) throw new Error(`Couldn't undo the hand-over: ${error.message}`);
+  }
+  return plan;
+}
+
+// The drop-off: stamp when labeled boxes left the house, and take the
+// stamp back off for a box that stayed home after all. Neither touches
+// updated_at — the archive clock runs from the label, as it always has.
+export async function markDroppedOff(
+  supabase: SupabaseClient,
+  boxIds: number[],
+  at: string = new Date().toISOString()
+): Promise<string> {
+  const { error } = await supabase.from("shipments").update({ sent_at: at }).in("id", boxIds);
+  if (error) throw new Error(`Couldn't mark dropped off: ${error.message}`);
+  return at;
+}
+
+export async function undoDropOff(supabase: SupabaseClient, boxIds: number[]): Promise<void> {
+  const { error } = await supabase.from("shipments").update({ sent_at: null }).in("id", boxIds);
+  if (error) throw new Error(`Couldn't undo the drop-off: ${error.message}`);
+}
+
 // Mirror a parcel's tracking number onto its member records, so the
 // catalog's read-only tracking column stays accurate. "" clears it.
 export async function mirrorTracking(

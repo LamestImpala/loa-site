@@ -18,7 +18,7 @@ import { useDesk } from "./use-desk";
 // "paid". The conversations and the orders awaiting payment run down the
 // page; the sale desk stays beside them, so a request is loaded, priced
 // and invoiced without losing sight of what the buyer said. Once paid, an
-// order moves down the Ship pages: Pick → Pack → Labels → Send.
+// order moves down the Ship pages: Pick → Pack → Labels → Drop off.
 // ?view=closed shows what has left the open list.
 export function SellPage() {
   const { records, orders, invoices, saleIds } = useAdmin();

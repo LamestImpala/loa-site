@@ -1,7 +1,7 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { movedInboxHash, todayCount, todayGroups } from "./today.ts";
+import { movedInboxHash, movedShipHash, todayCount, todayGroups } from "./today.ts";
 import { worklist, type Worklist } from "./worklist.ts";
 
 const NONE: Worklist = worklist(
@@ -65,6 +65,8 @@ test("rows link to the exact spot the job is cleared", () => {
     newMessages: 1,
     toSend: 1,
     toPush: 1,
+    toSync: 1,
+    toFinish: 1,
     pendingReviews: 1,
     priceApprovals: 1,
   }).flatMap((g) => g.rows);
@@ -72,7 +74,9 @@ test("rows link to the exact spot the job is cleared", () => {
   assert.equal(href("requests"), "/admin/sell#requests");
   assert.equal(href("messages"), "/admin/sell#messages");
   assert.equal(href("send"), "/admin/ship#drop-off");
-  assert.equal(href("push"), "/admin/ship#fulfillment");
+  assert.equal(href("push"), "/admin/ship/orders");
+  assert.equal(href("sync"), "/admin/ship/orders");
+  assert.equal(href("finish"), "/admin/ship/orders#after-sale");
   assert.equal(href("reviews"), "/admin/reviews");
   assert.equal(href("prices"), "/admin/pricing");
 });
@@ -85,4 +89,18 @@ test("old Inbox anchors forward to where the section moved", () => {
   assert.equal(movedInboxHash("#reviews"), "/admin/reviews");
   assert.equal(movedInboxHash("#numbers"), null);
   assert.equal(movedInboxHash(""), null);
+});
+
+test("the order cards moved off the Drop off page to Orders", () => {
+  assert.equal(movedShipHash("#fulfillment"), "/admin/ship/orders");
+  assert.equal(movedShipHash("#drop-off"), null);
+  assert.equal(movedShipHash(""), null);
+});
+
+test("shipped orders to mark done read as a sentence and count as the seller's move", () => {
+  const after = (n: number) => todayGroups({ ...NONE, toFinish: n })[3];
+  assert.equal(after(1).rows[0].label, "shipped order to mark done");
+  assert.equal(after(2).rows[0].label, "shipped orders to mark done");
+  assert.equal(after(2).count, 2);
+  assert.equal(after(2).href, "/admin/ship/orders");
 });

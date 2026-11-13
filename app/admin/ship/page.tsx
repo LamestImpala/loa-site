@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { ShipPage } from "../_ship/ship-page";
+import { DropOffPage } from "../_ship/drop-off-page";
 
 export const metadata: Metadata = {
-  title: "Send — Late Onset Audiophile",
+  title: "Drop off — Late Onset Audiophile",
   robots: { index: false, follow: false },
 };
 
-export default function AdminShipPage() {
-  return <ShipPage />;
+export default function AdminDropOffPage() {
+  return <DropOffPage />;
 }

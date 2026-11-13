@@ -7,7 +7,7 @@ import type {
   ShopMessage,
   ShopReview,
 } from "../supabase.ts";
-import { discogsReady, groupOrders, pushable } from "./fulfillment.ts";
+import { discogsReady, groupOrders, orderPhase, pushable } from "./fulfillment.ts";
 import { openOrders } from "./orders.ts";
 import { awaitingDropOff, openParcels, packList } from "./pack-list.ts";
 import { pickList } from "./pick-list.ts";
@@ -33,6 +33,7 @@ export type Worklist = {
   toSend: number; // labeled boxes not dropped off yet
   toPush: number; // orders with tracking PayPal hasn't been told
   toSync: number; // paid orders whose invoice has no PayPal fee recorded
+  toFinish: number; // orders whose boxes have left, not marked done yet
   toUnlist: number; // shipped records still in the owner's Discogs collection
   priceApprovals: number; // price changes from the daily run waiting on approve or reject
 };
@@ -91,6 +92,7 @@ export function worklist(
     toSend: awaitingDropOff(shipments, orders).length,
     toPush: groups.filter((g) => g.shipments.some(pushable)).length,
     toSync,
+    toFinish: groups.filter((g) => orderPhase(g, now) === "after").length,
     toUnlist: discogsReady(records, shipments, orders).length,
     priceApprovals: pendingPrices.length,
   };
@@ -102,15 +104,15 @@ export function sellCount(w: Worklist) {
   return w.newRequests + w.newMessages + w.expiredHolds + w.staleInvoices;
 }
 
-// What the Send badge counts: every job after the label — drop off, push
-// tracking, sync the fee.
-export function sendCount(w: Worklist) {
-  return w.toSend + w.toPush + w.toSync;
+// What the Orders step counts: the jobs done on an order's card after its
+// boxes are labeled — push tracking, sync the fee, mark it done.
+export function ordersCount(w: Worklist) {
+  return w.toPush + w.toSync + w.toFinish;
 }
 
-// What the Ship badge counts: the four Ship pages' badges added up.
+// What the Ship badge counts: every Ship step's badge added up.
 export function shipCount(w: Worklist) {
-  return w.toPull + w.toPack + w.needLabels + sendCount(w);
+  return w.toPull + w.toPack + w.needLabels + w.toSend + ordersCount(w);
 }
 
 // What the Stock badge counts: the Catalog's Discogs removals plus the
@@ -119,12 +121,48 @@ export function stockCount(w: Worklist) {
   return w.toUnlist + w.priceApprovals;
 }
 
-// Where "Ship" in the nav goes: the first step of Pick → Pack → Labels →
-// Send with work waiting, so one click lands on the next thing to do.
-// With nothing waiting it opens the orders on Send.
+// The Ship pages as the steps a paid order walks through — Pick → Pack →
+// Labels → Drop off — then Orders, where each order's card lives. `count`
+// is the work waiting at each.
+export type ShipStep = {
+  key: "pick" | "pack" | "labels" | "dropoff" | "orders";
+  href: string;
+  label: string;
+  count: number;
+  countLabel: string; // read out after the number
+};
+
+export function shipSteps(w: Worklist): ShipStep[] {
+  return [
+    { key: "pick", href: "/admin/pick", label: "Pick", count: w.toPull, countLabel: "to pull" },
+    { key: "pack", href: "/admin/pack", label: "Pack", count: w.toPack, countLabel: "to pack" },
+    {
+      key: "labels",
+      href: "/admin/labels",
+      label: "Labels",
+      count: w.needLabels,
+      countLabel: "boxes without a label",
+    },
+    {
+      key: "dropoff",
+      href: "/admin/ship",
+      label: "Drop off",
+      count: w.toSend,
+      countLabel: "labeled boxes to drop off",
+    },
+    {
+      key: "orders",
+      href: "/admin/ship/orders",
+      label: "Orders",
+      count: ordersCount(w),
+      countLabel: "orders to push, sync or mark done",
+    },
+  ];
+}
+
+// Where "Ship" in the nav goes: the first step with work waiting, so one
+// click lands on the next thing to do. With nothing waiting it opens the
+// orders.
 export function shipHref(w: Worklist) {
-  if (w.toPull > 0) return "/admin/pick";
-  if (w.toPack > 0) return "/admin/pack";
-  if (w.needLabels > 0) return "/admin/labels";
-  return "/admin/ship";
+  return (shipSteps(w).find((s) => s.count > 0) ?? { href: "/admin/ship/orders" }).href;
 }

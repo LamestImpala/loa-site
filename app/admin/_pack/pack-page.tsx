@@ -17,7 +17,7 @@ import {
 import { packingSlips, shipManifest } from "@/lib/admin/packing-slips";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { orderSheetPdf, THERMAL_SHEET } from "@/lib/admin/order-sheet";
-import { createParcel, handOverOrder } from "@/lib/admin/shipments-db";
+import { createParcel, handOverOrder, undoHandOver } from "@/lib/admin/shipments-db";
 import { needsLabel } from "@/lib/admin/fulfillment";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
@@ -165,9 +165,30 @@ export function PackPage() {
         return created ? [...next, created] : next;
       });
       setChecked((prev) => ({ ...prev, [o.key]: [] }));
+      // Marked the wrong order? Undo puts it back on the table as it was
+      // (also on the order's card under Orders).
+      const handed = [...boxes.map((s) => ({ ...s, ...patch })), ...(created ? [created] : [])];
       pushToast(
         "success",
-        `Handed over ✓ — ${recs.length} record${recs.length === 1 ? "" : "s"} for ${buyerLabel(o.buyer, o.buyerEmail, "?")}`
+        `Handed over ✓ — ${recs.length} item${recs.length === 1 ? "" : "s"} for ${buyerLabel(o.buyer, o.buyerEmail, "?")}`,
+        {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              const plan = await undoHandOver(supabase, handed);
+              const gone = new Set(plan.deleteIds);
+              const back = new Map(plan.reverts.map((r) => [r.id, r.patch]));
+              setShipments((prev) =>
+                prev
+                  .filter((s) => !gone.has(s.id))
+                  .map((s) => (back.has(s.id) ? { ...s, ...back.get(s.id) } : s))
+              );
+              pushToast("info", "Hand-over undone — the order is back on the table.");
+            } catch (e) {
+              pushToast("error", e instanceof Error ? e.message : "Couldn't undo the hand-over");
+            }
+          },
+        }
       );
     } catch (e) {
       pushToast("error", e instanceof Error ? e.message : "Couldn't mark it handed over");
@@ -280,17 +301,17 @@ export function PackPage() {
           {dropOff.length > 0 ? (
             <Link
               href="/admin/ship#drop-off"
-              title="After the post office run, mark the labeled boxes dropped off on the Send page — that takes them off the order sheet"
+              title="After the post office run, mark the labeled boxes dropped off — that takes them off the order sheet"
               className={buttonClass}
             >
-              Drop off ({dropOff.length}) on Send →
+              Drop off ({dropOff.length}) →
             </Link>
           ) : null}
           <button
             type="button"
             onClick={() => print("manifest")}
             disabled={manifest.length === 0 || !!printing}
-            title="One 4×6 checklist of every package still open on the fulfillment board, labeled or not, in Box # order — tick each as it's ready to go"
+            title="One 4×6 checklist of every box still open on the Orders page, labeled or not, in Box # order — tick each as it's ready to go"
             className={buttonClass}
           >
             {printing === "manifest"
@@ -301,7 +322,7 @@ export function PackPage() {
             type="button"
             onClick={() => print("slips")}
             disabled={openBoxes.length === 0 || !!printing}
-            title="One 4×6 slip per box without a label yet (sealed here or made on the fulfillment card), in Box # order — for the thermal printer"
+            title="One 4×6 slip per box without a label yet (sealed here or made on the order's card), in Box # order — for the thermal printer"
             className={buttonClass}
           >
             {printing === "slips"
@@ -312,7 +333,7 @@ export function PackPage() {
       </header>
       <p className="mt-2 text-sm text-neutral-400">
         Check each record into the mailer as it goes in, then seal the box.
-        Sealing writes the parcel and gives it a Box # — the packing slip
+        Sealing saves the box and gives it a Box # — the packing slip
         carries it, so keep the boxes in Box # order on the table and the
         labels will print in the same order.
       </p>
@@ -439,9 +460,9 @@ export function PackPage() {
                       ) : (
                         <span
                           className="text-xs text-neutral-500"
-                          title="Made on the fulfillment card, not sealed here"
+                          title="Made on the order's card, not sealed here"
                         >
-                          parcel
+                          not sealed here
                         </span>
                       )}
                       {s.tracking_code ? (

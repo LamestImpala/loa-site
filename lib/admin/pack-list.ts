@@ -313,6 +313,29 @@ export function awaitingDropOff(shipments: Shipment[], orders: Order[] = []): Sh
   );
 }
 
+// Mailed boxes dropped off in the last few days, newest first — the ones
+// "Undo" on the Drop off page can still put back, for a box that was
+// ticked but stayed home. Boxes handed over in person are undone from
+// their order's card instead.
+export const UNDO_DROP_OFF_DAYS = 7;
+
+export function recentlyDroppedOff(
+  shipments: Shipment[],
+  now: number = Date.now()
+): Shipment[] {
+  const since = now - UNDO_DROP_OFF_DAYS * 24 * 3600 * 1000;
+  return shipments
+    .filter(
+      (s) =>
+        !!s.tracking_code &&
+        !!s.sent_at &&
+        !handDelivered(s) &&
+        s.status !== "refunded" &&
+        Date.parse(s.sent_at) >= since
+    )
+    .sort((a, b) => (b.sent_at as string).localeCompare(a.sent_at as string) || b.id - a.id);
+}
+
 // Where an order's boxes are, for its fulfillment card: none labeled yet,
 // some still in the house, or all gone (with the latest date). A box
 // handed over in person counts as gone the moment it's marked; inPerson

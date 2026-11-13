@@ -9,6 +9,7 @@ import {
   orderSheet,
   packList,
   packProgress,
+  recentlyDroppedOff,
   slipsForParcels,
   sortByPackOrder,
 } from "./pack-list.ts";
@@ -234,4 +235,20 @@ test("handed over in person: off the table, no label, no slip, no drop-off, read
     false,
     "a mailed box too: Dropped off"
   );
+});
+
+test("dropped off lately: mailed boxes sent in the last week, newest first", () => {
+  const now = Date.parse("2026-11-12T12:00:00Z");
+  const list = recentlyDroppedOff(
+    [
+      shipment({ id: 1, tracking_code: "1", sent_at: "2026-11-10T00:00:00Z" }),
+      shipment({ id: 2, tracking_code: "2", sent_at: "2026-11-12T00:00:00Z" }),
+      shipment({ id: 3, tracking_code: "3", sent_at: "2026-11-01T00:00:00Z" }), // too long ago
+      shipment({ id: 4, tracking_code: "4" }), // still in the house
+      shipment({ id: 5, tracking_code: "5", sent_at: "2026-11-11T00:00:00Z", status: "refunded" }),
+      handed({ id: 6, sent_at: "2026-11-11T00:00:00Z" }), // undone from the order card instead
+    ],
+    now
+  );
+  assert.deepEqual(list.map((s) => s.id), [2, 1]);
 });

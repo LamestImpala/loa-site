@@ -87,3 +87,20 @@ test("relisted but off Discogs, and a labeled box left in the house for days", (
     ["off-discogs-1", "unsent"]
   );
 });
+
+test("a record in two boxes links to its order's card on Orders", () => {
+  const href = (shipments: Parameters<typeof integrityIssues>[0]["shipments"]) =>
+    integrityIssues({ ...empty, shipments }, NOW)[0].href;
+  assert.equal(
+    href([
+      shipment({ id: 1, order_id: 28, record_ids: [7] }),
+      shipment({ id: 2, order_id: 28, record_ids: [7] }),
+    ]),
+    "/admin/ship/orders?order=28"
+  );
+  assert.equal(
+    href([shipment({ id: 1, record_ids: [7] }), shipment({ id: 2, record_ids: [7] })]),
+    "/admin/ship/orders",
+    "pre-orders boxes have no order to open"
+  );
+});

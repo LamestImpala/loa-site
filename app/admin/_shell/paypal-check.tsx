@@ -98,7 +98,7 @@ export function PaypalCheckProvider({ children }: { children: ReactNode }) {
 
   // Ask PayPal where the invoice stands. Paid → the route marks the
   // records sold to the buyer on the server (usually the webhook already
-  // has) and the order moves to Pick → Pack → Send.
+  // has) and the order moves to Pick → Pack → Labels → Drop off.
   // `quiet` (a check-all pass) leaves "not paid yet" and errors to the
   // caller's one summary toast.
   const ask = useCallback(

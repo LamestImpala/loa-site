@@ -4,7 +4,7 @@ import { awaitingDropOff } from "./pack-list.ts";
 
 // Things that went quietly wrong: states no button leads to on purpose,
 // left behind by a closed tab, a failed write, or a hand edit. Today and
-// the Send page list them with a jump to where each is fixed, so nothing
+// the Orders page list them with a jump to where each is fixed, so nothing
 // rots unseen. Pure — no React, no Supabase.
 
 // A labeled box still in the house after this long is probably forgotten.
@@ -68,8 +68,10 @@ export function integrityIssues(
 
   // One record can only be in one box.
   const boxesByRecord = new Map<number, number[]>();
+  const orderOfBox = new Map<number, number | null>();
   for (const s of shipments) {
     if (s.status === "refunded") continue;
+    orderOfBox.set(s.id, s.order_id);
     for (const id of s.record_ids ?? []) {
       boxesByRecord.set(id, [...(boxesByRecord.get(id) ?? []), s.id]);
     }
@@ -78,12 +80,13 @@ export function integrityIssues(
   for (const [id, boxes] of boxesByRecord) {
     if (boxes.length < 2) continue;
     const r = byId.get(id);
+    const orderId = boxes.map((b) => orderOfBox.get(b)).find((o) => o != null);
     issues.push({
       key: `two-boxes-${id}`,
       text: `${r ? record(r) : `Record ${id}`} is in ${boxes.length} boxes (${boxes
         .map((b) => `#${b}`)
         .join(", ")}) — take it out of the wrong one`,
-      href: "/admin/ship#fulfillment",
+      href: orderId != null ? `/admin/ship/orders?order=${orderId}` : "/admin/ship/orders",
     });
   }
 
