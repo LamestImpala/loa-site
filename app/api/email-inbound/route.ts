@@ -26,7 +26,7 @@ import { ADMIN_URL } from "@/lib/hosts";
 
 export const maxDuration = 30;
 
-const ADMIN_MESSAGES_URL = `${ADMIN_URL}#messages`;
+const ADMIN_MESSAGES_URL = `${ADMIN_URL}/sell#messages`;
 
 export async function POST(req: NextRequest) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
     const res = await sendEmail({
       to: ADMIN_EMAIL,
       subject: `[orders@] ${mail.subject?.trim() || "(no subject)"}`,
-      text: `From: ${who}\n${refCode ? `Ref: ${refCode}\n` : ""}Inbox: ${ADMIN_MESSAGES_URL}\n\n${plain}`,
+      text: `From: ${who}\n${refCode ? `Ref: ${refCode}\n` : ""}Read and reply: ${ADMIN_MESSAGES_URL}\n\n${plain}`,
       replyTo: from.email,
     });
     if (!res.ok) console.error("email-inbound: forward failed:", res.error);

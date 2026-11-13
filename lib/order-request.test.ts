@@ -63,7 +63,7 @@ test("admin notification: who, what, total, ref, and reply-to the buyer", () => 
   assert.match(m.text, /1\. Can — Ege Bamyasi/);
   assert.match(m.text, /Shipping: \$6\nTotal: \$56/);
   assert.match(m.text, /Their note:\nCan you hold till Friday\?/);
-  assert.match(m.text, /https:\/\/www\.lateonsetaudiophile\.com\/admin#requests/);
+  assert.match(m.text, /https:\/\/www\.lateonsetaudiophile\.com\/admin\/sell#requests/);
   assert.match(m.html, /<blockquote>Can you hold till Friday\?<\/blockquote>/);
 });
 

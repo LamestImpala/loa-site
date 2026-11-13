@@ -17,7 +17,7 @@ import { ADMIN_URL } from "./hosts.ts";
 
 export const MAX_REVIEW_BODY = 1200;
 export const MAX_REVIEWER_NAME = 60;
-export const ADMIN_REVIEWS_URL = `${ADMIN_URL}#reviews`;
+export const ADMIN_REVIEWS_URL = `${ADMIN_URL}/reviews`;
 
 // The invite goes out once the box has had time to arrive and be played:
 // 10 days after drop-off. Boxes sent more than 30 days ago are left alone,

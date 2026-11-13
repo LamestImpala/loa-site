@@ -53,7 +53,7 @@ export type PostedInfo = { ids: number[]; posted_at: string | null };
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
 // Tables only some pages need. They load the first time a page asks
-// (useSlice), so the inbox opens without the 5,000-row events query or
+// (useSlice), so most pages open without the 5,000-row events query or
 // a week of market snapshots; Refresh reloads whatever has been asked for.
 export type SliceName =
   | "pending"
@@ -106,7 +106,7 @@ type AdminContextValue = {
   runs: PriceRun[];
   orderRequests: OrderRequest[];
   setOrderRequests: Setter<OrderRequest[]>;
-  // Mail to orders@ (inbound, not yet archived) for the Inbox.
+  // Mail to orders@ (inbound, not yet archived) for the Sell page.
   messages: ShopMessage[];
   setMessages: Setter<ShopMessage[]>;
   // Mail sent as orders@ against a request or an order, so its card can
@@ -116,7 +116,7 @@ type AdminContextValue = {
   // Send mail as orders@ through /api/email-reply (the Resend key lives on
   // the server). False when it didn't go — already toasted.
   sendShopEmail: (body: ShopEmailBody) => Promise<boolean>;
-  // Shop reviews (newest first) and review links, for the Inbox's Reviews.
+  // Shop reviews (newest first) and review links, for the Reviews page.
   reviews: ShopReview[];
   setReviews: Setter<ShopReview[]>;
   reviewInvites: ReviewInvite[];
@@ -136,6 +136,9 @@ type AdminContextValue = {
   loadError: string;
   setLoadError: Setter<string>;
   loadData: () => Promise<void>;
+  // When the shared tables last loaded (ms; 0 until the first load), by
+  // Refresh or by the quiet refresh on coming back to the tab.
+  loadedAt: number;
   sliceStatus: Record<SliceName, SliceStatus>;
   ensureSlice: (name: SliceName) => void;
 
@@ -280,6 +283,9 @@ export function useSlice(name: SliceName, when = true): SliceStatus {
 
 let toastSeq = 0;
 
+// Coming back to the tab reloads the tables quietly if they're older than this.
+const QUIET_REFRESH_SECONDS = 60;
+
 export function AdminProvider({ children }: { children: ReactNode }) {
   const { supabase, session } = useAdminSession();
 
@@ -310,6 +316,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
 
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadedAt, setLoadedAt] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [clipboardFallback, setClipboardFallback] = useState<null | {
     title: string;
@@ -443,10 +450,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // Slices some page has asked for; Refresh reloads exactly these.
   const requestedSlices = useRef<Set<SliceName>>(new Set());
 
+  // `silent` (the quiet refresh) swaps the rows in without the page's
+  // "Loading…" state, and keeps what's there if the reload fails.
   const loadSlice = useCallback(
-    async (name: SliceName) => {
-      setSliceStatus((prev) => ({ ...prev, [name]: "loading" }));
+    async (name: SliceName, silent = false) => {
+      if (!silent) setSliceStatus((prev) => ({ ...prev, [name]: "loading" }));
       const fail = (what: string, message: string) => {
+        if (silent) return;
         setSliceStatus((prev) => ({ ...prev, [name]: "error" }));
         pushToast("error", `${what} didn't load: ${message}`);
       };
@@ -544,11 +554,26 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     [loadSlice]
   );
 
+  // Whether the seller is mid-change: a save in flight or a question on
+  // screen. The quiet refresh waits rather than swap rows under them.
+  const midChange = useRef(false);
+  useEffect(() => {
+    midChange.current = savingIds.size > 0 || confirmRequest != null;
+  }, [savingIds, confirmRequest]);
+  const fetching = useRef(false);
+  const lastLoaded = useRef(0);
+
   // The tables every page needs: records, the reddit settings, open order
   // requests, parcels, invoices, and orders. Page-specific tables are slices.
-  const loadData = useCallback(async () => {
-    setLoadError("");
-    setLoading(true);
+  // `silent` is the quiet refresh: no "Refreshing…", no toasts, and nothing
+  // is replaced unless every table came back.
+  const fetchTables = useCallback(async (silent: boolean) => {
+    if (silent && fetching.current) return;
+    fetching.current = true;
+    if (!silent) {
+      setLoadError("");
+      setLoading(true);
+    }
     const [
       recordsRes,
       settingsRes,
@@ -606,7 +631,26 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           .order("created_at", { ascending: false })
           .limit(200),
       ]);
-    setLoading(false);
+    fetching.current = false;
+    if (silent) {
+      const failed = [
+        recordsRes,
+        settingsRes,
+        requestsRes,
+        shipmentsRes,
+        invoicesRes,
+        ordersRes,
+        messagesRes,
+        sentRes,
+        reviewsRes,
+        invitesRes,
+      ].some((r) => r.error);
+      // Something changed hands while the rows were on their way: what
+      // came back may already be out of date, so wait for the next return.
+      if (failed || midChange.current) return;
+    } else {
+      setLoading(false);
+    }
     if (recordsRes.error || requestsRes.error) {
       setLoadError(
         recordsRes.error?.message || requestsRes.error?.message || "Failed to load"
@@ -662,12 +706,41 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     } catch {
       // Malformed saved post list — treat as no saved post.
     }
-    await Promise.all([...requestedSlices.current].map(loadSlice));
+    lastLoaded.current = Date.now();
+    setLoadedAt(lastLoaded.current);
+    // Quietly, only the price changes waiting (the Pricing badge) — not
+    // the 60 days of shop visits behind the Numbers.
+    await Promise.all(
+      [...requestedSlices.current]
+        .filter((name) => !silent || name === "pending")
+        .map((name) => loadSlice(name, silent))
+    );
   }, [supabase, pushToast, loadSlice]);
+
+  const loadData = useCallback(() => fetchTables(false), [fetchTables]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Coming back to the tab — from PayPal, the mail, the post office —
+  // shows what changed meanwhile without a click on Refresh: a paid
+  // invoice, a new request, a review. At most once a minute, and never
+  // while a save is in flight or a confirm is open.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState !== "visible") return;
+      if (midChange.current || !lastLoaded.current) return;
+      if (Date.now() - lastLoaded.current < QUIET_REFRESH_SECONDS * 1000) return;
+      void fetchTables(true);
+    };
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, [fetchTables]);
 
   // Flag this browser so the owner's own shop browsing isn't tracked.
   useEffect(() => {
@@ -1260,6 +1333,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     loadError,
     setLoadError,
     loadData,
+    loadedAt,
     sliceStatus,
     ensureSlice,
     toasts,

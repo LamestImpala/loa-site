@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { bundleBreakdown, makeRefCode } from "@/lib/records";
 import { bundleKindSummary, itemSpecShort, itemSubtitle } from "@/lib/items";
 import type {
   DbRecord,
   Invoice,
-  Order,
   OrderRequest,
   ShopMessage,
   ShopMessageStatus,
@@ -18,7 +17,6 @@ import {
   recordFlags,
   type LineMatch,
 } from "@/lib/order-parse";
-import { dayLabel, localDayKey, recentDays } from "@/lib/admin/interest";
 import {
   HOLD_HOURS,
   STALE_INVOICE_HOURS,
@@ -28,7 +26,6 @@ import {
   requestForOrder,
   type OpenOrder,
 } from "@/lib/admin/orders";
-import { INVOICE_HOLD_UNTIL } from "@/lib/admin/records";
 import { parseMoney, saleItem, saleReplyText } from "@/lib/admin/sales";
 import { buyerLabel } from "@/lib/admin/buyers";
 import {
@@ -39,31 +36,24 @@ import {
   replySubject,
   requestReplySubject,
 } from "@/lib/admin/messages";
-import { salesStats } from "@/lib/admin/stats";
 import type { PhotoAttachment } from "@/lib/admin/attachments";
-import { useAdmin, useSlice } from "../_shell/admin-provider";
-import { NextUp } from "./next-up";
+import { useAdmin } from "../_shell/admin-provider";
+import { usePaypalCheck, paypalInvoiceFetch } from "../_shell/paypal-check";
+import { PageHeader } from "../_shell/primitives";
 import { PhotoPicker } from "./photo-picker";
-import { ReviewsSection } from "./reviews-section";
 import { BuyerField } from "../_shell/buyer-field";
 import { MoneyField, NoteField } from "../_shell/inline-fields";
 import { buttonClass, inputClass, timeAgo, useCopied } from "../_shell/ui";
 
-// When the inbox last checked every invoice with PayPal (ms), so reloads
-// inside the window don't ask again.
-const CHECKED_AT_KEY = "admin-paypal-checked-at";
-const AUTO_CHECK_MINUTES = 15;
-
-// The inbox: everything between "a buyer wants records" and "paid" —
-// requests, the sale desk, open orders (held or invoiced) and pasted
-// DMs — in one top-to-bottom flow. Once paid, an order moves down the
-// Ship pages: Pick → Pack → Labels → Send.
+// Sell (/admin/sell): everything between "a buyer wants records" and
+// "paid" — requests, the sale desk, open orders (held or invoiced),
+// messages and pasted DMs — in one top-to-bottom flow. Once paid, an order
+// moves down the Ship pages: Pick → Pack → Labels → Send.
 export function InboxPage() {
   const {
     supabase,
     records,
     setRecords,
-    shipments,
     invoices,
     setInvoices,
     orders,
@@ -74,14 +64,10 @@ export function InboxPage() {
     setMessages,
     sentMessages,
     sendShopEmail,
-    events,
-    visits,
-    loading,
     loadData,
     pushToast,
     copyText,
     upsertInvoiceLocal,
-    upsertOrderLocal,
     byId,
     markRecordsSold,
     placeOrder,
@@ -111,16 +97,6 @@ export function InboxPage() {
     clearSelection,
     confirm,
   } = useAdmin();
-
-  useSlice("events");
-  useSlice("visits");
-  const dailyStrip = useMemo(() => recentDays(events, visits), [events, visits]);
-  const stripMax = Math.max(1, ...dailyStrip.map((d) => d.visited));
-  // Oldest logged visit (visits load newest first), to flag days before
-  // visit tracking existed. Undefined until the slice loads.
-  const visitsSince = visits.length
-    ? localDayKey(new Date(visits[visits.length - 1].created_at))
-    : undefined;
 
   // --- Sale desk: multi-select records for a Reddit-DM sale ---
   // selectedIds / selectionMode / saleBuyer / saleEmail live in the admin
@@ -549,7 +525,7 @@ export function InboxPage() {
   // one card never disables the others.
   const [orderBusy, setOrderBusy] = useState<null | {
     id: number;
-    action: "check" | "cancel" | "paid" | "release";
+    action: "cancel" | "paid" | "release";
   }>(null);
 
   async function loadOrderIntoSaleDesk(o: OpenOrder) {
@@ -614,168 +590,18 @@ export function InboxPage() {
     }
   }
 
-  async function pendingInvoiceFetch(id: string, method: "GET" | "DELETE") {
-    const {
-      data: { session: current },
-    } = await supabase.auth.getSession();
-    const res = await fetch(
-      `/api/paypal-invoice?id=${encodeURIComponent(id)}`,
-      {
-        method,
-        headers: { Authorization: `Bearer ${current?.access_token ?? ""}` },
-      }
-    );
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
-    return body;
-  }
-
-  // Ask PayPal where the invoice stands. Paid → the route marks the
-  // records sold to the buyer on the server (usually the webhook already
-  // has) and the order moves to Pick → Pack → Send.
-  // `quiet` (a check-all pass) leaves "not paid yet" and errors to the
-  // caller's one summary toast.
-  async function checkInvoice(
-    o: OpenOrder,
-    quiet = false,
-    onError?: (message: string) => void
-  ): Promise<"paid" | "unpaid" | "error"> {
-    const id = o.order.paypal_invoice_id;
-    if (!id) return "unpaid";
-    setOrderBusy({ id: o.order.id, action: "check" });
-    try {
-      const body = await pendingInvoiceFetch(id, "GET");
-      if (body.invoice) upsertInvoiceLocal(body.invoice as Invoice);
-      // Still payable: the route re-held any records whose hold had lapsed.
-      if (Array.isArray(body.heldIds) && body.heldIds.length > 0) {
-        const held = new Set<number>(body.heldIds);
-        setRecords((prev) =>
-          prev.map((r) =>
-            held.has(r.id) ? { ...r, hold_until: INVOICE_HOLD_UNTIL } : r
-          )
-        );
-      }
-      // The route stamps the buyer's ship-to on the order once paid.
-      if (body.order) upsertOrderLocal(body.order as Order);
-      if (body.paid) {
-        // The route already made the sale on the server (the same write
-        // the PayPal webhook makes); reload to show it. A check-all pass
-        // reloads once at the end instead.
-        const settled = body.settled as
-          | { kind: "sold"; soldIds: number[]; failure: string | null }
-          | { kind: "closed" }
-          | { kind: "none" }
-          | undefined;
-        if (settled?.kind === "sold" && settled.failure) {
-          const message = `Invoice ${id} is paid, but only ${settled.soldIds.length} of its records were marked sold: ${settled.failure}`;
-          if (quiet) onError?.(message);
-          else pushToast("error", message);
-          if (!quiet) await loadData();
-          return "error";
-        }
-        if (!quiet) {
-          pushToast(
-            "success",
-            settled?.kind === "sold"
-              ? `Invoice ${id} is ${body.status} ✓ — ${settled.soldIds.length} record${settled.soldIds.length === 1 ? "" : "s"} sold to ${buyerLabel(o.buyer, o.order.buyer_email, "?")}`
-              : `Invoice ${id} is ${body.status} ✓ — order closed.`
-          );
-          await loadData();
-        }
-        return "paid";
-      }
-      if (!quiet) {
-        pushToast(
-          "info",
-          `Invoice ${id}: not paid yet (${body.status}).${
-            body.recipientViewUrl && !o.invoice?.recipient_view_url
-              ? " Payment link saved."
-              : ""
-          }`
-        );
-      }
-      return "unpaid";
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "PayPal check failed";
-      if (quiet) onError?.(message);
-      else pushToast("error", message);
-      return "error";
-    } finally {
-      setOrderBusy(null);
-    }
-  }
-
-  function checkOrderInvoice(o: OpenOrder) {
-    if (orderBusy || checkingAll) return;
-    void checkInvoice(o);
-  }
-
-  // Every invoiced order in one pass, one at a time, with one summary.
-  // `auto` is the pass the inbox runs by itself on load: it only speaks
-  // up when something was paid or PayPal couldn't be reached.
-  const [checkingAll, setCheckingAll] = useState(false);
-  async function checkAllInvoices(auto = false) {
-    const targets = open.filter(
-      (o) => o.order.status === "invoiced" && !!o.order.paypal_invoice_id
-    );
-    if (targets.length === 0 || orderBusy || checkingAll) return;
-    setCheckingAll(true);
-    let paid = 0;
-    let failed = 0;
-    let firstError = "";
-    for (const o of targets) {
-      const result = await checkInvoice(o, true, (m) => {
-        firstError ||= m;
-      });
-      if (result === "paid") paid++;
-      else if (result === "error") failed++;
-    }
-    setCheckingAll(false);
-    // Paid ones were sold on the server; one reload shows them all.
-    if (paid > 0) await loadData();
-    // A pass PayPal never answered doesn't count — the next load retries.
-    if (failed < targets.length) {
-      try {
-        window.localStorage.setItem(CHECKED_AT_KEY, String(Date.now()));
-      } catch {
-        // Private mode — the next load just checks again.
-      }
-    }
-    const unpaid = targets.length - paid - failed;
-    const parts = [
-      paid > 0 ? `${paid} paid — on the pick list now` : "",
-      unpaid > 0 ? `${unpaid} still unpaid` : "",
-      failed > 0 ? `${failed} couldn't be checked` : "",
-    ].filter(Boolean);
-    if (auto && paid === 0 && failed === 0) return;
-    pushToast(
-      failed > 0 ? "error" : paid > 0 ? "success" : "info",
-      `PayPal: ${parts.join(" · ")}.${firstError ? ` ${firstError.slice(0, 160)}` : ""}`
-    );
-  }
-
-  // Opening the inbox checks the invoices itself, at most once per
-  // AUTO_CHECK_MINUTES, so a payment shows up without a click per order.
-  const checkAllRef = useRef(checkAllInvoices);
-  useEffect(() => {
-    checkAllRef.current = checkAllInvoices;
-  });
-  const autoChecked = useRef(false);
+  // Asking PayPal about an invoice is the shell's job (paypal-check.tsx):
+  // it runs by itself whichever page the admin opens on, and these buttons
+  // share its one-at-a-time lock.
+  const { checkInvoice, checkAllInvoices, checkingAll, checkingOrderId } = usePaypalCheck();
   const hasInvoiced = open.some(
     (o) => o.order.status === "invoiced" && !!o.order.paypal_invoice_id
   );
-  useEffect(() => {
-    if (loading || !hasInvoiced || autoChecked.current) return;
-    autoChecked.current = true;
-    let last = 0;
-    try {
-      last = Number(window.localStorage.getItem(CHECKED_AT_KEY) ?? 0);
-    } catch {
-      // Private mode — check.
-    }
-    if (Date.now() - last < AUTO_CHECK_MINUTES * 60 * 1000) return;
-    void checkAllRef.current(true);
-  }, [loading, hasInvoiced]);
+
+  function checkOrderInvoice(o: OpenOrder) {
+    if (orderBusy || checkingAll || checkingOrderId != null) return;
+    void checkInvoice(o);
+  }
 
   // Cancel on PayPal, end the order, and put the records back on the shelf.
   async function cancelOrderInvoice(o: OpenOrder) {
@@ -790,7 +616,7 @@ export function InboxPage() {
       return;
     setOrderBusy({ id: o.order.id, action: "cancel" });
     try {
-      const body = await pendingInvoiceFetch(id, "DELETE");
+      const body = await paypalInvoiceFetch(supabase, id, "DELETE");
       const released = new Set<number>(body.releasedIds ?? []);
       const cancelled = new Set<number>([
         o.order.id,
@@ -1131,18 +957,12 @@ export function InboxPage() {
     setParseResult(null);
   }
 
-  // Live collection value — recomputed from local state, so it updates the
-  // moment a price is edited, a change is approved, or a record is sold.
-  const stats = useMemo(
-    () => salesStats({ records, shipments, invoices, orders }),
-    [records, shipments, invoices, orders]
-  );
-
-
   return (
     <>
-      <h1 className="mt-6 text-3xl font-semibold">Inbox</h1>
-      <NextUp />
+      <PageHeader
+        title="Sell"
+        description="Everything between “a buyer wants records” and “paid”: requests, the sale desk, orders awaiting payment, messages and pasted DMs."
+      />
         {selectedIds.size > 0 && selectionMode === "sale" ? (
           <div
             id="sale-desk"
@@ -1653,7 +1473,7 @@ export function InboxPage() {
                     <button
                       type="button"
                       className={buttonClass}
-                      disabled={checkingAll || !!orderBusy}
+                      disabled={checkingAll || !!orderBusy || checkingOrderId != null}
                       onClick={() => checkAllInvoices()}
                       title="Ask PayPal about every invoiced order, one after another. Paid ones are marked sold and go to the pick list."
                     >
@@ -1664,7 +1484,7 @@ export function InboxPage() {
                 <p className="mt-1 text-sm text-neutral-400">
                   Held or invoiced, not yet paid — the ones that need you
                   first: lapsed holds, then the longest-unpaid invoices.
-                  Opening the inbox checks PayPal by itself; a paid invoice
+                  Opening the admin checks PayPal by itself; a paid invoice
                   is marked sold and goes to the pick list. A held order is
                   marked paid by hand or released back to the shop.
                 </p>
@@ -1674,8 +1494,13 @@ export function InboxPage() {
                     const inv = o.invoice;
                     const invoiceId = order.paypal_invoice_id;
                     const invoiced = order.status === "invoiced";
-                    const busy = orderBusy?.id === order.id ? orderBusy.action : null;
-                    const anyBusy = !!orderBusy || checkingAll;
+                    const busy =
+                      checkingOrderId === order.id
+                        ? "check"
+                        : orderBusy?.id === order.id
+                          ? orderBusy.action
+                          : null;
+                    const anyBusy = !!orderBusy || checkingAll || checkingOrderId != null;
                     const hoursLeft = Math.round((o.holdUntil - Date.now()) / 3600000);
                     const invStatus = (inv?.status ?? "SENT").toLowerCase();
                     return (
@@ -2088,8 +1913,6 @@ export function InboxPage() {
               </div>
             )}
 
-            <ReviewsSection />
-
             <h2 id="paste-dm" className="mt-10 scroll-mt-24 text-xl font-medium">Paste a DM</h2>
             <p className="mt-1 text-sm text-neutral-400">
               Paste the buyer&rsquo;s message — even edited — and it&rsquo;s
@@ -2303,147 +2126,6 @@ export function InboxPage() {
               </div>
             ) : null}
 
-        {/* The numbers: read-only, so they sit below the work */}
-        <h2 id="numbers" className="mt-12 scroll-mt-24 text-xl font-medium">Numbers</h2>
-        {/* Collection value summary */}
-        {loading && records.length === 0 ? (
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {["For sale", "Sold", "Net", "Hidden"].map((label) => (
-              <div
-                key={label}
-                className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5"
-              >
-                <p className="text-sm text-neutral-400">{label}</p>
-                <p className="mt-2 h-7 w-24 rounded bg-white/10" />
-                <p className="mt-2 h-3 w-32 rounded bg-white/5" />
-              </div>
-            ))}
-          </div>
-        ) : (
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">For sale</p>
-            <p className="mt-1 text-2xl font-semibold">
-              ${stats.askingTotal.toLocaleString()}
-            </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {stats.forSaleCount} records at asking price
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">Sold</p>
-            <p className="mt-1 text-2xl font-semibold text-green-400">
-              ${stats.soldTotal.toLocaleString()}
-            </p>
-            <p
-              className="mt-1 text-xs text-neutral-500"
-              title="Uses the final sold price when entered, listed price otherwise, less any credits and partial refunds on paid orders. Fully refunded orders don't count."
-            >
-              {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
-              {stats.creditTotal > 0
-                ? ` · $${stats.creditTotal.toFixed(2)} in credits`
-                : ""}
-              {stats.refundedTotal > 0
-                ? ` · $${stats.refundedTotal.toFixed(2)} refunded`
-                : ""}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">Net</p>
-            <p
-              className="mt-1 text-2xl font-semibold text-green-400"
-              title="Sold total + shipping collected − PayPal fees − postage. Fees and postage are entered per order in the fulfillment section."
-            >
-              ${stats.netTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              ${stats.feesTotal.toFixed(2)} fees · ${stats.postageTotal.toFixed(2)}{" "}
-              postage · ${stats.shippingCharged.toFixed(2)} shipping collected
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <p className="text-sm text-neutral-400">Hidden</p>
-            <p className="mt-1 text-2xl font-semibold text-neutral-300">
-              ${stats.hiddenTotal.toLocaleString()}
-            </p>
-            <p className="mt-1 text-xs text-neutral-500">
-              {stats.hiddenCount} records not shown on the site
-            </p>
-          </div>
-        </div>
-        )}
-
-        {/* Interest by day — daily distinct shoppers across the shop */}
-        {events.length > 0 || visits.length > 0 ? (
-          <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-sm text-neutral-400">Interest by day</p>
-              <p className="text-xs text-neutral-500">
-                <span className="text-neutral-400">▮</span>{" "}
-                {dailyStrip.reduce((n, d) => n + d.visited, 0)} visited ·{" "}
-                <span className="text-neutral-200">▮</span>{" "}
-                {dailyStrip.reduce((n, d) => n + d.looked, 0)} clicked a record ·{" "}
-                <span className="text-green-400">●</span>{" "}
-                {dailyStrip.reduce((n, d) => n + d.asked, 0)} asked to buy · last
-                14 days
-              </p>
-            </div>
-            <div className="mt-3 flex items-end gap-1.5">
-              {dailyStrip.map((d) => (
-                <div
-                  key={d.key}
-                  className="flex min-w-0 flex-1 flex-col items-center gap-1"
-                  title={`${d.label} · ${d.visited} visited · ${d.looked} clicked a record (${d.clicks} clicks) · ${d.asked} asked${
-                    d.topReferrer ? ` · most from ${d.topReferrer}` : ""
-                  }`}
-                >
-                  <div className="flex h-16 w-full max-w-8 items-end">
-                    <div
-                      className={`flex w-full items-end overflow-hidden rounded-t ${
-                        d.visited > 0 ? "bg-neutral-500" : "bg-white/10"
-                      }`}
-                      style={{
-                        height:
-                          d.visited > 0
-                            ? `${Math.max(10, (d.visited / stripMax) * 100)}%`
-                            : "2px",
-                      }}
-                    >
-                      {d.looked > 0 ? (
-                        <div
-                          className="w-full bg-neutral-200"
-                          style={{ height: `${(d.looked / d.visited) * 100}%` }}
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                  <p className="h-3 text-[10px] leading-none text-neutral-400">
-                    {d.visited > 0 ? d.visited : ""}
-                  </p>
-                  <div className="h-1.5">
-                    {d.asked > 0 ? (
-                      <div className="mx-auto h-1.5 w-1.5 rounded-full bg-green-400" />
-                    ) : null}
-                  </div>
-                  <p className="text-[10px] leading-none text-neutral-500">
-                    {d.key.slice(8).replace(/^0/, "")}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 text-[11px] text-neutral-500">
-              {visitsSince && visitsSince > dailyStrip[0].key
-                ? `Page visits are logged from ${dayLabel(visitsSince)}; earlier days only show people who clicked. `
-                : ""}
-              Counted per browser; your own browsing is skipped on any browser
-              you&rsquo;ve opened the admin in. Hover a day for where people came
-              from.
-            </p>
-          </div>
-        ) : null}
     </>
   );
 }

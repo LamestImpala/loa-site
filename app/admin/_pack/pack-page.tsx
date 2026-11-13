@@ -144,7 +144,7 @@ export function PackPage() {
       !(await confirm(
         `Mark ${buyerLabel(o.buyer, o.buyerEmail, "this buyer")}'s order handed over in person today?\n\n${recs
           .map((r) => `• ${r.artist} — ${r.title}`)
-          .join("\n")}\n\nNo label needed. The order is done, and it shows up under Ask for a review in the Inbox.`,
+          .join("\n")}\n\nNo label needed. The order is done, and it shows up under Ask for a review on the Reviews page.`,
         "Handed over"
       ))
     )

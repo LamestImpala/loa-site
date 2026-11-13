@@ -94,7 +94,7 @@ export function EmailBuyer({
         type="button"
         onClick={toggle}
         disabled={busy === "send"}
-        title={`Email ${email} as orders@curiouserrecords.com — replies come back to the Inbox`}
+        title={`Email ${email} as orders@curiouserrecords.com — replies come back to Messages on the Sell page`}
         className={buttonClass}
       >
         {open ? "Close email" : last ? "Email buyer again" : "Email buyer"}
