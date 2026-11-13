@@ -11,6 +11,7 @@ import {
   sendEmail,
 } from "@/lib/email";
 import { bodyText, findRefCode } from "@/lib/admin/messages";
+import { ADMIN_URL } from "@/lib/hosts";
 
 // Mail to orders@curiouserrecords.com. Resend receives it and POSTs an
 // `email.received` event here (metadata only); this route verifies the
@@ -25,7 +26,7 @@ import { bodyText, findRefCode } from "@/lib/admin/messages";
 
 export const maxDuration = 30;
 
-const ADMIN_MESSAGES_URL = "https://curiouserrecords.com/admin#messages";
+const ADMIN_MESSAGES_URL = `${ADMIN_URL}#messages`;
 
 export async function POST(req: NextRequest) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;

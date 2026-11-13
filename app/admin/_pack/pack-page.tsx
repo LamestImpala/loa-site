@@ -99,7 +99,8 @@ export function PackPage() {
       !(await confirm(
         `${unpulled.length} of these ${ids.length === 1 ? "isn't" : "aren't"} marked pulled on the pick list:\n\n${unpulled
           .map((r) => `• ${r.artist} — ${r.title}`)
-          .join("\n")}\n\nSeal the box anyway?`
+          .join("\n")}\n\nSeal the box anyway?`,
+        "Seal anyway"
       ))
     )
       return;
@@ -178,7 +179,7 @@ export function PackPage() {
   // Undo a seal before a label exists: the records go back to loose.
   async function unseal(s: Shipment) {
     if (busy) return;
-    if (!(await confirm(`Unseal Box #${s.id}? Its records go back to the loose list.`))) return;
+    if (!(await confirm(`Unseal Box #${s.id}? Its records go back to the loose list.`, "Unseal"))) return;
     setBusy(`box-${s.id}`);
     const { error } = await supabase.from("shipments").delete().eq("id", s.id);
     setBusy(null);

@@ -798,7 +798,7 @@ async function main() {
     const flaggedSection =
       flagged > 0
         ? `<p>These are waiting for your approval (every cut, and raises over 5%) at
-<a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>:</p>
+<a href="https://www.lateonsetaudiophile.com/admin/pricing">lateonsetaudiophile.com/admin/pricing</a>:</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Record</th><th>Current</th><th>Suggested</th><th>Change</th><th>Why</th><th>Lowest listing</th><th>Copies for sale</th><th>eBay median (used)</th></tr>
 ${suggestionRows("flagged")}
@@ -810,7 +810,7 @@ ${suggestionRows("flagged")}
       sortedCuts.length > 0
         ? `<p>These are priced <strong>above a comparable cheapest Discogs listing</strong>
 (at least half the grade suggestion — junk-grade and foreign-only listings are already filtered out).
-One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin">lateonsetaudiophile.com/admin</a>
+One-click Approve at <a href="https://www.lateonsetaudiophile.com/admin/pricing">lateonsetaudiophile.com/admin/pricing</a>
 sets the suggested price ($6 over that listing).</p>
 <table border="1" cellpadding="6" cellspacing="0">${cutHeader}${sortedCuts.map(cutRow).join("")}</table>`
         : "";

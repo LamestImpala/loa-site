@@ -6,6 +6,13 @@ export const OLD_SHOP_HOST = "thebeeskneesrecords.com";
 export const LOA_HOST = "lateonsetaudiophile.com";
 
 /**
+ * Where the shop admin actually loads. The shop host rewrites every path into
+ * the (shop) subtree, so /admin only exists on the LOA host — links in emails
+ * to the owner must use this, never the shop domain.
+ */
+export const ADMIN_URL = `https://www.${LOA_HOST}/admin`;
+
+/**
  * Path prefix the (shop) route group is served under inside the app dir.
  * Also doubles as the Web Analytics namespace for shop traffic, so a real page
  * at app/(loa)/records/ would collide with it in the requestPath dimension.

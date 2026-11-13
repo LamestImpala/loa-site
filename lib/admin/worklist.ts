@@ -34,6 +34,7 @@ export type Worklist = {
   toPush: number; // orders with tracking PayPal hasn't been told
   toSync: number; // paid orders whose invoice has no PayPal fee recorded
   toUnlist: number; // shipped records still in the owner's Discogs collection
+  priceApprovals: number; // price changes from the daily run waiting on approve or reject
 };
 
 export function worklist(
@@ -45,10 +46,21 @@ export function worklist(
     orderRequests: OrderRequest[];
     messages?: ShopMessage[];
     reviews?: Pick<ShopReview, "status">[];
+    // Rows of pending_price_changes still pending; only the count matters.
+    pendingPrices?: readonly unknown[];
   },
   now: number = Date.now()
 ): Worklist {
-  const { records, shipments, invoices, orders, orderRequests, messages = [], reviews = [] } = data;
+  const {
+    records,
+    shipments,
+    invoices,
+    orders,
+    orderRequests,
+    messages = [],
+    reviews = [],
+    pendingPrices = [],
+  } = data;
   const open = openOrders(orders, records, invoices, now);
   const invoiceById = new Map(invoices.map((i) => [i.paypal_invoice_id, i]));
   const syncAfter = now - SYNC_WINDOW_DAYS * 24 * 3600 * 1000;
@@ -80,6 +92,7 @@ export function worklist(
     toPush: groups.filter((g) => g.shipments.some(pushable)).length,
     toSync,
     toUnlist: discogsReady(records, shipments, orders).length,
+    priceApprovals: pendingPrices.length,
   };
 }
 

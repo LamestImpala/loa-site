@@ -3,6 +3,7 @@ import { bundleBreakdown, type BundleItem } from "./records.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
 import { bundleKindSummary, countKinds, itemSpecShort, shippingSentence } from "./items.ts";
 import { shippingPauseSentence, type ShippingPause } from "./shipping-pause.ts";
+import { ADMIN_URL } from "./hosts.ts";
 
 // The shop's email "Request to buy": what the form may send, and the two
 // emails that go out when it lands — a notification to the admin and a
@@ -13,7 +14,7 @@ export const MAX_NAME = 80;
 export const MAX_MESSAGE = 1000;
 export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const SHOP_URL = "https://curiouserrecords.com";
-export const ADMIN_REQUESTS_URL = `${SHOP_URL}/admin#requests`;
+export const ADMIN_REQUESTS_URL = `${ADMIN_URL}#requests`;
 
 export type OrderRequestBody = {
   recordIds: number[];
@@ -137,6 +138,56 @@ export function adminNotificationEmail(a: RequestEmailArgs) {
     a.message ? `<p><em>Their note:</em></p><blockquote>${escapeHtml(a.message).replace(/\n/g, "<br>")}</blockquote>` : ""
   }<p><a href="${ADMIN_REQUESTS_URL}">Load it into the sale desk</a></p><p style="color:#666">Reply to this email to answer ${escapeHtml(a.buyerEmail)}, or reply from the Inbox as ${ORDERS_ADDRESS}.</p>`;
   return { to: ADMIN_EMAIL, subject, text, html, replyTo: a.buyerEmail };
+}
+
+export type PaidEmailArgs = {
+  buyer: string; // the order's buyer: a Reddit handle, or a name for an email order
+  buyerEmail: string | null;
+  invoiceId: string;
+  total: number | null; // the invoice total, when our copy of the invoice has one
+  // What the payment just sold. Empty when the order's records had
+  // already been sold or moved before the payment landed.
+  items: { artist: string; title: string; price: number | null }[];
+};
+
+// To the admin when PayPal reports an invoice paid: who paid, what to
+// pull, and the pick list. Paying is otherwise silent — the order just
+// moves from the Inbox to the Ship pages.
+export function adminPaidNotificationEmail(a: PaidEmailArgs) {
+  const who = a.buyerEmail ? buyerDisplay(a.buyer, a.buyerEmail) : `u/${a.buyer}`;
+  const n = a.items.length;
+  const money = a.total != null ? ` — $${a.total}` : "";
+  const count = n ? ` (${n} ${n === 1 ? "item" : "items"})` : "";
+  const subject = `Paid: ${a.buyer}${money}${count}`;
+  const lead = `${who} paid PayPal invoice ${a.invoiceId}${
+    a.total != null ? ` ($${a.total})` : ""
+  }.`;
+  const line = (r: PaidEmailArgs["items"][number]) =>
+    `${r.artist} — ${r.title}${r.price != null ? ` — $${r.price}` : ""}`;
+  const next = n
+    ? { label: "Pull them from the shelf", url: `${ADMIN_URL}/pick` }
+    : { label: "Check the order", url: `${ADMIN_URL}/ship` };
+  const moved =
+    "Its records were already sold or moved before the payment landed, so nothing new is on the pick list.";
+  const text = [
+    lead,
+    "",
+    ...(n ? a.items.map((r, i) => `${i + 1}. ${line(r)}`) : [moved]),
+    "",
+    `${next.label}: ${next.url}`,
+  ].join("\n");
+  const html = `<p>${escapeHtml(lead)}</p>${
+    n
+      ? `<ol>${a.items.map((r) => `<li>${escapeHtml(line(r))}</li>`).join("")}</ol>`
+      : `<p>${moved}</p>`
+  }<p><a href="${next.url}">${next.label}</a></p>`;
+  return {
+    to: ADMIN_EMAIL,
+    subject,
+    text,
+    html,
+    ...(a.buyerEmail ? { replyTo: a.buyerEmail } : {}),
+  };
 }
 
 // To the buyer: the quote, the ref code, and what happens next. Reply-To is

@@ -65,7 +65,8 @@ export function PickPage() {
     if (ids.length === 0 || resetting) return;
     if (
       !(await confirm(
-        `Clear the pulled mark on ${ids.length} record${ids.length === 1 ? "" : "s"}?`
+        `Clear the pulled mark on ${ids.length} record${ids.length === 1 ? "" : "s"}?`,
+        "Clear marks"
       ))
     )
       return;

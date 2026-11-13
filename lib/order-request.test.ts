@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   adminNotificationEmail,
+  adminPaidNotificationEmail,
   buyerConfirmationEmail,
   parseOrderRequestBody,
 } from "./order-request.ts";
@@ -62,7 +63,7 @@ test("admin notification: who, what, total, ref, and reply-to the buyer", () => 
   assert.match(m.text, /1\. Can — Ege Bamyasi/);
   assert.match(m.text, /Shipping: \$6\nTotal: \$56/);
   assert.match(m.text, /Their note:\nCan you hold till Friday\?/);
-  assert.match(m.text, /admin#requests/);
+  assert.match(m.text, /https:\/\/www\.lateonsetaudiophile\.com\/admin#requests/);
   assert.match(m.html, /<blockquote>Can you hold till Friday\?<\/blockquote>/);
 });
 
@@ -89,4 +90,39 @@ test("buyer confirmation: carries the away notice only when a pause is set", () 
   assert.match(m.html, /<p><strong>Heads up: I'm away Nov 3–11\. Anything requested in that window ships Thursday, Nov 12\.<\/strong><\/p>/);
   assert.doesNotMatch(buyerConfirmationEmail(args).text, /I'm away/);
   assert.doesNotMatch(adminNotificationEmail({ ...args, shippingPause }).text, /I'm away/);
+});
+
+test("paid notice: who paid, what to pull, and the pick list on the admin host", () => {
+  const m = adminPaidNotificationEmail({
+    buyer: "Jane",
+    buyerEmail: "jane@example.com",
+    invoiceId: "INV2-AAAA",
+    total: 56,
+    items: [
+      { artist: "Can", title: "Ege Bamyasi", price: 30 },
+      { artist: "Neu!", title: "Neu! 2", price: null },
+    ],
+  });
+  assert.equal(m.to, "brandoncgillihan@gmail.com");
+  assert.equal(m.replyTo, "jane@example.com");
+  assert.equal(m.subject, "Paid: Jane — $56 (2 items)");
+  assert.match(m.text, /Jane <jane@example.com> paid PayPal invoice INV2-AAAA \(\$56\)\./);
+  assert.match(m.text, /1\. Can — Ege Bamyasi — \$30\n2\. Neu! — Neu! 2\n/);
+  assert.match(m.text, /https:\/\/www\.lateonsetaudiophile\.com\/admin\/pick/);
+});
+
+test("paid notice: a Reddit buyer has no reply-to; an order with nothing left says so", () => {
+  const m = adminPaidNotificationEmail({
+    buyer: "amy<b>",
+    buyerEmail: null,
+    invoiceId: "INV2-BBBB",
+    total: null,
+    items: [],
+  });
+  assert.equal("replyTo" in m, false);
+  assert.equal(m.subject, "Paid: amy<b>");
+  assert.match(m.text, /^u\/amy<b> paid PayPal invoice INV2-BBBB\./);
+  assert.match(m.text, /already sold or moved/);
+  assert.match(m.text, /\/admin\/ship/);
+  assert.match(m.html, /u\/amy&lt;b&gt; paid/);
 });
