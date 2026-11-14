@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { DiscFormat } from "./disc-style";
 
 // The publishable key is safe to expose — Row Level Security controls access.
 export const SUPABASE_URL = "https://spmbjuurarlpyqcqxyyz.supabase.co";
@@ -61,6 +62,9 @@ export type DbRecord = {
   country?: string | null;
   barcode?: string | null;
   styles?: string[] | null; // Discogs styles, e.g. ["Indie Rock", "Shoegaze"]
+  // The release's Vinyl format entries, where Discogs notes the disc's
+  // colour (lib/disc-style.ts); null = not fetched yet.
+  disc_formats?: DiscFormat[] | null;
   collection: string | null; // curated series like "VMP" or "IVC"
   manual_price?: boolean; // true = daily price run leaves this record alone
   photo_urls: string[]; // uploaded photos of the actual copy (Supabase Storage)

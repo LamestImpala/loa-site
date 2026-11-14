@@ -1,7 +1,12 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { discFormatsFromDiscogs, discStyle, type DiscFormat } from "./disc-style.ts";
+import {
+  discColourLines,
+  discFormatsFromDiscogs,
+  discStyle,
+  type DiscFormat,
+} from "./disc-style.ts";
 
 const vinyl = (text: string, qty = "1", descriptions: string[] = []): DiscFormat[] => [
   { qty, text, descriptions },
@@ -111,6 +116,40 @@ test("several vinyl entries: the first that names a colour decides", () => {
 test("picture discs are flagged, not drawn", () => {
   assert.equal(discStyle(vinyl("", "1", ["LP", "Picture Disc"]))?.mode, "picture");
   assert.equal(discStyle(vinyl("Picture Disc"))?.mode, "picture");
+});
+
+test("the record page lists every disc's colour", () => {
+  // One line per colour, packaging notes dropped, repeats folded.
+  assert.deepEqual(
+    discColourLines([
+      { qty: "1", text: "Green, Gatefold", descriptions: ["LP"] },
+      { qty: "1", text: "Tangerine", descriptions: ["LP"] },
+      { qty: "1", text: "Green", descriptions: ["LP"] },
+    ]),
+    [
+      { label: "Green", colors: [{ hex: "#2a8a45", alpha: 1 }] },
+      { label: "Tangerine", colors: [{ hex: "#f28a1e", alpha: 1 }] },
+    ]
+  );
+  // A two-disc "one of each" keeps both colours here, unlike the crate.
+  const pair = discColourLines(vinyl("Opaque Orchid & Canary Yellow, 30th Anniversary", "2"));
+  assert.equal(pair.length, 1);
+  assert.equal(pair[0].label, "Opaque Orchid & Canary Yellow");
+  assert.deepEqual(
+    pair[0].colors.map((c) => c.hex),
+    ["#b565c0", "#f2d21f"]
+  );
+  assert.deepEqual(discColourLines(vinyl("", "1", ["LP", "Picture Disc"])), [
+    { label: "Picture disc", colors: [] },
+  ]);
+  assert.equal(
+    discColourLines(vinyl("Translucent natural and clear smoke."))[0].label,
+    "Translucent natural and clear smoke"
+  );
+  // Nothing to say about plain black, a weight, or a record with no data yet.
+  assert.deepEqual(discColourLines(vinyl("180 Gram Black")), []);
+  assert.deepEqual(discColourLines(vinyl("180g, Gatefold")), []);
+  assert.deepEqual(discColourLines(null), []);
 });
 
 test("vinyl formats are read from a Discogs release", () => {
