@@ -3,6 +3,7 @@ import { createServerSupabase, type DbRecord, type ItemKind } from "@/lib/supaba
 import { toReviewQuotes, toReviewSummary } from "@/lib/review";
 import { isRecord, kindOf } from "@/lib/items";
 import { fetchShippingPause } from "@/lib/shipping-pause";
+import { discStyle, type DiscFormat, type DiscStyle } from "@/lib/disc-style";
 
 // Columns the catalog grid needs. Every column named here must be granted to
 // anon (see the records_anon_column_grants migrations) or the query fails.
@@ -37,6 +38,24 @@ export const getListedByKind = cache(
     return { items: items.filter((r) => kindOf(r) === kind), error };
   }
 );
+
+// Disc colour per record id, for the crate view, read from what Discogs
+// says about each pressing (records.disc_formats). Its own query, and empty
+// on any error, so the catalog still loads where the column isn't there yet.
+export const getDiscStyles = cache(async (): Promise<Record<number, DiscStyle>> => {
+  const { data, error } = await createServerSupabase()
+    .from("records")
+    .select("id, disc_formats")
+    .eq("listed", true)
+    .not("disc_formats", "is", null);
+  if (error || !data) return {};
+  const styles: Record<number, DiscStyle> = {};
+  for (const row of data as { id: number; disc_formats: DiscFormat[] | null }[]) {
+    const style = discStyle(row.disc_formats);
+    if (style) styles[row.id] = style;
+  }
+  return styles;
+});
 
 export const getRedditPostUrl = cache(async () => {
   const { data } = await createServerSupabase()

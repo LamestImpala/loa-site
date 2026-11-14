@@ -24,6 +24,7 @@ import {
   recordPath,
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
+import type { DiscStyle } from "@/lib/disc-style";
 import {
   BundleBar,
   BuyDialog,
@@ -56,10 +57,13 @@ const AVAIL_OPTIONS: AvailOption[] = ["all", "open", "sold"];
 
 export default function RecordsClient({
   records,
+  discStyles,
   bundlePool,
   redditPostUrl,
 }: {
   records: DbRecord[];
+  // Disc colour by record id, for the crate view.
+  discStyles?: Record<number, DiscStyle>;
   // Everything listed, of every kind: the bundle lives in localStorage
   // across pages, so a poster added on /posters must still count here.
   bundlePool?: DbRecord[];
@@ -904,6 +908,7 @@ export default function RecordsClient({
         {visible.length > 0 && effectiveView === "crate" ? (
           <Crate
             records={visible}
+            discStyles={discStyles}
             showTabs={sort === "artist"}
             paused={buySheet !== null || lightbox !== null}
             inBundle={bundle.has}

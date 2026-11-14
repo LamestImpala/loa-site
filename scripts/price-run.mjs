@@ -422,6 +422,71 @@ async function backfillReleaseDetails() {
   if (missing.length) console.log(`release details: filled ${filled} of ${missing.length}`);
 }
 
+// Disc colour for the crate view: the release's Vinyl format entries, where
+// Discogs notes "Blue Translucent" and the like. Same shape as
+// discFormatsFromDiscogs() in lib/disc-style.ts (keep the two in step).
+export function discFormats(rel) {
+  return (rel?.formats ?? [])
+    .filter((f) => f.name === "Vinyl")
+    .map((f) => ({
+      qty: f.qty ?? "1",
+      text: f.text?.trim() ?? "",
+      descriptions: f.descriptions ?? [],
+    }));
+}
+
+// Listed records whose disc_formats is still null get it filled in, a
+// batch a day so the run stays inside its time limit.
+const DISC_FORMATS_PER_RUN = 150;
+
+async function backfillDiscFormats() {
+  const { data: missing, error } = await supabase
+    .from("records")
+    .select("id, discogs_release_id")
+    .eq("kind", "record")
+    .eq("listed", true)
+    .is("disc_formats", null)
+    .not("discogs_release_id", "is", null)
+    .order("id")
+    .limit(DISC_FORMATS_PER_RUN);
+  if (error) {
+    // The column arrives with the 20261116 migration; until then, skip.
+    console.log(`disc formats: skipped (${error.message})`);
+    return;
+  }
+  let filled = 0;
+  for (const r of missing) {
+    try {
+      const res = await fetch(
+        `https://api.discogs.com/releases/${r.discogs_release_id}`,
+        {
+          headers: {
+            Authorization: `Discogs token=${discogsToken}`,
+            "User-Agent": "LateOnsetAudiophileRecords/1.0",
+          },
+        }
+      );
+      if (res.status === 429) {
+        await sleep(65_000);
+        continue; // picked up on the next run
+      }
+      if (!res.ok && res.status !== 404) continue;
+      // A release gone from Discogs gets an empty list so it isn't retried daily.
+      const disc_formats = res.ok ? discFormats(await res.json()) : [];
+      const { error: upErr } = await supabase
+        .from("records")
+        .update({ disc_formats })
+        .eq("id", r.id);
+      if (upErr) throw upErr;
+      filled++;
+    } catch (e) {
+      console.error(`disc formats for record ${r.id}:`, e.message);
+    }
+    await sleep(1100);
+  }
+  if (missing.length) console.log(`disc formats: filled ${filled} of ${missing.length}`);
+}
+
 // Fill in cover art for records that don't have it yet (new listings).
 async function backfillCoverImages() {
   const { data: missing, error } = await supabase
@@ -483,6 +548,7 @@ async function main() {
 
   if (!DRY_RUN) await backfillCoverImages();
   if (!DRY_RUN) await backfillReleaseDetails();
+  if (!DRY_RUN) await backfillDiscFormats();
 
   // Everything on the shop, plus drafts still at $0 — a draft with a price
   // is the owner's to publish, so the run leaves it alone.

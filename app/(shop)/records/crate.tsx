@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Image, { getImageProps } from "next/image";
 import Link from "next/link";
 import { SELLER_INFO, artistLetter } from "@/lib/records";
 import {
@@ -14,7 +14,10 @@ import {
   recordPath,
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
-import { initials, tintFor } from "./shop-ui";
+import type { DiscStyle } from "@/lib/disc-style";
+import { initials, prefersReducedMotion, tintFor } from "./shop-ui";
+import Crate3D from "./crate-3d";
+import type { CrateItem } from "./crate-scene";
 
 // How many sleeves stand behind the front one, and how many flipped ones
 // stay mounted so the flip can animate out.
@@ -23,6 +26,17 @@ const FLIPPED = 2;
 const SWIPE_PX = 36;
 
 type Jump = { id: number; why: string };
+
+// The 3D bin (crate-3d.tsx) needs WebGL 2, and is skipped for shoppers who
+// ask for reduced motion: they keep the flat crate below.
+const noStore = () => () => {};
+const supports3d = () => "WebGL2RenderingContext" in window && !prefersReducedMotion();
+
+// WebGL can only read images from this site, so covers go through the
+// image optimizer (the same URLs next/image builds for the flat crate).
+function coverTexture(src: string) {
+  return getImageProps({ src, alt: "", width: 320, height: 320 }).props.src;
+}
 
 // "Down the rabbit hole": a related record picked at random, weighted by how
 // much it shares with the current one, skipping ones already visited.
@@ -76,6 +90,7 @@ export function rabbitHole(
 
 export default function Crate({
   records,
+  discStyles,
   showTabs,
   paused,
   inBundle,
@@ -83,6 +98,8 @@ export default function Crate({
   onBuy,
 }: {
   records: DbRecord[];
+  // Disc colour by record id, where Discogs describes one (lib/disc-style.ts).
+  discStyles?: Record<number, DiscStyle>;
   // Letter divider tabs only make sense when the crate is filed A–Z.
   showTabs: boolean;
   // A dialog is open: arrow keys belong to it.
@@ -95,6 +112,9 @@ export default function Crate({
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [fell, setFell] = useState<{ why: string; n: number } | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const can3d = useSyncExternalStore(noStore, supports3d, () => false);
+  const [failed3d, setFailed3d] = useState(false);
+  const use3d = can3d && !failed3d;
   const seen = useRef(new Set<number>());
   const drag = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
@@ -145,19 +165,56 @@ export default function Crate({
     return () => window.removeEventListener("keydown", onKey);
   }, [paused]);
 
+  // What the 3D bin draws for each record, in crate order.
+  const items = useMemo<CrateItem[]>(
+    () =>
+      use3d
+        ? records.map((r, i) => {
+            const cover = r.photo_urls?.[0] || r.cover_image;
+            const letter = artistLetter(r.artist);
+            return {
+              id: r.id,
+              cover: cover ? coverTexture(cover) : null,
+              initials: initials(r.artist),
+              sticker: r.sold ? ["Sold"] : [`$${r.price}`, `${r.media}/${r.sleeve}`],
+              sold: r.sold,
+              tab:
+                showTabs && (i === 0 || artistLetter(records[i - 1].artist) !== letter)
+                  ? letter
+                  : null,
+              disc: discStyles?.[r.id] ?? null,
+            };
+          })
+        : [],
+    [use3d, records, showTabs, discStyles]
+  );
+
   if (!current) return null;
 
   const held = isOnHold(current) && !current.sold;
   const reduced = isReduced(current) && !current.sold;
   const picked = inBundle(current.id);
+  const disc = discStyles?.[current.id];
   const from = Math.max(0, index - FLIPPED);
   const to = Math.min(last, index + BEHIND);
 
   return (
-    <section className="crate" aria-label="Crate — flip through the records">
-      <div className="crate-bin">
+    <section
+      className={`crate ${use3d ? "crate-in-3d" : ""}`}
+      aria-label="Crate — flip through the records"
+    >
+      <div className="crate-bin" ref={stageRef}>
+        {use3d ? (
+          <Crate3D
+            items={items}
+            index={index}
+            fallCount={fell?.n ?? 0}
+            onStep={(delta) => go(index + delta)}
+            onPick={(at) => go(at === index ? index + 1 : at)}
+            onUnavailable={() => setFailed3d(true)}
+          />
+        ) : (
         <div
-          ref={stageRef}
           className="crate-stage"
           onPointerDown={(e) => {
             drag.current = { x: e.clientX, y: e.clientY };
@@ -251,6 +308,7 @@ export default function Crate({
             <span>Curiouser Records</span>
           </div>
         </div>
+        )}
 
         <div className="crate-nav">
           <button
@@ -282,7 +340,9 @@ export default function Crate({
           </button>
         </div>
         <p className="crate-hint">
-          Tap the front record, swipe, or use the ← → keys.
+          {use3d
+            ? "Tap the lifted record or one further back, swipe, or use the ← → keys."
+            : "Tap the front record, swipe, or use the ← → keys."}
         </p>
       </div>
 
@@ -304,6 +364,7 @@ export default function Crate({
         <div className="record-tags">
           <span className="tag tag-outline">Media: {current.media}</span>
           <span className="tag tag-outline">Sleeve: {current.sleeve}</span>
+          {disc ? <span className="tag tag-outline">Disc: {disc.label}</span> : null}
           {current.photo_urls?.length ? (
             <span className="tag tag-neutral">Actual copy pictured</span>
           ) : null}

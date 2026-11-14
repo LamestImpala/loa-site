@@ -2629,6 +2629,73 @@ html:has(.shop) {
 .shop .crate-hole:hover {
   background: var(--color-ink-2);
 }
+/* — the crate in 3D (crate-3d.tsx): a night plate set into the page — */
+.shop .crate.crate-in-3d {
+  grid-template-columns: minmax(0, 560px);
+}
+@media (min-width: 820px) {
+  .shop .crate.crate-in-3d {
+    grid-template-columns: minmax(0, 560px) minmax(260px, 360px);
+    gap: 40px;
+  }
+  .shop .crate.crate-in-3d .crate-plate {
+    margin-top: 13%;
+  }
+}
+.shop .crate-stage3d {
+  position: relative;
+  aspect-ratio: 1 / 1.06;
+  overflow: hidden;
+  background: var(--color-ink-2);
+  border: 1px solid var(--color-accent-2-600);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 0 0 3px var(--color-bg),
+    0 0 0 4px var(--color-accent-2),
+    var(--shadow-lg);
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Night sky above, the garden wallpaper below, a dark pool under the bin. */
+.shop .crate-backdrop {
+  position: absolute;
+  inset: -4%;
+  background:
+    radial-gradient(
+      ellipse 62% 46% at 50% 70%,
+      color-mix(in srgb, var(--color-garden) 96%, transparent) 30%,
+      transparent 100%
+    ),
+    linear-gradient(
+      var(--color-ink-2) 4%,
+      color-mix(in srgb, var(--color-ink) 88%, transparent) 26%,
+      color-mix(in srgb, var(--color-garden) 58%, transparent) 62%,
+      color-mix(in srgb, var(--color-garden) 72%, transparent)
+    ),
+    url("/images/brand/garden-1000.webp") 38% 100% / 190% auto;
+  transform: translate3d(var(--crate-px, 0px), var(--crate-py, 0px), 0);
+}
+.shop .crate-stage3d canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.shop .crate-stage3d-note {
+  position: absolute;
+  inset: auto 0 0;
+  margin: 0;
+  padding: 10px 14px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-ink-muted);
+}
+.shop .crate.crate-in-3d .crate-nav {
+  margin-top: var(--space-4);
+}
 @media (prefers-reduced-motion: reduce) {
   .shop .crate-sleeve {
     transition: none;
