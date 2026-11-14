@@ -64,7 +64,7 @@ export function Numbers() {
           </p>
           <p
             className="mt-1 text-xs text-neutral-500"
-            title="Uses the final sold price when entered, listed price otherwise, less any credits and partial refunds on paid orders. Fully refunded orders don't count."
+            title="Uses the final sold price when entered, listed price otherwise, less any credits and partial refunds on paid orders. Fully refunded orders don't count, and neither does a refund for an item that couldn't be found — its price left with it."
           >
             {stats.soldCount} sold · ${stats.asp.toFixed(2)} avg selling price
             {stats.creditTotal > 0

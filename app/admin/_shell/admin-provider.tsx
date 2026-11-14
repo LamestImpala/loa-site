@@ -39,6 +39,8 @@ import {
 } from "@/lib/admin/orders-db";
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { partlySoldRequests, unsellPlan, unsoldPatch } from "@/lib/admin/sales";
+import { missingBlock, missingPlan } from "@/lib/admin/missing";
+import { removeMissing } from "@/lib/admin/missing-db";
 import { markSold, type SaleTerms } from "@/lib/admin/sales-db";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { useAdminSession } from "../admin-gate";
@@ -231,6 +233,10 @@ type AdminContextValue = {
   // The one un-sell path: records back on the shop, out of their parcels,
   // an order left empty cancelled. No confirm — callers ask first.
   unsellRecords: (targets: DbRecord[]) => Promise<boolean>;
+  // A sold record that couldn't be found: off its paid order (which keeps
+  // its price as removed_total), out of the stock for good, and out of
+  // the Discogs collection. No confirm — callers ask first.
+  removeMissingRecord: (r: DbRecord) => Promise<boolean>;
 
   // Two separate selections: what's on the sale desk, and the picks for
   // the weekly Reddit post. `selectionMode` says which one the Catalog's
@@ -1289,6 +1295,46 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     return true;
   }
 
+  async function removeMissingRecord(r: DbRecord) {
+    const order = r.order_id != null ? ordersById.get(r.order_id) : undefined;
+    const block = missingBlock(r, recordsRef.current, shipments, order);
+    if (block || !order) {
+      pushToast("error", block ?? "That record isn't on an order.");
+      return false;
+    }
+    const plan = missingPlan(r, recordsRef.current, shipments, order);
+    let saved: Order;
+    try {
+      saved = await removeMissing(supabase, r, order, plan);
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Couldn't take the record off the order");
+      return false;
+    }
+    setOrders((prev) => prev.map((o) => (o.id === saved.id ? { ...o, ...saved } : o)));
+    for (const p of plan.parcels) {
+      if (p.remove) setShipments((prev) => prev.filter((s) => s.id !== p.id));
+      else patchShipmentLocal(p.id, { record_ids: p.record_ids });
+    }
+    setRecords((prev) => prev.filter((x) => x.id !== r.id));
+    setPending((prev) => prev.filter((x) => x.record_id !== r.id));
+    // Discogs last: its delete can't be undone, so it waits until the
+    // record is really gone here. The row no longer exists to flag.
+    let discogs = "";
+    let discogsLeft = false;
+    if (r.discogs_release_id && !r.discogs_removed) {
+      const { outcome, error } = await discogsRemoveRequest(r.discogs_release_id);
+      discogsLeft = outcome !== "removed" && outcome !== "gone";
+      discogs = discogsLeft
+        ? ` It's still in your Discogs collection (${discogsStatusText(outcome, error)}) — take it out there.`
+        : " It's out of your Discogs collection too.";
+    }
+    pushToast(
+      discogsLeft ? "info" : "success",
+      `"${r.artist} — ${r.title}" is off the order and out of your stock.${discogs} Refund $${plan.price.toFixed(2)} in PayPal if you haven't, then Sync from PayPal.`
+    );
+    return true;
+  }
+
   // The shared mark-sold path: sale desk, paid invoice, row and bulk
   // checkboxes all land here. Puts the records in an order (paid), then
   // writes sold/price/buyer, clears holds and closes finished order
@@ -1559,6 +1605,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     releaseOrder,
     releaseHold,
     unsellRecords,
+    removeMissingRecord,
     saveOrderCredit,
     saleIds,
     setSaleIds,

@@ -1,4 +1,5 @@
 import type { DbRecord, Invoice, Order, Shipment } from "../supabase.ts";
+import { refundOffSold } from "./missing.ts";
 
 // The Numbers tiles on Today: collection value, what sold, and what actually
 // landed in the account. Pure — no React, no Supabase.
@@ -30,7 +31,9 @@ export function salesStats(data: {
   // prices — take paid orders' off the sold total so it's what was kept.
   const paid = orders.filter((o) => o.status === "paid");
   const creditTotal = paid.reduce((t, o) => t + Number(o.credit ?? 0), 0);
-  const refundedTotal = paid.reduce((t, o) => t + Number(o.refunded_amount ?? 0), 0);
+  // A refund that pays back an item taken off the order ("Can't find it")
+  // doesn't count: that item's price already left with it.
+  const refundedTotal = paid.reduce((t, o) => t + refundOffSold(o), 0);
   const soldTotal =
     sum(sold, (r) => Number(r.sold_price ?? r.price)) - creditTotal - refundedTotal;
   // Costs typed in from PayPal's transaction pages: fees and buyer-paid
