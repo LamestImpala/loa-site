@@ -117,6 +117,10 @@ export type Order = {
   ship_to: ShipTo | null; // from PayPal once paid; null for off-PayPal sales
   refunded_amount: number; // what PayPal refunded — all of it on a refunded order, part on a paid one; 0 = none
   refunded_at: string | null;
+  // Sold prices of items taken off the order because they couldn't be
+  // found ("Can't find it"); a refund up to this pays them back. Absent
+  // on rows read before the 20261117 migration is applied.
+  removed_total?: number;
   // When the seller marked the order done (Orders page); null = not yet.
   // Absent on rows read before the 20261114 migration is applied — the
   // admin then leaves "Mark done" out rather than offer a write that fails.

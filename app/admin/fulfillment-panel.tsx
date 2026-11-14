@@ -25,6 +25,7 @@ import {
   type OrderJob,
 } from "@/lib/admin/fulfillment";
 import { buyerLabel } from "@/lib/admin/buyers";
+import { missingBlock, missingPrice, missingSupported, refundOwed } from "@/lib/admin/missing";
 import { setOrderCompleted } from "@/lib/admin/orders-db";
 import { refundedPatch } from "@/lib/admin/refunds";
 import { parseMoney } from "@/lib/admin/sales";
@@ -167,6 +168,7 @@ export function FulfillmentPanel({
     reviews,
     removeFromDiscogs,
     discogsStatus,
+    removeMissingRecord,
   } = useAdmin();
   useSlice("closedRequests");
   const requestById = useMemo(
@@ -847,6 +849,43 @@ export function FulfillmentPanel({
     }
   }
 
+  // A sold record that isn't on the shelf: it comes off the order and out
+  // of the stock for good, and the buyer gets its price back in PayPal.
+  // The rest of the order ships as usual.
+  async function cantFind(g: OrderGroup, r: DbRecord) {
+    if (busy) return;
+    const block = missingBlock(r, records, shipments, g.order);
+    if (block) {
+      note(g.key, block, "info");
+      return;
+    }
+    const name = `"${r.artist} — ${r.title}"`;
+    const price = `$${missingPrice(r).toFixed(2)}`;
+    const onDiscogs = !!r.discogs_release_id && !r.discogs_removed;
+    if (
+      !(await confirm(
+        `Can't find ${name}?\n\nIt comes off ${buyerLabel(g.buyer, g.buyerEmail, "this buyer")}'s order and is deleted from your stock for good, photos and price history included${
+          onDiscogs ? ", and removed from your Discogs collection" : ""
+        }. This can't be undone. The rest of the order ships as usual.\n\nIt sold for ${price} — refund that in PayPal, then Sync from PayPal.`,
+        "Remove it"
+      ))
+    )
+      return;
+    setBusy(g.key);
+    try {
+      const ok = await removeMissingRecord(r);
+      if (ok) {
+        setSelected((prev) => ({
+          ...prev,
+          [g.key]: (prev[g.key] ?? []).filter((id) => id !== r.id),
+        }));
+        note(g.key, "");
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const recordLabel = (id: number) => {
     const r = byId.get(id);
     return r ? `${r.artist} — ${r.title}` : `#${id}`;
@@ -1024,7 +1063,12 @@ export function FulfillmentPanel({
       invoice?.shipping_charged == null
         ? null
         : Number(invoice.shipping_charged);
-    const invoicedTotal = recordsTotal - credit + (shippingCharged ?? 0);
+    // Items taken off as missing were invoiced too; what's still to pay
+    // back for them shows until a sync reads the refund.
+    const removedTotal = Number(g.order?.removed_total ?? 0);
+    const owed = refundOwed(g.order);
+    const canMiss = g.order?.status === "paid" && missingSupported(g.order);
+    const invoicedTotal = recordsTotal + removedTotal - credit + (shippingCharged ?? 0);
     const money = (n: number) =>
       `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     const pushables = g.shipments.filter(pushable);
@@ -1100,6 +1144,7 @@ export function FulfillmentPanel({
                       className="text-sm text-green-400"
                       title={
                         `Items ${money(recordsTotal)}` +
+                        (removedTotal > 0 ? ` + ${money(removedTotal)} not found` : "") +
                         (credit > 0
                           ? ` − credit ${money(credit)}${g.order?.credit_note ? ` (${g.order.credit_note})` : ""}`
                           : "") +
@@ -1219,6 +1264,13 @@ export function FulfillmentPanel({
                   <p className="mt-2 text-xs text-amber-400">
                     No ship-to address on this order yet — Sync from PayPal
                     reads it off the payment.
+                  </p>
+                ) : null}
+                {owed > 0 ? (
+                  <p className="mt-2 text-xs text-amber-400">
+                    {money(owed)} to refund for what couldn&rsquo;t be found —
+                    refund it in PayPal if you haven&rsquo;t, then Sync from
+                    PayPal.
                   </p>
                 ) : null}
 
@@ -1403,8 +1455,8 @@ export function FulfillmentPanel({
                     </p>
                     <div className="mt-2 flex flex-col gap-1">
                       {g.unassigned.map((r) => (
+                        <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <label
-                          key={r.id}
                           className="flex items-center gap-2 text-sm"
                         >
                           <input
@@ -1435,6 +1487,18 @@ export function FulfillmentPanel({
                             </span>
                           ) : null}
                         </label>
+                          {canMiss ? (
+                            <button
+                              type="button"
+                              onClick={() => cantFind(g, r)}
+                              disabled={groupBusy}
+                              title="Not on the shelf: take it off this order, delete it from your stock and remove it from Discogs. You refund its price in PayPal; the rest of the order ships."
+                              className="text-xs text-neutral-500 underline underline-offset-2 transition hover:text-red-400 disabled:opacity-50"
+                            >
+                              Can&rsquo;t find it
+                            </button>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
                     <button

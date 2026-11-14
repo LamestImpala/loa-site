@@ -33,6 +33,7 @@ import {
   type SortKey,
   type StatusFilter,
 } from "@/lib/admin/catalog-filter";
+import { photoPaths } from "@/lib/admin/missing";
 import { discogsStatusText, useAdmin, useSlice } from "../_shell/admin-provider";
 import { NoteField } from "../_shell/inline-fields";
 import { PageHeader } from "../_shell/primitives";
@@ -320,10 +321,7 @@ export function CatalogPage() {
     )
       return;
     setSaving(r.id, true);
-    const paths = (r.photo_urls ?? [])
-      .map((url) => url.split("/record-photos/")[1])
-      .filter((p): p is string => !!p)
-      .map((p) => decodeURIComponent(p));
+    const paths = photoPaths(r);
     if (paths.length > 0) {
       await supabase.storage.from("record-photos").remove(paths);
     }
