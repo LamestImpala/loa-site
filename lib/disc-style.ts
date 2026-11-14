@@ -225,3 +225,26 @@ export function discStyle(formats: DiscFormat[] | null | undefined): DiscStyle |
   }
   return null;
 }
+
+export type DiscColourLine = { label: string; colors: DiscColor[] };
+
+// Every disc's colour, for the record page's Pressing list. discStyle() picks
+// one disc for the crate to draw; this keeps them all, in Discogs' wording,
+// so a set pressed as one green and one tangerine disc lists both. Plain
+// black gets no line, the same as it gets no tag in the crate.
+export function discColourLines(formats: DiscFormat[] | null | undefined): DiscColourLine[] {
+  if (!Array.isArray(formats)) return [];
+  const lines: DiscColourLine[] = [];
+  for (const f of formats) {
+    const style = (f?.descriptions ?? []).includes("Picture Disc")
+      ? { label: "Picture disc", colors: [] }
+      : f?.text
+        ? // As one disc, so "Red / Blue" on a 2×LP keeps both colours.
+          parseText(f.text, 1)
+        : null;
+    if (!style) continue;
+    const label = style.label.replace(/\.$/, "");
+    if (!lines.some((l) => l.label === label)) lines.push({ label, colors: style.colors });
+  }
+  return lines;
+}

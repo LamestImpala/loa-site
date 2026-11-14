@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -22,6 +23,7 @@ import {
   kindOf,
   posterYear,
 } from "@/lib/items";
+import { discColourLines, type DiscColor } from "@/lib/disc-style";
 import type { DbRecord, ItemKind } from "@/lib/supabase";
 import { PAGE_COLUMNS, getListedItems, getRedditPostUrl, getShopStats } from "../data";
 import { DiscogsLink, RecordBuyBox, RecordGallery } from "./item-client";
@@ -230,6 +232,31 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+// A small disc in the pressing's colours beside Discogs' wording for them.
+// Two or three colours share the disc in equal parts; a clear one lets the
+// page show through. A picture disc has no colours and gets no swatch.
+function DiscSwatch({ colors }: { colors: DiscColor[] }) {
+  if (colors.length === 0) return null;
+  const css = (c: DiscColor) => {
+    const n = parseInt(c.hex.slice(1), 16);
+    return `rgb(${n >> 16} ${(n >> 8) & 255} ${n & 255} / ${c.alpha})`;
+  };
+  const step = 100 / colors.length;
+  const fill =
+    colors.length === 1
+      ? css(colors[0])
+      : `conic-gradient(${colors
+          .map((c, k) => `${css(c)} ${k * step}% ${(k + 1) * step}%`)
+          .join(", ")})`;
+  return (
+    <span
+      className="rp-disc-swatch"
+      style={{ "--disc": fill } as CSSProperties}
+      aria-hidden="true"
+    />
+  );
+}
+
 export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string }) {
   const [{ item: r, items }, redditPostUrl, stats] = await Promise.all([
     loadItem(slug),
@@ -250,6 +277,7 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
 
   // Record-only bits.
   const spec = splitPressing(r.pressing);
+  const discColours = discColourLines(r.disc_formats);
   const media = gradeInfo(r.media);
   const sleeve = gradeInfo(r.sleeve);
   const sides = groupBySide(r.tracklist ?? []);
@@ -396,6 +424,19 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
                   <Row label="Released" value={spec.year} />
                   <Row label="Label · Cat #" value={spec.label} />
                   <Row label="Format" value={spec.formats} />
+                  {discColours.length ? (
+                    <div>
+                      <dt>Vinyl color</dt>
+                      <dd>
+                        {discColours.map((line) => (
+                          <span className="rp-disc-line" key={line.label}>
+                            <DiscSwatch colors={line.colors} />
+                            {line.label}
+                          </span>
+                        ))}
+                      </dd>
+                    </div>
+                  ) : null}
                   <Row label="Country" value={r.country} />
                   <Row label="Barcode" value={r.barcode} />
                   {r.genres?.length ? (

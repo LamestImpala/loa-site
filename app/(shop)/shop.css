@@ -1315,6 +1315,23 @@ html:has(.shop) {
 .rp-specs dd {
   margin: 0;
 }
+/* Vinyl color: one line per disc colour, each led by a little disc in it. */
+.rp-disc-line {
+  display: block;
+}
+.rp-disc-swatch {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.45em;
+  vertical-align: -0.14em;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-neutral-700) 55%, transparent);
+  /* The spindle hole, then the colour(s) handed in from the page. */
+  background:
+    radial-gradient(circle, var(--color-bg) 0 15%, transparent 17%),
+    var(--disc);
+}
 .rp-note {
   margin: var(--space-3) 0 0;
   padding: var(--space-3) var(--space-4);

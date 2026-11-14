@@ -10,8 +10,9 @@ import { discStyle, type DiscFormat, type DiscStyle } from "@/lib/disc-style";
 export const LIST_COLUMNS =
   "id, kind, artist, title, pressing, media, sleeve, condition, details, price, prev_price, notes, photos, photo_urls, discogs_release_id, cover_image, genres, collection, sold, listed, hold_until, created_at, updated_at";
 
-// A record page also shows release details; styles feed "More from the shelves".
-export const PAGE_COLUMNS = `${LIST_COLUMNS}, tracklist, country, barcode, styles`;
+// A record page also shows release details; styles feed "More from the shelves",
+// disc_formats the colour of the record itself.
+export const PAGE_COLUMNS = `${LIST_COLUMNS}, tracklist, country, barcode, styles, disc_formats`;
 
 // Everything listed, of every kind, in one query — deduped per request so
 // a page's generateMetadata and the page itself share it. The bundle
