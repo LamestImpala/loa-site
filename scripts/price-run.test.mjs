@@ -1,8 +1,15 @@
 // node --test scripts/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyMode, firstPricePatch, planPrice, releaseDetails } from "./price-run.mjs";
+import {
+  applyMode,
+  discFormats,
+  firstPricePatch,
+  planPrice,
+  releaseDetails,
+} from "./price-run.mjs";
 import { releaseDetailsFromDiscogs } from "../lib/record-info.ts";
+import { discFormatsFromDiscogs } from "../lib/disc-style.ts";
 
 // Stone Temple Pilots — Live In New Haven, 1994 (release 33673521), the
 // case that exposed the phantom listing: Discogs says lowest_price $8.92 on
@@ -115,6 +122,23 @@ test("release details match the admin import's shape", () => {
   };
   assert.deepEqual(releaseDetails(rel), releaseDetailsFromDiscogs(rel));
   assert.deepEqual(releaseDetails({}), releaseDetailsFromDiscogs({}));
+});
+
+test("the run reads disc formats the same way the shop does", () => {
+  const rel = {
+    formats: [
+      { name: "Vinyl", qty: "2", text: " Blue Marble ", descriptions: ["LP", "Album"] },
+      { name: "Box Set", qty: "1" },
+      { name: "Vinyl" },
+    ],
+  };
+  assert.deepEqual(discFormats(rel), discFormatsFromDiscogs(rel));
+  assert.deepEqual(discFormats(rel)[0], {
+    qty: "2",
+    text: "Blue Marble",
+    descriptions: ["LP", "Album"],
+  });
+  assert.deepEqual(discFormats({}), discFormatsFromDiscogs({}));
 });
 
 test("every cut waits for approval; only small raises apply on their own", () => {

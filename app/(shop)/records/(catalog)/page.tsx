@@ -5,6 +5,7 @@ import { trackRecordLine } from "@/lib/record-info";
 import Link from "next/link";
 import { ratingLine, stars, type ReviewSummary } from "@/lib/review";
 import {
+  getDiscStyles,
   getListedItems,
   getListedRecords,
   getRedditPostUrl,
@@ -100,13 +101,14 @@ function ReviewQuotes({ summary }: { summary: ReviewSummary }) {
 }
 
 export default async function RecordsPage() {
-  const [{ records, error }, { items: all }, redditPostUrl, stats, reviews] =
+  const [{ records, error }, { items: all }, redditPostUrl, stats, reviews, discStyles] =
     await Promise.all([
       getListedRecords(),
       getListedItems(),
       getRedditPostUrl(),
       getShopStats(),
       getReviewSummary(),
+      getDiscStyles(),
     ]);
   const trackRecord = trackRecordLine(stats);
 
@@ -171,6 +173,7 @@ export default async function RecordsPage() {
         ) : (
           <RecordsClient
             records={records}
+            discStyles={discStyles}
             bundlePool={all}
             redditPostUrl={redditPostUrl}
           />
