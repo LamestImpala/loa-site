@@ -474,7 +474,7 @@ export default function RecordsClient({
           }${disc && disc.mode !== "picture" ? `, ${disc.label} vinyl` : ""}`}
         >
           <span className="record-compact-cover-wrap">
-            <DiscPeek style={disc} />
+            <DiscPeek id={r.id} style={disc} />
             <span
               className="record-compact-cover"
               style={cover ? undefined : { background: tint.bg }}
@@ -532,7 +532,7 @@ export default function RecordsClient({
         } ${highlightId === r.id ? "is-highlighted" : ""}`}
       >
         <div className="record-cover-wrap">
-          <DiscPeek style={disc} />
+          <DiscPeek id={r.id} style={disc} />
           <Link
             href={href}
             className="record-cover"
