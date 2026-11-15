@@ -25,6 +25,7 @@ import {
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
 import type { DiscStyle } from "@/lib/disc-style";
+import { DiscPeek } from "./disc-peek";
 import {
   BundleBar,
   BuyDialog,
@@ -431,6 +432,8 @@ export default function RecordsClient({
     const tint = tintFor(r.artist);
     const href = recordPath(r);
     const inBundle = bundle.has(r.id) && !r.sold && !held;
+    // A coloured pressing peeks out of its sleeve; a sold one stays put.
+    const disc = r.sold ? undefined : discStyles?.[r.id];
     if (effectiveView === "compact") {
       return (
         <Link
@@ -442,12 +445,14 @@ export default function RecordsClient({
           } ${highlightId === r.id ? "is-highlighted" : ""}`}
           aria-label={`${r.artist} — ${r.title}, ${
             r.sold ? "sold" : `$${r.price}${held ? ", on hold" : ""}`
-          }`}
+          }${disc && disc.mode !== "picture" ? `, ${disc.label} vinyl` : ""}`}
         >
-          <span
-            className="record-compact-cover"
-            style={cover ? undefined : { background: tint.bg }}
-          >
+          <span className="record-compact-cover-wrap">
+            <DiscPeek style={disc} />
+            <span
+              className="record-compact-cover"
+              style={cover ? undefined : { background: tint.bg }}
+            >
             {cover ? (
               <Image
                 src={cover}
@@ -479,6 +484,7 @@ export default function RecordsClient({
               </span>
             ) : null}
           </span>
+          </span>
           <span className="record-compact-title">
             {r.artist} — {r.title}
           </span>
@@ -500,6 +506,7 @@ export default function RecordsClient({
         } ${highlightId === r.id ? "is-highlighted" : ""}`}
       >
         <div className="record-cover-wrap">
+          <DiscPeek style={disc} />
           <Link
             href={href}
             className="record-cover"

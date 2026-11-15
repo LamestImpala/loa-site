@@ -941,6 +941,101 @@ html:has(.shop) {
   height: 100%;
   object-fit: cover;
 }
+/* — coloured vinyl: a sliver of the disc above the cover — */
+/* Sits behind the cover (which follows it in the markup) and is drawn from
+   the colours handed in as --disc. At rest only a thin arc clears the sleeve;
+   with a mouse over the card it lifts out and turns. */
+.record-cover,
+.record-compact-cover-wrap {
+  position: relative;
+}
+.record-compact-cover-wrap {
+  display: block;
+}
+.disc-peek {
+  position: absolute;
+  top: 0;
+  left: 8%;
+  width: 84%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translateY(-9px);
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.record-compact .disc-peek {
+  transform: translateY(-6px);
+}
+.disc-peek-face,
+.disc-peek::after,
+.disc-peek-face::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+.disc-peek-face {
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--color-neutral-700) 55%, transparent);
+  /* Grooves over the colour(s). */
+  background:
+    repeating-radial-gradient(
+      circle,
+      transparent 0 2px,
+      rgb(0 0 0 / 0.09) 2px 3px
+    ),
+    var(--disc);
+}
+/* The label, off-balance on purpose so a one-colour disc can be seen to turn. */
+.disc-peek-face::after {
+  inset: 32%;
+  background:
+    radial-gradient(circle, var(--color-neutral-800) 0 7%, transparent 9%),
+    conic-gradient(
+      from 20deg,
+      var(--color-accent-2) 0 22%,
+      var(--color-bg) 22% 100%
+    );
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.18);
+}
+/* The light stays where it is while the disc turns under it. */
+.disc-peek::after {
+  inset: 0;
+  background: conic-gradient(
+    from 300deg,
+    transparent 0 4%,
+    rgb(255 255 255 / 0.28) 11%,
+    transparent 18% 54%,
+    rgb(255 255 255 / 0.18) 61%,
+    transparent 68%
+  );
+}
+@keyframes discturn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (hover: hover) {
+  /* Lifted, the disc reaches over the row above. */
+  .record-card:hover,
+  .record-card:focus-within,
+  .shop .record-compact:hover,
+  .shop .record-compact:focus-visible {
+    position: relative;
+    z-index: 1;
+  }
+  .record-card:hover .disc-peek,
+  .record-card:focus-within .disc-peek,
+  .record-compact:hover .disc-peek,
+  .record-compact:focus-visible .disc-peek {
+    transform: translateY(-36%);
+  }
+  .record-card:hover .disc-peek-face,
+  .record-card:focus-within .disc-peek-face,
+  .record-compact:hover .disc-peek-face,
+  .record-compact:focus-visible .disc-peek-face {
+    animation: discturn 10s linear infinite;
+  }
+}
 /* Cover and thumbs are lightbox buttons, not links to raw image files. */
 .record-cover-btn {
   display: block;
@@ -2135,6 +2230,10 @@ html:has(.shop) {
   .shop .shop-logo-viewer-img,
   .shop-hero-logo-badge {
     transition: none;
+  }
+  /* The disc still lifts out; it just doesn't turn. */
+  .shop .disc-peek-face {
+    animation: none;
   }
 }
 
