@@ -248,3 +248,73 @@ export function discColourLines(formats: DiscFormat[] | null | undefined): DiscC
   }
   return lines;
 }
+
+const rgb = (c: DiscColor) => {
+  const n = parseInt(c.hex.slice(1), 16);
+  return `rgb(${n >> 16} ${(n >> 8) & 255} ${n & 255} / ${c.alpha})`;
+};
+
+// Hard-edged equal slices, `turns` times round the disc.
+function slices(colors: DiscColor[], turns = 1) {
+  const n = colors.length * turns;
+  const step = 100 / n;
+  const stops = Array.from({ length: n }, (_, k) => {
+    const from = +(k * step).toFixed(3);
+    const to = +((k + 1) * step).toFixed(3);
+    return `${rgb(colors[k % colors.length])} ${from}% ${to}%`;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
+// A CSS background in the disc's colours, for the little swatch on the record
+// page: one colour flat, two or three sharing the disc in equal parts. "" for
+// a picture disc, which has none.
+export function discFill(colors: DiscColor[]): string {
+  if (colors.length === 0) return "";
+  return colors.length === 1 ? rgb(colors[0]) : slices(colors);
+}
+
+// Where the flecks of a splatter land, as % of the disc: fixed, so a disc
+// looks the same on every visit.
+const FLECKS = [
+  [22, 30, 7], [68, 18, 5], [80, 55, 8], [35, 72, 6], [58, 84, 5],
+  [14, 58, 4], [48, 12, 4], [86, 32, 3], [30, 48, 3], [66, 66, 4],
+];
+
+// The same, with the pressing's pattern roughed in, for the disc that peeks
+// out of a cover in the catalog (app/(shop)/records/disc-peek.tsx). A flat
+// stand-in for what the 3D crate's shader draws, not a match for it.
+export function discFace(style: DiscStyle): string {
+  const { mode, colors } = style;
+  if (colors.length === 0) return "";
+  if (colors.length === 1) return rgb(colors[0]);
+  switch (mode) {
+    case "inner":
+      return `radial-gradient(circle, ${rgb(colors[0])} 0 52%, ${rgb(colors[1])} 53%)`;
+    case "marble": {
+      // Soft-edged swirl: the colours blend into each other, twice round.
+      const loop = [...colors, ...colors, colors[0]].map(rgb);
+      return `conic-gradient(from 40deg, ${loop.join(", ")})`;
+    }
+    case "splatter": {
+      const flecks = FLECKS.map(([x, y, r], k) => {
+        const c = rgb(colors[1 + (k % (colors.length - 1))]);
+        return `radial-gradient(circle at ${x}% ${y}%, ${c} 0 ${r}%, transparent ${r + 0.6}%)`;
+      });
+      return `${flecks.join(", ")}, ${rgb(colors[0])}`;
+    }
+    case "stripes": {
+      const step = 100 / (colors.length * 3);
+      const stops = Array.from({ length: colors.length * 3 }, (_, k) => {
+        const from = +(k * step).toFixed(3);
+        const to = +((k + 1) * step).toFixed(3);
+        return `${rgb(colors[k % colors.length])} ${from}% ${to}%`;
+      });
+      return `linear-gradient(${stops.join(", ")})`;
+    }
+    case "wedges":
+      return slices(colors, Math.max(1, Math.round((style.parts ?? 8) / colors.length)));
+    default:
+      return slices(colors);
+  }
+}

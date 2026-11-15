@@ -3,6 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   discColourLines,
+  discFace,
+  discFill,
   discFormatsFromDiscogs,
   discStyle,
   type DiscFormat,
@@ -165,4 +167,36 @@ test("vinyl formats are read from a Discogs release", () => {
     { qty: "1", text: "", descriptions: [] },
   ]);
   assert.deepEqual(discFormatsFromDiscogs({}), []);
+});
+
+test("the swatch fill is one flat colour or equal slices", () => {
+  assert.equal(discFill([]), "");
+  assert.equal(discFill([{ hex: "#ff0000", alpha: 0.8 }]), "rgb(255 0 0 / 0.8)");
+  assert.equal(
+    discFill([
+      { hex: "#ff0000", alpha: 1 },
+      { hex: "#0000ff", alpha: 1 },
+    ]),
+    "conic-gradient(rgb(255 0 0 / 1) 0% 50%, rgb(0 0 255 / 1) 50% 100%)",
+  );
+});
+
+test("the peeking disc roughs in the pressing's pattern", () => {
+  const face = (text: string) => discFace(discStyle(vinyl(text))!);
+  assert.match(face("Red"), /^rgb\(/);
+  assert.match(face("Red Marble"), /^conic-gradient\(from 40deg/);
+  // Splatter: flecks over the base colour, which comes last.
+  assert.match(face("Clear With Red Splatter"), /^radial-gradient\(circle at .*, rgb\([^)]+\)$/);
+  assert.match(face("Blue In Red"), /^radial-gradient\(circle, /);
+  assert.equal(discFace({ mode: "picture", colors: [], label: "Picture disc" }), "");
+  const quad = discFace({
+    mode: "wedges",
+    parts: 4,
+    label: "Quad",
+    colors: [
+      { hex: "#ff0000", alpha: 1 },
+      { hex: "#0000ff", alpha: 1 },
+    ],
+  });
+  assert.equal(quad.match(/rgb\(/g)?.length, 4);
 });

@@ -23,7 +23,7 @@ import {
   kindOf,
   posterYear,
 } from "@/lib/items";
-import { discColourLines, type DiscColor } from "@/lib/disc-style";
+import { discColourLines, discFill, type DiscColor } from "@/lib/disc-style";
 import type { DbRecord, ItemKind } from "@/lib/supabase";
 import { PAGE_COLUMNS, getListedItems, getRedditPostUrl, getShopStats } from "../data";
 import { DiscogsLink, RecordBuyBox, RecordGallery } from "./item-client";
@@ -237,21 +237,10 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 // page show through. A picture disc has no colours and gets no swatch.
 function DiscSwatch({ colors }: { colors: DiscColor[] }) {
   if (colors.length === 0) return null;
-  const css = (c: DiscColor) => {
-    const n = parseInt(c.hex.slice(1), 16);
-    return `rgb(${n >> 16} ${(n >> 8) & 255} ${n & 255} / ${c.alpha})`;
-  };
-  const step = 100 / colors.length;
-  const fill =
-    colors.length === 1
-      ? css(colors[0])
-      : `conic-gradient(${colors
-          .map((c, k) => `${css(c)} ${k * step}% ${(k + 1) * step}%`)
-          .join(", ")})`;
   return (
     <span
       className="rp-disc-swatch"
-      style={{ "--disc": fill } as CSSProperties}
+      style={{ "--disc": discFill(colors) } as CSSProperties}
       aria-hidden="true"
     />
   );
