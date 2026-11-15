@@ -9,6 +9,7 @@
 // it with import() so the catalog doesn't pay for it until the Crate view opens.
 import * as THREE from "three";
 import type { DiscStyle } from "@/lib/disc-style";
+import { discSeed, hash } from "@/lib/disc-paint";
 
 export type CrateItem = {
   id: number;
@@ -78,11 +79,6 @@ const WARM_AHEAD = 6;
 const WARM_BACK = 3;
 // A sleeve whose cover is still on its way: quiet ink, not a bright card.
 const BLANK = "#262c42";
-
-function hash(n: number, salt: number) {
-  const x = Math.sin(n * 127.1 + salt * 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
 
 const LINES_GLSL = `
   float lines(float c, float w) {
@@ -630,7 +626,7 @@ export function createCrateScene(
           uCount: { value: style.colors.length },
           uMode: { value: DISC_MODES[style.mode] ?? 0 },
           uParts: { value: style.parts ?? 8 },
-          uSeed: { value: hash(item.id, 7) * 40 },
+          uSeed: { value: discSeed(item.id) },
           uSpin: { value: 0 },
         },
         vertexShader: `
