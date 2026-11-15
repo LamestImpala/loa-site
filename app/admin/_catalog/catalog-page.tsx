@@ -35,6 +35,7 @@ import {
 } from "@/lib/admin/catalog-filter";
 import { photoPaths } from "@/lib/admin/missing";
 import { discogsStatusText, useAdmin, useSlice } from "../_shell/admin-provider";
+import { holdDay, usePriceHolds } from "../_shell/price-holds";
 import { NoteField } from "../_shell/inline-fields";
 import { PageHeader } from "../_shell/primitives";
 import { AddItemDrawer, GRADES } from "./add-item";
@@ -202,6 +203,8 @@ export function CatalogPage() {
   // page visits only matter once a drawer opens (its day-by-day history).
   useSlice("interest");
   useSlice("market");
+  // Prices promised in a live Reddit post stay put until the hold ends.
+  const priceHolds = usePriceHolds();
   useSlice("events", openId != null);
   useSlice("visits", openId != null);
   const openRecord = useMemo(
@@ -348,6 +351,14 @@ export function CatalogPage() {
         pushToast("error", `"${raw}" isn't a valid price — enter 0 or more.`);
         return;
       }
+      const heldUntil = priceHolds.get(r.id);
+      if (heldUntil && value !== Number(r.price)) {
+        pushToast(
+          "info",
+          `"${r.artist} — ${r.title}" is in your Reddit post with its price held through ${holdDay(heldUntil)}. Release the hold on the Reddit page (or retire the post) to change it.`
+        );
+        return;
+      }
       if (await updateRecord(r.id, { price: value, prev_price: r.price })) {
         setPriceEdits((prev) => {
           const next = { ...prev };
@@ -356,7 +367,7 @@ export function CatalogPage() {
         });
       }
     },
-    [pushToast, updateRecord]
+    [pushToast, updateRecord, priceHolds]
   );
 
   // The buyer's name lives on the order when there is one, so the rename
@@ -1113,6 +1124,7 @@ export function CatalogPage() {
                   priceDraft={priceEdits[r.id]}
                   stats={market[r.id]}
                   interest={interest[r.id]}
+                  priceHeldUntil={priceHolds.get(r.id)}
                   onToggleSelected={toggleSelected}
                   onOpen={openRow}
                   onDraftPrice={setPriceDraft}

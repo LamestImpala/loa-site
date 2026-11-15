@@ -25,6 +25,75 @@ const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices
 
 **Offers:** reasonable offers welcome on bundles of ${FREE_SHIPPING_MIN}+ records (which also ship free) — singles are priced as listed.`;
 
+// The price hold: a weekly post promises its prices for PRICE_HOLD_DAYS.
+// The post row carries hold_until; while it runs (and the post is not
+// retired) the daily price run, the Pricing page and the Catalog's price
+// field all leave those records' prices alone. Retiring the post, or
+// releasing the hold by hand, lets them move again.
+export const PRICE_HOLD_DAYS = 7;
+
+// The end of the local day PRICE_HOLD_DAYS from now: a post copied on a
+// Sunday holds through the following Sunday night.
+export function holdEnd(now: Date = new Date()): Date {
+  const d = new Date(now);
+  d.setDate(d.getDate() + PRICE_HOLD_DAYS);
+  d.setHours(23, 59, 59, 0);
+  return d;
+}
+
+// "Sunday, November 22" — `timeZone` is injectable for tests; the admin
+// leaves it out so the date reads in the owner's own time zone.
+export const holdDateText = (until: string, timeZone?: string) =>
+  new Date(until).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    timeZone,
+  });
+
+type PostHold = Pick<RedditPost, "hold_until" | "retired_at">;
+
+export const postHoldActive = (p: PostHold, now: number = Date.now()) =>
+  !!p.hold_until && !p.retired_at && new Date(p.hold_until).getTime() > now;
+
+// Record id → when its price hold ends, across every post still holding
+// (the latest date wins when two posts carry the same record).
+export function heldPrices(
+  posts: Pick<RedditPost, "hold_until" | "retired_at" | "record_ids">[],
+  now: number = Date.now()
+): Map<number, string> {
+  const held = new Map<number, string>();
+  for (const p of posts) {
+    if (!postHoldActive(p, now)) continue;
+    const until = p.hold_until as string;
+    for (const id of p.record_ids) {
+      const prev = held.get(id);
+      if (!prev || new Date(prev).getTime() < new Date(until).getTime())
+        held.set(id, until);
+    }
+  }
+  return held;
+}
+
+// The promise as buyers read it, and what replaces it once the week is up.
+function holdLines(
+  hold: PostHold | undefined,
+  now: number,
+  timeZone?: string
+): string[] {
+  if (!hold?.hold_until) return [];
+  const date = holdDateText(hold.hold_until, timeZone);
+  return postHoldActive(hold, now)
+    ? [
+        `**Prices held through ${date}.** After that, prices may change without notice — the current price is always the one on ${SHOP_URL}. Availability is live on the site.`,
+        "",
+      ]
+    : [
+        `The price hold on this post ended ${date} — the current price for every record is the one on ${SHOP_URL}.`,
+        "",
+      ];
+}
+
 // The first line of each copied post is a ready-made [For Sale] title —
 // paste it into Reddit's title field, then delete it from the body.
 function topCollections(list: DbRecord[], n: number) {
@@ -119,7 +188,8 @@ const REDDIT_TABLE_HEADER = [
 export function redditWeeklyMarkdown(
   selected: DbRecord[],
   liveCount: number,
-  market: MarketMap
+  market: MarketMap,
+  hold?: { until: string; now?: number; timeZone?: string }
 ) {
   const list = [...selected].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
@@ -142,9 +212,16 @@ export function redditWeeklyMarkdown(
     "",
     ...(drops > 0
       ? [
-          `**Price drops** — ${drops} of these ${list.length} came down in the last two weeks; every price below is live.`,
+          `**Price drops** — ${drops} of these ${list.length} came down in the last two weeks.`,
           "",
         ]
+      : []),
+    ...(hold
+      ? holdLines(
+          { hold_until: hold.until, retired_at: null },
+          hold.now ?? Date.now(),
+          hold.timeZone
+        )
       : []),
     ...REDDIT_TABLE_HEADER,
     ...list.map(weeklyRow),
@@ -166,8 +243,14 @@ const updateRow = (r: DbRecord) =>
     : weeklyRow(r);
 
 // Body-only refresh of the live weekly post (Reddit titles can't be edited,
-// so there's no title line — paste this over the existing post body).
-export function redditUpdateMarkdown(posted: DbRecord[]) {
+// so there's no title line — paste this over the existing post body). When
+// the post carries a price hold, the body keeps the promise while it runs
+// and says so once it has ended.
+export function redditUpdateMarkdown(
+  posted: DbRecord[],
+  hold?: PostHold,
+  opts: { now?: number; timeZone?: string } = {}
+) {
   const list = [...posted].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
@@ -175,6 +258,7 @@ export function redditUpdateMarkdown(posted: DbRecord[]) {
   return [
     `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
     "",
+    ...holdLines(hold, opts.now ?? Date.now(), opts.timeZone),
     ...REDDIT_TABLE_HEADER,
     ...list.map(updateRow),
     "",
@@ -194,7 +278,8 @@ export const REDDIT_BODY_LIMIT = 40000;
 // Body-only "retire" paste for a superseded post: the sub forbids deleting
 // posts, so a stale post keeps its table (sold rows struck through) under a
 // banner pointing readers at the newest post. No title line — titles can't
-// be edited on Reddit.
+// be edited on Reddit. Retiring ends the post's price hold, and the banner
+// says so.
 export function redditStaleMarkdown(
   post: RedditPost,
   posted: DbRecord[],
@@ -222,7 +307,9 @@ export function redditStaleMarkdown(
         ]
       : [...REDDIT_TABLE_HEADER, ...list.map(updateRow)];
   return [
-    `**⚠️ This post is outdated — see my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_URL}.**`,
+    `**⚠️ This post is outdated${
+      post.hold_until ? " and its prices are no longer held" : ""
+    } — see my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_URL}.**`,
     "",
     ...table,
     "",

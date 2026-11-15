@@ -10,6 +10,10 @@ import {
   WEEKLY_PICK_COUNT,
   demandRatio,
   dropPct,
+  heldPrices,
+  holdDateText,
+  holdEnd,
+  postHoldActive,
   isRecentDrop,
   pickWeekly,
   redditMarkdown,
@@ -145,6 +149,8 @@ test("retire body keeps the posted table shape under a pointer banner", () => {
   assert.equal(tableRows(full)[0], "| Amy | Title 2 | $30 | 2020 · Label CAT-1 · US | NM | VG+ |  |");
   assert.ok(weekly.includes("| Artist | Title | Price | Year | Grade (M/S) |"));
   assert.equal(tableRows(weekly).length, 2);
+  const held = redditStaleMarkdown({ ...post, kind: "weekly", hold_until: iso(NOW + DAY) }, posted, "https://reddit.com/new");
+  assert.ok(held.startsWith("**⚠️ This post is outdated and its prices are no longer held — see my [newest post]"));
 });
 
 test("demand ratio is wants per copy, never dividing by zero", () => {
@@ -214,4 +220,62 @@ test("weekly picks cap the drops and the whole pick", () => {
     [114, 113, 112, 111, 110, 109, 108, 107, 106, 105]
   );
   assert.equal(REDDIT_BODY_LIMIT, 40000);
+});
+
+const HOLD = "2026-09-20T23:59:59Z";
+
+test("a post holds its prices until hold_until, unless it is retired", () => {
+  assert.equal(postHoldActive({ hold_until: HOLD, retired_at: null }, NOW), true);
+  assert.equal(postHoldActive({ hold_until: HOLD, retired_at: iso(NOW) }, NOW), false);
+  assert.equal(postHoldActive({ hold_until: iso(NOW - DAY), retired_at: null }, NOW), false);
+  assert.equal(postHoldActive({ hold_until: null, retired_at: null }, NOW), false);
+  assert.equal(postHoldActive({ retired_at: null }, NOW), false);
+});
+
+test("held prices: every record of a holding post, the later date winning", () => {
+  const later = "2026-09-25T23:59:59Z";
+  const held = heldPrices(
+    [
+      { record_ids: [1, 2], hold_until: HOLD, retired_at: null },
+      { record_ids: [2, 3], hold_until: later, retired_at: null },
+      { record_ids: [4], hold_until: later, retired_at: iso(NOW) },
+      { record_ids: [5], hold_until: iso(NOW - DAY), retired_at: null },
+    ],
+    NOW
+  );
+  assert.deepEqual([...held.keys()].sort(), [1, 2, 3]);
+  assert.equal(held.get(1), HOLD);
+  assert.equal(held.get(2), later);
+});
+
+test("the hold runs to the end of the day a week out", () => {
+  const end = holdEnd(new Date(2026, 10, 15, 9, 30));
+  assert.equal(end.getDate(), 22);
+  assert.equal(end.getMonth(), 10);
+  assert.equal(end.getHours(), 23);
+  assert.equal(holdDateText("2026-11-22T18:00:00Z", "UTC"), "Sunday, November 22");
+});
+
+test("weekly post states the price hold and where prices live afterwards", () => {
+  const picks = [rec({ id: 1, artist: "Can", title: "Tago Mago", price: 40 })];
+  const md = redditWeeklyMarkdown(picks, 100, {}, { until: HOLD, now: NOW, timeZone: "UTC" });
+  const line = lines(md).find((l) => l.startsWith("**Prices held through"));
+  assert.ok(line, "hold line present");
+  assert.match(line!, /Sunday, September 20/);
+  assert.match(line!, /may change without notice/);
+  assert.ok(line!.includes(SHOP_URL));
+  // Above the table, so nobody reads a price before the promise.
+  assert.ok(md.indexOf("**Prices held") < md.indexOf("| Artist"));
+  // Without a hold the post makes no promise.
+  assert.ok(!redditWeeklyMarkdown(picks, 100, {}).includes("Prices held"));
+});
+
+test("update body keeps the promise while it runs and says when it ended", () => {
+  const posted = [rec({ id: 1, artist: "Can", title: "Tago Mago" })];
+  const running = redditUpdateMarkdown(posted, { hold_until: HOLD, retired_at: null }, { now: NOW, timeZone: "UTC" });
+  assert.match(running, /\*\*Prices held through Sunday, September 20\.\*\*/);
+  const ended = redditUpdateMarkdown(posted, { hold_until: HOLD, retired_at: null }, { now: NOW + 30 * DAY, timeZone: "UTC" });
+  assert.ok(!ended.includes("Prices held through"));
+  assert.match(ended, /price hold on this post ended Sunday, September 20/);
+  assert.ok(!redditUpdateMarkdown(posted).includes("hold"));
 });

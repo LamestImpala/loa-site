@@ -15,6 +15,7 @@ import {
 import { buyerLabel } from "@/lib/admin/buyers";
 import type { MarketStats } from "@/lib/admin/market";
 import { buttonClass, inputClass, pct } from "../_shell/ui";
+import { holdDay } from "../_shell/price-holds";
 
 // One catalog table row. Memoised: the page passes only this record's own
 // slice of state (selected, open, saving, its draft price, its market and
@@ -28,6 +29,7 @@ type Props = {
   priceDraft: string | undefined;
   stats: MarketStats | undefined;
   interest: RecordInterest | undefined;
+  priceHeldUntil: string | undefined; // price promised in a live Reddit post
   onToggleSelected: (id: number) => void;
   onOpen: (id: number | null) => void;
   onDraftPrice: (id: number, value: string) => void;
@@ -43,6 +45,7 @@ export const CatalogRow = memo(function CatalogRow({
   priceDraft,
   stats,
   interest,
+  priceHeldUntil,
   onToggleSelected,
   onOpen,
   onDraftPrice,
@@ -116,6 +119,14 @@ export const CatalogRow = memo(function CatalogRow({
             </button>
           ) : null}
         </div>
+        {priceHeldUntil && !r.sold ? (
+          <p
+            className="mt-1 text-xs text-sky-300"
+            title="This price is promised in your Reddit post. The daily run and price edits leave it alone until the hold ends, or you release it on the Reddit page."
+          >
+            Reddit hold → {holdDay(priceHeldUntil)}
+          </p>
+        ) : null}
         <p className="mt-1 text-xs text-neutral-500">
           {r.manual_price ? (
             <span title="Manual price: the daily run leaves it alone">manual</span>

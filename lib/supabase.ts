@@ -337,6 +337,9 @@ export type RedditPost = {
   record_ids: number[];
   reddit_url: string | null; // pasted in after posting
   retired_at: string | null; // set when a retire body is copied
+  // Prices in the post are promised until then (weekly posts only); the
+  // hold also ends when the post is retired. See lib/admin/reddit.ts.
+  hold_until?: string | null;
   created_at: string;
 };
 
