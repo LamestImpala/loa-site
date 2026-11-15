@@ -6,6 +6,7 @@ import Link from "next/link";
 import { SELLER_INFO, artistLetter } from "@/lib/records";
 import {
   cleanDiscogsName,
+  discogsUrl,
   dropPct,
   isNew,
   isOnHold,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
 import type { DiscStyle } from "@/lib/disc-style";
-import { initials, prefersReducedMotion, tintFor } from "./shop-ui";
+import { initials, prefersReducedMotion, tintFor, track } from "./shop-ui";
 import Crate3D from "./crate-3d";
 import type { CrateItem } from "./crate-scene";
 
@@ -309,6 +310,22 @@ export default function Crate({
           </div>
         </div>
         )}
+
+        {use3d ? (
+          <p className="crate-disc-note">
+            Disc colors here are an approximation, not the real disc. For the most accurate look
+            at the disc you&rsquo;re buying, check{" "}
+            <a
+              href={discogsUrl(current)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => track(current.id, "discogs_click")}
+            >
+              its photos on Discogs ↗
+            </a>
+            .
+          </p>
+        ) : null}
 
         <div className="crate-nav">
           <button

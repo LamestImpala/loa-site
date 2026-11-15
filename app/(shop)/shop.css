@@ -2710,8 +2710,16 @@ html:has(.shop) {
   font-size: 14px;
   color: var(--color-ink-muted);
 }
+/* The drawn disc is a sketch from Discogs' wording, not a photo. */
+.shop .crate-disc-note {
+  margin: var(--space-3) 0 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-neutral-700);
+}
 .shop .crate.crate-in-3d .crate-nav {
-  margin-top: var(--space-4);
+  margin-top: var(--space-3);
 }
 @media (prefers-reduced-motion: reduce) {
   .shop .crate-sleeve {
