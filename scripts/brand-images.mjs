@@ -15,11 +15,18 @@ const jobs = [
   { in: "curiouser-engraved-logo.png", out: "logo-1254.webp", w: 1254, q: 90, alpha: true },
   { in: "curiouser-engraved-logo.png", out: "logo-share.png", w: 800, png: true },
   ...[960, 1536].map((w) => ({ in: "celestial-observatory.png", out: `celestial-${w}.webp`, w, q: 78 })),
+  // The shop hero. The column is tall and narrow, so the engraving is drawn
+  // far wider than the column (about 1,300px, twice that on Retina) and the
+  // 1536px original was being stretched. Enlarged once here, with Lanczos and
+  // a light sharpen, which holds the engraved lines better than the browser's
+  // own stretch. Saved near-lossless: next/image compresses it again.
+  { in: "celestial-observatory.png", out: "celestial-2304.webp", w: 2304, q: 92, enlarge: true },
   ...[1000, 1536].map((w) => ({ in: "midnight-garden.png", out: `garden-${w}.webp`, w, q: 74 })),
 ];
 
 for (const j of jobs) {
-  let img = sharp(src(j.in)).resize({ width: j.w });
+  let img = sharp(src(j.in)).resize({ width: j.w, kernel: "lanczos3" });
+  if (j.enlarge) img = img.sharpen({ sigma: 0.7 });
   img = j.png
     ? img.png({ compressionLevel: 9, palette: true, quality: 90 })
     : img.webp({ quality: j.q, alphaQuality: 90, effort: 6 });
