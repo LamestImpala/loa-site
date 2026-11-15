@@ -6,7 +6,7 @@
   background: #101e2b;
   aspect-ratio: 3 / 2;
   --cr-art-position: 70% 50%;
-  --cr-motion-half-cycle: 28s;
+  --cr-motion-half-cycle: 18s;
 }
 .cr-celestial__art,
 .cr-celestial__effects {
@@ -18,7 +18,7 @@
   object-fit: cover;
   object-position: var(--cr-art-position);
   transform-origin: 70% 56%;
-  transform: translate3d(-.35%, .15%, 0) scale(1.04);
+  transform: translate3d(-1%, .5%, 0) scale(1.04);
   animation: cr-celestial-drift var(--cr-motion-half-cycle) ease-in-out infinite alternate;
   animation-play-state: paused;
   pointer-events: none;
@@ -35,35 +35,41 @@
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: cr-star-glimmer var(--glimmer-duration, 17s) ease-in-out infinite;
+  animation: cr-star-glimmer var(--glimmer-duration, 9s) ease-in-out infinite;
   animation-delay: var(--glimmer-delay, 0s);
   animation-play-state: paused;
 }
 .cr-celestial__meteor {
   opacity: 0;
-  animation: cr-shooting-star 31s linear 6s infinite;
+  animation: cr-shooting-star 14s linear 3s infinite;
   animation-play-state: paused;
 }
 .cr-celestial[data-motion="running"] .cr-celestial__twinkle,
 .cr-celestial[data-motion="running"] .cr-celestial__meteor { animation-play-state: running; }
-/* Brief, soft glints separated by long rests; the printed stars remain intact. */
+/* Each star flares to full brightness for about a quarter of its cycle, then
+   rests. With six stars on 7 to 12 second cycles, one or two are usually
+   alight. The first version peaked at two-thirds opacity for a tenth of a
+   13 to 23 second cycle and read as a still picture. */
 @keyframes cr-star-glimmer {
-  0%, 67%, 100% { opacity: 0; transform: scale(.85); }
-  75% { opacity: .68; transform: scale(1.13); }
-  85% { opacity: 0; transform: scale(.9); }
+  0%, 48%, 100% { opacity: 0; transform: scale(.6); }
+  61% { opacity: 1; transform: scale(1.2); }
+  76% { opacity: 0; transform: scale(.75); }
 }
-/* A 1.7-second gold trail, then almost half a minute of empty sky. The travel
-   is in artwork units and ends just short of the armillary's outer ring. */
+/* A 1.7-second gold trail every 14 seconds. The travel is in artwork units
+   and ends just short of the armillary's outer ring. */
 @keyframes cr-shooting-star {
   0% { opacity: 0; transform: translate(0px, 0px); }
-  .8% { opacity: .7; }
-  4% { opacity: .55; }
-  5.5% { opacity: 0; transform: translate(66px, 118px); }
+  1.5% { opacity: 1; }
+  9% { opacity: .8; }
+  12% { opacity: 0; transform: translate(66px, 118px); }
   100% { opacity: 0; transform: translate(66px, 118px); }
 }
+/* A slow push in and across: 6% of zoom and 2% of travel over 18 seconds,
+   then back. The scale never drops below 1.04 and the travel stays inside
+   the margin that leaves, so no edge of the engraving shows. */
 @keyframes cr-celestial-drift {
-  from { transform: translate3d(-.35%, .15%, 0) scale(1.04); }
-  to { transform: translate3d(.35%, -.2%, 0) scale(1.065); }
+  from { transform: translate3d(-1%, .5%, 0) scale(1.04); }
+  to { transform: translate3d(1%, -.6%, 0) scale(1.1); }
 }
 .cr-celestial__toggle {
   position: absolute;
