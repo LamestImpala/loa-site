@@ -111,6 +111,7 @@ const DISC_FRAGMENT = `
   uniform int uMode;
   uniform float uSeed;
   uniform float uParts;
+  uniform float uSpin;
   varying vec2 vP;
   ${LINES_GLSL}
   float h21(vec2 p) {
@@ -134,15 +135,17 @@ const DISC_FRAGMENT = `
     }
     return s;
   }
-  // Scattered blobs of varied size on a unit grid.
-  float splat(vec2 g, float seed) {
+  // Scattered blobs of varied size on a unit grid. wrap > 0 repeats the grid
+  // every wrap cells up, so a ring of blobs closes without a seam.
+  float splat(vec2 g, float seed, float wrap) {
     vec2 i = floor(g);
     float m = 0.0;
     for (int y = -1; y <= 1; y++) {
       for (int x = -1; x <= 1; x++) {
         vec2 c = i + vec2(float(x), float(y));
-        float r = h21(c + seed);
-        vec2 o = vec2(h21(c + seed + 1.3), h21(c + seed + 2.7));
+        vec2 k = wrap > 0.0 ? vec2(c.x, mod(c.y, wrap)) : c;
+        float r = h21(k + seed);
+        vec2 o = vec2(h21(k + seed + 1.3), h21(k + seed + 2.7));
         float rad = 0.1 + 0.34 * r * r;
         m = max(m, smoothstep(rad, rad * 0.78, length(g - (c + o))) * step(0.42, r));
       }
@@ -151,28 +154,34 @@ const DISC_FRAGMENT = `
   }
   void main() {
     float r = length(vP);
-    float ang = atan(vP.y, vP.x);
+    // The pressing turns (uSpin); the light on it stays where it is.
+    float lit = atan(vP.y, vP.x);
+    float cs = cos(uSpin);
+    float sn = sin(uSpin);
+    vec2 P = vec2(cs * vP.x - sn * vP.y, sn * vP.x + cs * vP.y);
+    float ang = atan(P.y, P.x);
     vec4 A = uCol[0];
     vec4 B = uCol[1];
     vec4 C = uCol[2];
     vec4 base = A;
     if (uMode == 1) {
-      vec2 q = vP * 0.3 + uSeed;
+      vec2 q = P * 0.3 + uSeed;
       float w = fbm(q + 1.7 * vec2(fbm(q + 3.1), fbm(q + 7.7)));
       base = mix(A, B, smoothstep(0.4, 0.6, w));
       if (uCount > 2) base = mix(base, C, smoothstep(0.56, 0.7, fbm(q * 1.6 + 9.0)));
     } else if (uMode == 2) {
-      float m = max(splat(vP * 0.95 + uSeed, 1.0), splat(vec2(r * 1.25, ang * 4.5) + uSeed, 5.0));
+      // 28 cells round the ring (4.456 a radian), so it meets itself.
+      float m = max(splat(P * 0.95 + uSeed, 1.0, 0.0), splat(vec2(r * 1.25, ang * 4.456338) + uSeed, 5.0, 28.0));
       base = mix(A, B, m);
-      if (uCount > 2) base = mix(base, C, splat(vP * 1.3 - uSeed, 9.0));
+      if (uCount > 2) base = mix(base, C, splat(P * 1.3 - uSeed, 9.0, 0.0));
     } else if (uMode == 3) {
       // Split across the middle, so both halves show on the part that slides out.
-      base = mix(B, A, smoothstep(-0.04, 0.04, vP.y + vP.x * 0.12));
+      base = mix(B, A, smoothstep(-0.04, 0.04, P.y + P.x * 0.12));
     } else if (uMode == 4) {
       float wob = (fbm(vec2(cos(ang), sin(ang)) * 1.6 + uSeed) - 0.5) * 1.6;
       base = mix(B, A, smoothstep(3.75 + wob, 3.4 + wob, r));
     } else if (uMode == 5) {
-      float band = (vP.y / 5.85 * 0.5 + 0.5) * float(uCount);
+      float band = (P.y / 5.85 * 0.5 + 0.5) * float(uCount);
       base = band < 1.0 ? A : (band < 2.0 ? B : C);
     } else if (uMode == 6) {
       // Pinwheel / quad pressings: wedges of alternating colour.
@@ -185,7 +194,7 @@ const DISC_FRAGMENT = `
     float lum = dot(col, vec3(0.3, 0.6, 0.1));
     float pressed = step(2.35, r) * step(r, 5.6);
     float groove = lines(r * 5.5, 0.11) * pressed;
-    float sheen = pow(abs(cos(ang - 0.7)), 10.0);
+    float sheen = pow(abs(cos(lit - 0.7)), 10.0);
     // Grooves read as fine dark rings on colour, and catch the light on black.
     col = mix(col, col * 0.84, groove * smoothstep(0.06, 0.25, lum));
     vec3 glint = mix(vec3(0.88, 0.76, 0.5), vec3(1.0), smoothstep(0.06, 0.3, lum));
@@ -215,6 +224,9 @@ const DISC_MODES: Record<string, number> = {
   stripes: 5,
   wedges: 6,
 };
+// A coloured pressing turns once it's out of the sleeve: one turn in about
+// ten seconds, slow enough to read the pattern as it comes past.
+const DISC_SPIN = (Math.PI * 2) / 10;
 const BLACK_DISC: DiscStyle = { mode: "solid", colors: [{ hex: "#0c0d12", alpha: 1 }], label: "" };
 
 type Pose = { x: number; y: number; z: number; rx: number; ry: number; rz: number; dim: number };
@@ -619,6 +631,7 @@ export function createCrateScene(
           uMode: { value: DISC_MODES[style.mode] ?? 0 },
           uParts: { value: style.parts ?? 8 },
           uSeed: { value: hash(item.id, 7) * 40 },
+          uSpin: { value: 0 },
         },
         vertexShader: `
           varying vec2 vP;
@@ -825,6 +838,8 @@ export function createCrateScene(
     private mats: THREE.MeshBasicMaterial[];
     private disc: THREE.Mesh;
     private showDisc: boolean;
+    // Set for a coloured disc: the angle it has turned to.
+    private spin: { value: number } | null = null;
     private placeholder: THREE.Texture | null = null;
     // 0 → 1 as a cover that arrived late comes up out of the dark.
     private lit = 1;
@@ -848,12 +863,15 @@ export function createCrateScene(
       this.mesh.rotation.order = "YXZ";
       this.mesh.userData.sleeve = this;
 
-      this.disc = new THREE.Mesh(discGeo, discMaterialFor(item));
+      const discMat = discMaterialFor(item);
+      this.disc = new THREE.Mesh(discGeo, discMat);
       this.disc.position.set(0, H / 2, 0);
       this.disc.visible = false;
       this.mesh.add(this.disc);
       // A picture disc can't be drawn from a description: it stays in the sleeve.
       this.showDisc = item.disc?.mode !== "picture";
+      // Black looks the same at any angle, so only colour turns.
+      if (item.disc && this.showDisc && !reduceMotion) this.spin = discMat.uniforms.uSpin;
 
       if (item.tab) {
         this.tabMat = new THREE.MeshBasicMaterial({
@@ -958,6 +976,10 @@ export function createCrateScene(
 
       this.disc.visible = p.slide > 0.01;
       this.disc.position.x = p.slide * 4.2;
+      // It gets going as it slides out and runs down as it goes back in.
+      if (this.spin && this.disc.visible) {
+        this.spin.value = (this.spin.value + dt * DISC_SPIN * p.slide) % (Math.PI * 2);
+      }
       if (this.stickerMat) this.stickerMat.opacity = p.tag * p.op;
     }
 
