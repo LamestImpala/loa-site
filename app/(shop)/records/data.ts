@@ -40,20 +40,49 @@ export const getListedByKind = cache(
   }
 );
 
-// Disc colour per record id, for the crate view, read from what Discogs
-// says about each pressing (records.disc_formats). Its own query, and empty
-// on any error, so the catalog still loads where the column isn't there yet.
-export const getDiscStyles = cache(async (): Promise<Record<number, DiscStyle>> => {
+// The owner's own words for a disc's colours, per record id
+// (records.disc_colors, typed in admin). Its own query, and empty on any
+// error, so the shop still loads where the column isn't there yet.
+export const getDiscColors = cache(async (): Promise<Record<number, string>> => {
   const { data, error } = await createServerSupabase()
     .from("records")
-    .select("id, disc_formats")
+    .select("id, disc_colors")
     .eq("listed", true)
-    .not("disc_formats", "is", null);
+    .not("disc_colors", "is", null);
+  if (error || !data) return {};
+  const typed: Record<number, string> = {};
+  for (const row of data as unknown as { id: number; disc_colors: string | null }[]) {
+    if (row.disc_colors?.trim()) typed[row.id] = row.disc_colors;
+  }
+  return typed;
+});
+
+// Disc colour per record id, for the catalog and the crate view, read from
+// what Discogs says about each pressing (records.disc_formats) unless the
+// owner has said it in their own words. Its own query, and empty on any
+// error, so the catalog still loads where the column isn't there yet.
+export const getDiscStyles = cache(async (): Promise<Record<number, DiscStyle>> => {
+  const [{ data, error }, typed] = await Promise.all([
+    createServerSupabase()
+      .from("records")
+      .select("id, disc_formats")
+      .eq("listed", true)
+      .not("disc_formats", "is", null),
+    getDiscColors(),
+  ]);
   if (error || !data) return {};
   const styles: Record<number, DiscStyle> = {};
+  const seen = new Set<number>();
   for (const row of data as { id: number; disc_formats: DiscFormat[] | null }[]) {
-    const style = discStyle(row.disc_formats);
+    seen.add(row.id);
+    const style = discStyle(row.disc_formats, typed[row.id]);
     if (style) styles[row.id] = style;
+  }
+  // A record Discogs has no vinyl entry for can still be described.
+  for (const [id, words] of Object.entries(typed)) {
+    if (seen.has(Number(id))) continue;
+    const style = discStyle(null, words);
+    if (style) styles[Number(id)] = style;
   }
   return styles;
 });

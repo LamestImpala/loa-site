@@ -65,6 +65,9 @@ export type DbRecord = {
   // The release's Vinyl format entries, where Discogs notes the disc's
   // colour (lib/disc-style.ts); null = not fetched yet.
   disc_formats?: DiscFormat[] | null;
+  // The owner's own words for the disc's colours, for a pressing Discogs
+  // names without one ("Volcanic Splash"); wins over disc_formats.
+  disc_colors?: string | null;
   collection: string | null; // curated series like "VMP" or "IVC"
   manual_price?: boolean; // true = daily price run leaves this record alone
   photo_urls: string[]; // uploaded photos of the actual copy (Supabase Storage)

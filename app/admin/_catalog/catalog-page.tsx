@@ -41,6 +41,7 @@ import { PageHeader } from "../_shell/primitives";
 import { AddItemDrawer, GRADES } from "./add-item";
 import { CatalogRow } from "./catalog-row";
 import { DetailsEditor } from "./item-fields";
+import { DiscColorsField } from "./disc-colors-field";
 import { uploadRecordPhotos } from "./photos";
 import { KINDS, KIND_LABELS, isRecord, itemSubtitle, kindOf } from "@/lib/items";
 import {
@@ -1240,6 +1241,16 @@ export function CatalogPage() {
                             disabled={savingIds.has(r.id)}
                             onSave={(next) => saveName(r, "pressing", next)}
                             className="w-full"
+                          />
+                        ) : null}
+                        {isRecord(r) ? (
+                          <DiscColorsField
+                            key={`disc-${r.id}`}
+                            r={r}
+                            disabled={savingIds.has(r.id)}
+                            onSave={(next) =>
+                              updateRecord(r.id, { disc_colors: next || null })
+                            }
                           />
                         ) : null}
                       </div>

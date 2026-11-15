@@ -89,10 +89,10 @@ const COLOURS = (
     ["sandstone|tan|sand|beige|khaki", "#cdb48a"],
     ["cream|bone|ivory|eggshell|natural|milky?", "#ece3cf"],
     ["white", "#f2f0ea"],
-    ["(ultra |crystal )?clear|crystal", CLEAR],
+    ["(ultra |crystal )?clear|crystal|clarity", CLEAR],
     ["black", BLACK],
     ["red", "#c41e25"],
-    ["blue", "#1f55b8"],
+    ["blue|blu", "#1f55b8"],
     ["green", "#2a8a45"],
     ["pink|rose", "#ee7fae"],
   ] as [string, string, boolean?][]
@@ -103,7 +103,7 @@ const COLOURS = (
 }));
 
 const EFFECTS: [DiscMode, RegExp][] = [
-  ["splatter", /splatter|splattered|speckle|speckled|\bdust\b/],
+  ["splatter", /splatter|splattered|splash|speckle|speckled|\bdust\b/],
   ["inner", /colou?r[- ]in[- ]colou?r|\binside\b|\bblob\b|\bcore\b/],
   ["wedges", /cornetto|pinwheel|\bquad\b|butterfly|beach ball/],
   ["split", /\bsplit\b|\bhalf\b/],
@@ -212,9 +212,50 @@ function parseText(raw: string, qty: number): DiscStyle | null {
   return parsePart(notes.slice(start, end + 1).join(", "), qty);
 }
 
+// A note that is about weight, packaging or the plant, not a colour's name.
+const NOT_A_NAME =
+  /\d|gatefold|pressing|edition|anniversary|master|speed|\b(label|cover|sleeve|jacket|slipcase|insert|poster|obi)\b/i;
+
+// What Discogs calls the pressing when its words name no colour we know
+// ("Volcanic Splash, 180g" → "Volcanic Splash").
+function discogsName(formats: DiscFormat[] | null | undefined): string | null {
+  if (!Array.isArray(formats)) return null;
+  for (const f of formats) {
+    for (const note of (f?.text ?? "").split(/[,;]/)) {
+      const name = note.trim();
+      if (name && !NOT_A_NAME.test(name)) return name.slice(0, 60);
+    }
+  }
+  return null;
+}
+
+// Some pressings go by a nickname with no colour in it ("Volcanic Splash"),
+// so the owner can say the colours in plain words (records.disc_colors,
+// typed in admin). Those words decide how the disc is drawn; the buyer still
+// reads Discogs' name for it. undefined = nothing typed, read Discogs;
+// null = typed as plain black.
+function ownStyle(
+  formats: DiscFormat[] | null | undefined,
+  own: string | null | undefined
+): DiscStyle | null | undefined {
+  const text = own?.trim();
+  if (!text) return undefined;
+  const style = parseText(text, 1);
+  if (!style || style.mode === "picture") return style;
+  const discogs = discStyle(formats);
+  const name = discogs && discogs.mode !== "picture" ? discogs.label : discogsName(formats);
+  return { ...style, label: name ?? style.label };
+}
+
 // The first vinyl entry that names a colour decides; a multi-disc set with a
-// different colour per disc shows its first.
-export function discStyle(formats: DiscFormat[] | null | undefined): DiscStyle | null {
+// different colour per disc shows its first. `own` is the owner's own
+// description, which wins when there is one.
+export function discStyle(
+  formats: DiscFormat[] | null | undefined,
+  own?: string | null
+): DiscStyle | null {
+  const typed = ownStyle(formats, own);
+  if (typed !== undefined) return typed;
   if (!Array.isArray(formats)) return null;
   for (const f of formats) {
     if ((f?.descriptions ?? []).includes("Picture Disc")) {
@@ -232,7 +273,14 @@ export type DiscColourLine = { label: string; colors: DiscColor[] };
 // one disc for the crate to draw; this keeps them all, in Discogs' wording,
 // so a set pressed as one green and one tangerine disc lists both. Plain
 // black gets no line, the same as it gets no tag in the crate.
-export function discColourLines(formats: DiscFormat[] | null | undefined): DiscColourLine[] {
+export function discColourLines(
+  formats: DiscFormat[] | null | undefined,
+  own?: string | null
+): DiscColourLine[] {
+  const typed = ownStyle(formats, own);
+  if (typed !== undefined) {
+    return typed ? [{ label: typed.label.replace(/\.$/, ""), colors: typed.colors }] : [];
+  }
   if (!Array.isArray(formats)) return [];
   const lines: DiscColourLine[] = [];
   for (const f of formats) {

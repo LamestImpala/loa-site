@@ -200,3 +200,50 @@ test("the peeking disc roughs in the pressing's pattern", () => {
   });
   assert.equal(quad.match(/rgb\(/g)?.length, 4);
 });
+
+test("nicknames and spellings the word list used to miss", () => {
+  assert.equal(discStyle(vinyl("Wav Blu"))?.colors[0].hex, "#1f55b8");
+  const clarity = discStyle(vinyl("200g, Clarity Vinyl"));
+  assert.equal(clarity?.colors[0].alpha, 0.3);
+  assert.equal(clarity?.label, "Clarity Vinyl");
+  assert.equal(discStyle(vinyl("Red Splash"))?.mode, "splatter");
+  // No colour word at all: still plain black until the owner says.
+  assert.equal(discStyle(vinyl("Volcanic Splash, 180g")), null);
+});
+
+test("the owner's own words decide the colours, Discogs' name stays", () => {
+  const volcano = discStyle(
+    vinyl("Volcanic Splash, 180g"),
+    "Red & Orange with Black Splatter"
+  );
+  assert.equal(volcano?.mode, "splatter");
+  assert.deepEqual(
+    volcano?.colors.map((c) => c.hex),
+    ["#c41e25", "#ee7a1c", "#0c0d12"]
+  );
+  assert.equal(volcano?.label, "Volcanic Splash");
+
+  // Discogs' own colour wording is kept as the name when it had one.
+  const sea = discStyle(vinyl("Sea Blue Smoke"), "Teal");
+  assert.equal(sea?.colors[0].hex, "#1f8a8a");
+  assert.equal(sea?.label, "Sea Blue Smoke");
+
+  // Nothing usable from Discogs: the owner's words are the name too.
+  assert.equal(discStyle(vinyl("180g, Gatefold"), "Green")?.label, "Green");
+  assert.equal(discStyle(null, "Green")?.label, "Green");
+
+  // "Black" puts a wrongly coloured disc back to plain; blank changes nothing.
+  assert.equal(discStyle(vinyl("Red"), "Black"), null);
+  assert.equal(discStyle(vinyl("Red"), "  ")?.colors[0].hex, "#c41e25");
+  assert.equal(discStyle(vinyl("Red"), null)?.colors[0].hex, "#c41e25");
+});
+
+test("the record page lists the owner's colours under Discogs' name", () => {
+  assert.deepEqual(
+    discColourLines(vinyl("Volcanic Splash, 180g"), "Red & Orange with Black Splatter").map(
+      (l) => l.label
+    ),
+    ["Volcanic Splash"]
+  );
+  assert.deepEqual(discColourLines(vinyl("Red"), "Black"), []);
+});
