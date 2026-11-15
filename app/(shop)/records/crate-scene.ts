@@ -60,7 +60,8 @@ const GAP = 0.44;
 const LEAN_B = 0.17;
 const LEAN_F = 0.35;
 const Z_B_REST = -7.4;
-const Z_F_REST = 3.75;
+// The front-most flipped sleeve leans against the front rail, not through it.
+const Z_F_REST = 3.45;
 
 const CAM = { az: 0.38, el: 0.36, fov: 27, dist: 62, target: new THREE.Vector3(0.2, 10.6, -1.2) };
 const HELD = { x: -1.3, y: 10.3, z: 0.9, rx: -0.3, ry: CAM.az };
@@ -72,6 +73,11 @@ const TINTS = [
   ["#dfb4c4", "#371522"],
 ];
 const COVER_CACHE_MAX = 80;
+// Covers fetched ahead of the sleeves on show, so a flip rarely waits on one.
+const WARM_AHEAD = 6;
+const WARM_BACK = 3;
+// A sleeve whose cover is still on its way: quiet ink, not a bright card.
+const BLANK = "#262c42";
 
 function hash(n: number, salt: number) {
   const x = Math.sin(n * 127.1 + salt * 311.7) * 43758.5453;
@@ -277,6 +283,10 @@ export function createCrateScene(
           uFreq: { value: freq },
           uStrength: { value: strength },
         },
+        // Faces sit a hair behind the outline strokes drawn along their edges.
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
         vertexShader: WORLD_VERTEX,
         fragmentShader: `
           uniform vec3 uBase;
@@ -344,6 +354,9 @@ export function createCrateScene(
 
   const boardFace = own(
     new THREE.MeshBasicMaterial({
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
       map: own(
         canvasTexture(1152, 368, (g, w, h) => {
           const grad = g.createLinearGradient(0, 0, 0, h);
@@ -401,7 +414,9 @@ export function createCrateScene(
     return mesh;
   }
 
-  addBox(OUTER_W, FLOOR, DEPTH, 0, FLOOR / 2, Z_MID, woodDeep, false);
+  // No two boards share a face: the floor sits inside the walls and the sides
+  // run between the end boards. Overlapping faces flicker as the view moves.
+  addBox(W_IN, FLOOR, Z_FRONT - Z_BACK, 0, FLOOR / 2, Z_MID, woodDeep, false);
   addBox(OUTER_W, H_FRONT, WALL, 0, H_FRONT / 2, Z_FRONT + WALL / 2, [
     wood,
     wood,
@@ -413,11 +428,12 @@ export function createCrateScene(
   addBox(OUTER_W, H_BACK, WALL, 0, H_BACK / 2, Z_BACK - WALL / 2, wood);
 
   // Sides slope from the tall back board down to the low front one.
+  const slopeAt = (z: number) => H_FRONT + ((H_BACK - H_FRONT) * (Z_FRONT + WALL - z)) / DEPTH;
   const sideShape = new THREE.Shape();
-  sideShape.moveTo(Z_BACK - WALL, 0);
-  sideShape.lineTo(Z_FRONT + WALL, 0);
-  sideShape.lineTo(Z_FRONT + WALL, H_FRONT);
-  sideShape.lineTo(Z_BACK - WALL, H_BACK);
+  sideShape.moveTo(Z_BACK, 0);
+  sideShape.lineTo(Z_FRONT, 0);
+  sideShape.lineTo(Z_FRONT, slopeAt(Z_FRONT));
+  sideShape.lineTo(Z_BACK, slopeAt(Z_BACK));
   sideShape.closePath();
   for (const sign of [1, -1]) {
     const geo = own(new THREE.ExtrudeGeometry(sideShape, { depth: WALL, bevelEnabled: false }));
@@ -521,7 +537,9 @@ export function createCrateScene(
         varying float vTwinkle;
         void main() {
           vTwinkle = 0.62 + 0.38 * sin(uTime * (0.6 + fract(aPhase) * 0.9) + aPhase);
-          gl_PointSize = aSize * uDpr * (0.85 + 0.3 * vTwinkle);
+          // The sprite keeps one size (a changing one snaps to whole pixels and
+          // buzzes); the star swells and shrinks inside it.
+          gl_PointSize = aSize * uDpr * 1.15;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -529,7 +547,7 @@ export function createCrateScene(
         uniform vec3 uColor;
         varying float vTwinkle;
         void main() {
-          vec2 p = gl_PointCoord * 2.0 - 1.0;
+          vec2 p = (gl_PointCoord * 2.0 - 1.0) * 1.15 / (0.85 + 0.3 * vTwinkle);
           float d = length(p);
           float core = smoothstep(0.24, 0.0, d);
           float rays = (1.0 - smoothstep(0.0, 1.0, d)) * 0.014 / (abs(p.x * p.y) + 0.014);
@@ -566,6 +584,13 @@ export function createCrateScene(
       g.strokeStyle = "rgba(153,118,61,0.55)";
       g.lineWidth = 2;
       g.strokeRect(14, 14, w - 28, h - 28);
+    })
+  );
+
+  const blankTexture = own(
+    canvasTexture(4, 4, (g, w, h) => {
+      g.fillStyle = BLANK;
+      g.fillRect(0, 0, w, h);
     })
   );
 
@@ -671,36 +696,65 @@ export function createCrateScene(
   // Cover textures outlive their sleeve for a while, so filtering or
   // flipping back doesn't reload them.
   const textureLoader = new THREE.TextureLoader();
-  const covers = new Map<string, { tex: THREE.Texture | null; refs: number; waiting: ((t: THREE.Texture) => void)[] }>();
-  function takeCover(url: string, onLoad: (t: THREE.Texture) => void) {
+  type CoverWait = { onLoad: (t: THREE.Texture) => void; onFail: () => void };
+  type CoverEntry = { tex: THREE.Texture | null; refs: number; waiting: CoverWait[] };
+  const covers = new Map<string, CoverEntry>();
+  function loadCover(url: string) {
+    const entry: CoverEntry = { tex: null, refs: 0, waiting: [] };
+    covers.set(url, entry);
+    const ready = (tex: THREE.Texture) => {
+      if (disposed || covers.get(url) !== entry) {
+        tex.dispose();
+        return;
+      }
+      tex.anisotropy = maxAniso;
+      // Send it to the GPU now, not in the middle of the flip that first shows it.
+      renderer.initTexture(tex);
+      entry.tex = tex;
+      for (const w of entry.waiting.splice(0)) w.onLoad(tex);
+    };
+    textureLoader.load(
+      url,
+      (tex) => {
+        // Decode off the main thread first, so the upload doesn't stall a frame.
+        const image = tex.image as HTMLImageElement;
+        if (typeof image.decode === "function") {
+          image.decode().then(
+            () => ready(tex),
+            () => ready(tex)
+          );
+        } else {
+          ready(tex);
+        }
+      },
+      undefined,
+      () => {
+        if (covers.get(url) === entry) covers.delete(url);
+        for (const w of entry.waiting.splice(0)) w.onFail(); // those sleeves show initials
+      }
+    );
+    return entry;
+  }
+  // Fetch a cover nobody is showing yet.
+  function warmCover(url: string) {
+    if (!covers.has(url)) loadCover(url);
+  }
+  // True when the cover was already here (onLoad has run); false = it's on its way.
+  function takeCover(url: string, wait: CoverWait) {
     let entry = covers.get(url);
     if (entry) {
       covers.delete(url); // re-insert: most recently used last
       covers.set(url, entry);
-      entry.refs++;
-      if (entry.tex) onLoad(entry.tex);
-      else entry.waiting.push(onLoad);
-      return;
+    } else {
+      entry = loadCover(url);
     }
-    entry = { tex: null, refs: 1, waiting: [onLoad] };
-    covers.set(url, entry);
-    const mine = entry;
-    textureLoader.load(
-      url,
-      (tex) => {
-        if (disposed) {
-          tex.dispose();
-          return;
-        }
-        tex.anisotropy = maxAniso;
-        mine.tex = tex;
-        for (const cb of mine.waiting.splice(0)) cb(tex);
-      },
-      undefined,
-      () => {
-        covers.delete(url); // the sleeve keeps its initials
-      }
-    );
+    entry.refs++;
+    if (entry.tex) {
+      wait.onLoad(entry.tex);
+      return true;
+    }
+    entry.waiting.push(wait);
+    return false;
   }
   function releaseCover(url: string) {
     const entry = covers.get(url);
@@ -771,14 +825,15 @@ export function createCrateScene(
     private mats: THREE.MeshBasicMaterial[];
     private disc: THREE.Mesh;
     private showDisc: boolean;
-    private placeholder: THREE.Texture;
+    private placeholder: THREE.Texture | null = null;
+    // 0 → 1 as a cover that arrived late comes up out of the dark.
+    private lit = 1;
     private clear = false;
     private gone = false;
 
     constructor(item: CrateItem, pose: Pose) {
       this.item = item;
-      this.placeholder = placeholderTexture(item);
-      this.front = new THREE.MeshBasicMaterial({ map: this.placeholder });
+      this.front = new THREE.MeshBasicMaterial({ map: blankTexture });
       this.back = new THREE.MeshBasicMaterial({ map: backTexture });
       this.edge = new THREE.MeshBasicMaterial({ color: PAPER });
       this.mats = [this.front, this.back, this.edge];
@@ -812,14 +867,29 @@ export function createCrateScene(
       }
 
       if (item.cover) {
-        takeCover(item.cover, (tex) => {
-          if (this.gone) return;
-          this.front.map = tex;
-          this.front.needsUpdate = true;
+        let late = false;
+        late = !takeCover(item.cover, {
+          onLoad: (tex) => {
+            if (this.gone) return;
+            this.front.map = tex;
+            this.lit = late ? 0 : 1; // already here: no fade
+          },
+          onFail: () => {
+            if (!this.gone) this.initials();
+          },
         });
+      } else {
+        this.initials();
       }
 
       this.p = { ...pose, op: 0, slide: 0, tag: 0 };
+    }
+
+    // No cover to show: the artist's initials on a tinted sleeve.
+    private initials() {
+      this.placeholder = placeholderTexture(this.item);
+      this.front.map = this.placeholder;
+      this.lit = 1;
     }
 
     private sticker() {
@@ -842,10 +912,13 @@ export function createCrateScene(
       const p = this.p;
       const a = ease(dt, held ? 6.5 : 9);
       const b = ease(dt, held ? 9 : 7.5);
+      // The lifted record turns to face you once it's clear of its neighbours,
+      // so its corners don't sweep through them on the way up.
+      const lift = held ? THREE.MathUtils.smoothstep((p.y - FLOOR) / (HELD.y - FLOOR), 0.2, 0.75) : 1;
       p.x += (tgt.x - p.x) * a;
       p.z += (tgt.z - p.z) * a;
       p.rx += (tgt.rx - p.rx) * a;
-      p.ry += (tgt.ry - p.ry) * a;
+      p.ry += (tgt.ry * lift - p.ry) * ease(dt, held ? 8 : 12);
       p.rz += (tgt.rz - p.rz) * a;
       p.y += (tgt.y - p.y) * b;
       p.dim += (tgt.dim - p.dim) * ease(dt, 8);
@@ -865,8 +938,9 @@ export function createCrateScene(
       this.mesh.position.set(p.x, y, p.z);
       this.mesh.rotation.set(p.rx, p.ry, rz);
 
+      this.lit += (1 - this.lit) * ease(dt, 6);
       // A sold record's cover is shown, but faded.
-      const dim = p.dim * (this.item.sold ? 0.6 : 1);
+      const dim = p.dim * (this.item.sold ? 0.6 : 1) * (0.3 + 0.7 * this.lit);
       this.front.color.setScalar(dim);
       this.back.color.setScalar(p.dim);
       this.edge.color.copy(PAPER).multiplyScalar(p.dim);
@@ -891,7 +965,7 @@ export function createCrateScene(
       this.gone = true;
       stack.remove(this.mesh);
       if (this.item.cover) releaseCover(this.item.cover);
-      this.placeholder.dispose();
+      this.placeholder?.dispose();
       this.stickerMat?.map?.dispose();
       this.stickerMat?.dispose();
       for (const m of this.mats) m.dispose();
@@ -936,6 +1010,10 @@ export function createCrateScene(
       sleeves.set(item.id, s);
       stack.add(s.mesh);
     }
+    for (let i = Math.max(0, from - WARM_BACK); i <= Math.min(last, to + WARM_AHEAD); i++) {
+      const cover = items[i].cover;
+      if (cover && (i < from || i > to)) warmCover(cover);
+    }
   }
 
   // ── pointer: hover lifts a record further back; the view leans a little ──
@@ -967,21 +1045,29 @@ export function createCrateScene(
     if (reduceMotion) return;
     look.dAz = pointer.x * 0.07;
     look.dEl = pointer.y * 0.035;
-    stage.style.setProperty("--crate-px", `${(-pointer.x * 7).toFixed(1)}px`);
-    stage.style.setProperty("--crate-py", `${(pointer.y * 4).toFixed(1)}px`);
   }
   function onLeave() {
     hovered = -1;
     look.dAz = 0;
     look.dEl = 0;
-    stage.style.setProperty("--crate-px", "0px");
-    stage.style.setProperty("--crate-py", "0px");
   }
   stage.addEventListener("pointermove", onMove);
   stage.addEventListener("pointerleave", onLeave);
 
   // ── run ──
 
+  function aim() {
+    // A narrow stage pulls the camera back so the whole bin stays in frame.
+    const dist = CAM.dist * Math.max(1, 0.94 / camera.aspect);
+    camera.position.set(
+      CAM.target.x + dist * Math.cos(look.el) * Math.sin(look.az),
+      CAM.target.y + dist * Math.sin(look.el),
+      CAM.target.z + dist * Math.cos(look.el) * Math.cos(look.az)
+    );
+    camera.lookAt(CAM.target);
+  }
+
+  let painted = false;
   function resize() {
     const w = stage.clientWidth;
     const h = stage.clientHeight;
@@ -989,6 +1075,11 @@ export function createCrateScene(
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    // Resizing wipes the canvas: draw again now, not a blank frame later.
+    if (painted) {
+      aim();
+      renderer.render(scene, camera);
+    }
   }
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(stage);
@@ -1001,8 +1092,10 @@ export function createCrateScene(
   viewObserver.observe(stage);
 
   let before = performance.now();
-  let painted = false;
   let raf = 0;
+  // The wallpaper behind the bin drifts with the same eased lean as the camera.
+  let driftX = 0;
+  let driftY = 0;
   function frame(nowMs: number) {
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.25, (nowMs - before) / 1000);
@@ -1012,14 +1105,15 @@ export function createCrateScene(
 
     look.az += (CAM.az + look.dAz - look.az) * ease(dt, 4);
     look.el += (CAM.el + look.dEl - look.el) * ease(dt, 4);
-    // A narrow stage pulls the camera back so the whole bin stays in frame.
-    const dist = CAM.dist * Math.max(1, 0.94 / camera.aspect);
-    camera.position.set(
-      CAM.target.x + dist * Math.cos(look.el) * Math.sin(look.az),
-      CAM.target.y + dist * Math.sin(look.el),
-      CAM.target.z + dist * Math.cos(look.el) * Math.cos(look.az)
-    );
-    camera.lookAt(CAM.target);
+    aim();
+    const dx = (CAM.az - look.az) * 100;
+    const dy = (look.el - CAM.el) * 114;
+    if (Math.abs(dx - driftX) > 0.05 || Math.abs(dy - driftY) > 0.05) {
+      driftX = dx;
+      driftY = dy;
+      stage.style.setProperty("--crate-px", `${dx.toFixed(1)}px`);
+      stage.style.setProperty("--crate-py", `${dy.toFixed(1)}px`);
+    }
 
     for (const s of sleeves.values()) s.update(dt, now);
     for (let k = leaving.length - 1; k >= 0; k--) {
@@ -1071,6 +1165,8 @@ export function createCrateScene(
       stage.removeEventListener("pointermove", onMove);
       stage.removeEventListener("pointerleave", onLeave);
       stage.style.cursor = "";
+      stage.style.removeProperty("--crate-px");
+      stage.style.removeProperty("--crate-py");
       for (const s of sleeves.values()) s.dispose();
       for (const s of leaving) s.dispose();
       sleeves.clear();
