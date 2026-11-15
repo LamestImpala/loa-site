@@ -89,6 +89,7 @@ export default function RecordsClient({
   const [liveMessage, setLiveMessage] = useState("");
 
   const controlsRef = useRef<HTMLElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
   const highlightTimer = useRef<number | undefined>(undefined);
   const urlSynced = useRef(false);
 
@@ -354,6 +355,31 @@ export default function RecordsClient({
     io.observe(el);
     return () => io.disconnect();
   }, []);
+
+  // A letter heading pinned to the top of the window has to cover the cards
+  // sliding under it; one still in its place lets a lifted disc reach over it
+  // (shop.css, .disc-peek). Its top edge leaves the band below the pin line by
+  // a pixel the moment it pins.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const seps = grid.querySelectorAll(".shop-letter-sep");
+    if (!seps.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          e.target.classList.toggle(
+            "is-pinned",
+            e.intersectionRatio < 1 &&
+              e.boundingClientRect.top < window.innerHeight / 2
+          );
+        }
+      },
+      { threshold: 1, rootMargin: `-${(stuck ? 56 : 0) + 1}px 0px 0px 0px` }
+    );
+    seps.forEach((s) => io.observe(s));
+    return () => io.disconnect();
+  }, [stuck, sort, effectiveView, visible]);
 
   function openLightbox(r: DbRecord, index: number) {
     track(r.id, "photo_open");
@@ -924,6 +950,7 @@ export default function RecordsClient({
           />
         ) : visible.length > 0 ? (
           <div
+            ref={gridRef}
             className={`shop-grid view-${effectiveView} ${stuck ? "has-sticky-bar" : ""}`}
           >
             {sort === "artist"
