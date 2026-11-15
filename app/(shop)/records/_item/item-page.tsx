@@ -25,7 +25,13 @@ import {
 } from "@/lib/items";
 import { discColourLines, discFill, type DiscColor } from "@/lib/disc-style";
 import type { DbRecord, ItemKind } from "@/lib/supabase";
-import { PAGE_COLUMNS, getListedItems, getRedditPostUrl, getShopStats } from "../data";
+import {
+  PAGE_COLUMNS,
+  getDiscColors,
+  getListedItems,
+  getRedditPostUrl,
+  getShopStats,
+} from "../data";
 import { DiscogsLink, RecordBuyBox, RecordGallery } from "./item-client";
 
 /*
@@ -266,7 +272,7 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
 
   // Record-only bits.
   const spec = splitPressing(r.pressing);
-  const discColours = discColourLines(r.disc_formats);
+  const discColours = discColourLines(r.disc_formats, (await getDiscColors())[r.id]);
   const media = gradeInfo(r.media);
   const sleeve = gradeInfo(r.sleeve);
   const sides = groupBySide(r.tracklist ?? []);
