@@ -39,16 +39,23 @@ export function isActionable(
 // Why a flagged change can't be approved right now, or null when it can.
 // A sold record's price is history; a held or invoiced one was quoted at
 // its current price (the sale would land at the new one); and a price
-// that moved since the run flagged it makes the suggestion stale.
+// that moved since the run flagged it makes the suggestion stale. A price
+// promised in a live Reddit post (`priceHeldUntil`) stays put until the
+// hold ends or the post is retired.
 export function approvalBlock(
   p: Pick<PendingPriceChange, "old_price">,
   r: DbRecord | undefined,
-  now: number = Date.now()
+  now: number = Date.now(),
+  priceHeldUntil?: string
 ): string | null {
   if (!r) return "record not found";
   if (r.sold) return "sold";
   if (invoiceHold(r)) return "on an invoice";
   if (holdActive(r, now)) return "on hold";
+  if (priceHeldUntil && new Date(priceHeldUntil).getTime() > now)
+    return `price-held for your Reddit post through ${new Date(
+      priceHeldUntil
+    ).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
   if (Number(r.price) !== Number(p.old_price)) return `price is now $${r.price}`;
   return null;
 }

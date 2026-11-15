@@ -214,6 +214,19 @@ export function applyMode(price, target, reason = null) {
   return (target - price) / price <= THRESHOLD ? "auto" : "queue";
 }
 
+// Record ids whose price a live Reddit post has promised: the post's
+// hold_until is still ahead and the post has not been retired. The run
+// leaves these alone — no raise, no climb step, nothing queued.
+export function postHeldIds(posts, now = Date.now()) {
+  const held = new Set();
+  for (const p of posts ?? []) {
+    if (p.retired_at || !p.hold_until) continue;
+    if (new Date(p.hold_until).getTime() <= now) continue;
+    for (const id of p.record_ids ?? []) held.add(Number(id));
+  }
+  return held;
+}
+
 // What an automatic price writes. Items added in the admin start as drafts,
 // off the shop; a draft record left at $0 is waiting for this run, so its
 // first price also puts it on the shop. Anything else just gets the price.
@@ -582,6 +595,22 @@ async function main() {
   if (pendingErr) throw pendingErr;
   const hasPending = new Set(pendingRows.map((p) => p.record_id));
 
+  // Prices promised in a live Reddit post (see postHeldIds).
+  let postHeld = new Set();
+  {
+    const { data: holdRows, error: holdErr } = await supabase
+      .from("reddit_posts")
+      .select("record_ids, hold_until, retired_at")
+      .gt("hold_until", new Date().toISOString());
+    if (holdErr && /hold_until/.test(holdErr.message)) {
+      // Migration not applied yet — no post can be holding a price.
+    } else if (holdErr) {
+      throw holdErr;
+    } else {
+      postHeld = postHeldIds(holdRows);
+    }
+  }
+
   // Rejections should stick: don't re-flag a record when a suggestion
   // within 5% of the same price was rejected in the last 14 days.
   const { data: rejectedRows, error: rejectedErr } = await supabase
@@ -630,6 +659,7 @@ async function main() {
   let implausible = 0;
   let errors = 0;
   let reservedSkips = 0;
+  let postHoldSkips = 0;
   let published = 0;
 
   let run = { id: null };
@@ -769,6 +799,12 @@ async function main() {
         reservedSkips++;
         continue;
       }
+      // Promised in a live Reddit post: the price stays until the hold ends
+      // or the post is retired.
+      if (postHeld.has(Number(r.id))) {
+        postHoldSkips++;
+        continue;
+      }
 
       let price = Number(r.price); // tracks changes made within this iteration
       const { target, reason, competitive, lowestPlausible } = plan;
@@ -856,7 +892,7 @@ async function main() {
   }
 
   console.log(
-    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only, ${climbs} climb steps, ${published} drafts priced and published), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${errors} errors`
+    `Done: ${checked} checked, ${autoApplied} auto-applied (raises only, ${climbs} climb steps, ${published} drafts priced and published), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${postHoldSkips} price-held for a Reddit post (left alone), ${errors} errors`
   );
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");

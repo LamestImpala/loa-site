@@ -74,6 +74,15 @@ test("a flagged change waits while its record is sold, held, invoiced or reprice
     "a lapsed hold no longer blocks"
   );
   assert.equal(approvalBlock(p, rec({ price: 25 }), NOW), "price is now $25");
+  assert.match(
+    approvalBlock(p, rec({ price: 30 }), NOW, "2026-09-27T12:00:00Z") ?? "",
+    /^price-held for your Reddit post through Sep 27$/
+  );
+  assert.equal(
+    approvalBlock(p, rec({ price: 30 }), NOW, "2026-09-21T12:00:00Z"),
+    null,
+    "a lapsed price hold no longer blocks"
+  );
 });
 
 test("a pending change says why the run suggested it", () => {

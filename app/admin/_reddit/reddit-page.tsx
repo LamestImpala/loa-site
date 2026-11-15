@@ -4,8 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DbRecord, RedditPost } from "@/lib/supabase";
 import {
+  PRICE_HOLD_DAYS,
   REDDIT_BODY_LIMIT,
+  heldPrices,
+  holdDateText,
+  holdEnd,
   pickWeekly,
+  postHoldActive,
   offerable,
   redditMarkdown,
   redditStaleMarkdown,
@@ -15,9 +20,9 @@ import {
 import { useAdmin, useSlice } from "../_shell/admin-provider";
 import { buttonClass, inputClass, useCopied } from "../_shell/ui";
 
-// Reddit tools: copy the full-catalog post, build the weekly picks post
-// from the sale-desk selection, keep the active post URL, and manage the
-// post archive (retire / update bodies).
+// Reddit tools: build the weekly picks post, whose prices are then held
+// for a week (lib/admin/reddit.ts), keep the active post URL, and manage
+// the post archive (update / retire bodies, releasing a hold early).
 export function RedditPage() {
   const {
     supabase,
@@ -34,6 +39,7 @@ export function RedditPage() {
     setSelectionMode,
     pushToast,
     copyText,
+    confirm,
   } = useAdmin();
 
   useSlice("market");
@@ -64,6 +70,13 @@ export function RedditPage() {
   // to the legacy "Active Reddit post" setting during the transition.
   const newestUrl = (newestPost?.reddit_url ?? postUrl).trim();
 
+  // Posts still promising their prices, and how many unsold records that
+  // covers (a record in two posts counts once).
+  const holds = topLevelPosts.filter((p) => postHoldActive(p));
+  const heldCount = [...heldPrices(holds).keys()].filter(
+    (id) => byId.get(id) && !byId.get(id)!.sold
+  ).length;
+
   function warnIfOverRedditLimit(md: string) {
     if (md.length > REDDIT_BODY_LIMIT) {
       pushToast(
@@ -81,8 +94,9 @@ export function RedditPage() {
     title: string | null,
     body: string,
     recordIds: number[],
-    parentId: number | null = null
-  ) {
+    parentId: number | null = null,
+    holdUntil: string | null = null
+  ): Promise<RedditPost | null> {
     const { data, error } = await supabase
       .from("reddit_posts")
       .insert({
@@ -91,17 +105,52 @@ export function RedditPage() {
         body,
         record_ids: recordIds,
         parent_id: parentId,
+        // Only a weekly post promises its prices.
+        ...(holdUntil ? { hold_until: holdUntil } : {}),
       })
       .select("*")
       .single();
     if (error || !data) {
       pushToast(
         "error",
-        `Copied, but archiving the post failed: ${error?.message ?? "no row returned"}`
+        `Copied, but archiving the post failed${
+          holdUntil ? " — so its prices are NOT held" : ""
+        }: ${error?.message ?? "no row returned"}`
       );
-      return;
+      return null;
     }
     setRedditPosts((prev) => [data as RedditPost, ...prev]);
+    return data as RedditPost;
+  }
+
+  // End a post's price hold now (its records can be repriced again). Used
+  // for the Release button and for drafts a newer copy replaces.
+  async function endHold(posts: RedditPost[]): Promise<boolean> {
+    if (posts.length === 0) return true;
+    const hold_until = new Date().toISOString();
+    const ids = posts.map((p) => p.id);
+    const { error } = await supabase
+      .from("reddit_posts")
+      .update({ hold_until })
+      .in("id", ids);
+    if (error) {
+      pushToast("error", `Releasing the price hold failed: ${error.message}`);
+      return false;
+    }
+    setRedditPosts((prev) =>
+      prev.map((p) => (ids.includes(p.id) ? { ...p, hold_until } : p))
+    );
+    return true;
+  }
+
+  async function releaseHold(post: RedditPost) {
+    if (!post.hold_until) return;
+    const ok = await confirm(
+      `Release the price hold on this post? Its ${post.record_ids.length} records were promised at their current prices through ${holdDateText(post.hold_until)} — after this the daily run and you can change them. If the post is still up on Reddit, paste its retire or update body so it stops promising them.`,
+      "Release hold"
+    );
+    if (!ok) return;
+    if (await endHold([post])) pushToast("success", "Price hold released ✓");
   }
 
   // r/vinylcollectors readers (and mods) see every live post; keep one of
@@ -156,7 +205,17 @@ export function RedditPage() {
     }
     warnIfStillLive("weekly");
     const liveCount = records.filter((r) => offerable(r)).length;
-    const md = redditWeeklyMarkdown(picks, liveCount, market);
+    // The post promises these prices for a week; the archive row carries
+    // the same date, which is what actually holds them.
+    const holdUntil = holdEnd().toISOString();
+    const md = redditWeeklyMarkdown(picks, liveCount, market, {
+      until: holdUntil,
+    });
+    // Earlier copies that never went up (no URL saved) — this copy
+    // replaces them, so their holds shouldn't linger.
+    const drafts = topLevelPosts.filter(
+      (p) => p.kind === "weekly" && !p.reddit_url && postHoldActive(p)
+    );
     // Copy before the settings round-trip — Safari drops the clipboard
     // permission if the user gesture has to wait on a network call.
     if (await copyText(md, "Copy the weekly post")) {
@@ -164,11 +223,19 @@ export function RedditPage() {
     }
     warnIfOverRedditLimit(md);
     await savePostedIds(picks.map((r) => r.id));
-    await archivePost(
+    const saved = await archivePost(
       "weekly",
       md.split("\n")[0],
       md,
-      picks.map((r) => r.id)
+      picks.map((r) => r.id),
+      null,
+      holdUntil
+    );
+    if (!saved) return;
+    await endHold(drafts);
+    pushToast(
+      "success",
+      `Prices on these ${picks.length} records are held through ${holdDateText(holdUntil)}.`
     );
   }
 
@@ -202,18 +269,18 @@ export function RedditPage() {
   async function copyUpdatePost() {
     const posted = resolvePostedRecords(postedInfo.ids);
     if (posted.length === 0) return;
-    const md = redditUpdateMarkdown(posted);
-    if (await copyText(md, "Copy the post update")) {
-      flash("update");
-    }
-    // Archive as a child of the archived post it refreshes, when one exists
-    // (the live post may predate the archive).
+    // The archived post this refreshes, when one exists (the live post may
+    // predate the archive) — it carries the price hold the body restates.
     const idsKey = [...postedInfo.ids].sort((a, b) => a - b).join(",");
     const parent =
       topLevelPosts.find(
         (p) =>
           [...p.record_ids].sort((a, b) => a - b).join(",") === idsKey
       ) ?? null;
+    const md = redditUpdateMarkdown(posted, parent ?? undefined);
+    if (await copyText(md, "Copy the post update")) {
+      flash("update");
+    }
     await archivePost(
       "update",
       null,
@@ -252,7 +319,7 @@ export function RedditPage() {
   async function copyArchivedUpdateBody(post: RedditPost) {
     const posted = resolvePostedRecords(post.record_ids);
     if (posted.length === 0) return;
-    const md = redditUpdateMarkdown(posted);
+    const md = redditUpdateMarkdown(posted, post);
     if (await copyText(md, "Copy the update body")) {
       flash(`update-${post.id}`);
     }
@@ -308,21 +375,21 @@ export function RedditPage() {
     <>
       <h1 className="mt-6 text-3xl font-semibold">Reddit</h1>
         <p className="mt-1 text-sm text-neutral-400">
-          The weekly post has its own picks, separate from the sale desk —
-          start with &ldquo;Pick 20: drops + scarce&rdquo; (biggest recent
-          price drops first, then highest Discogs want/have ratio, scarcest
-          breaking ties), then &ldquo;Adjust picks on Catalog&rdquo; to tick
-          or untick them in the &ldquo;Sel&rdquo; column, or pick by hand
-          there. Each row shows
-          price, year, and grades, with the title linked to its Discogs
-          release. Copy, and the list is remembered so you can post an
-          update later with sold records crossed out (no price shown).
-          &ldquo;Copy Reddit table&rdquo; is still the full catalog.
+          Post a short list, not the whole catalog. &ldquo;Pick 20: drops +
+          scarce&rdquo; chooses the records (biggest recent price drops
+          first, then highest Discogs want/have ratio); &ldquo;Adjust picks
+          on Catalog&rdquo; lets you tick or untick them in the
+          &ldquo;Sel&rdquo; column. &ldquo;Copy weekly post&rdquo; then
+          writes the post and{" "}
+          <strong className="text-neutral-200">
+            holds those prices for {PRICE_HOLD_DAYS} days
+          </strong>
+          : the post names the date, says prices may change after it, and
+          sends readers to the site for everything else. Until then the
+          daily price run and the Catalog leave those records&rsquo; prices
+          alone. Every other record can be repriced freely.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={copyRedditTable} className={buttonClass}>
-            {isCopied("table") ? "Copied!" : "Copy Reddit table"}
-          </button>
           <button
             type="button"
             onClick={randomizeWeeklyPicks}
@@ -373,6 +440,28 @@ export function RedditPage() {
             {saleRecords.length} picked.
           </p>
         ) : null}
+        {holds.length > 0 ? (
+          <div className="mt-4 max-w-3xl rounded-2xl border border-sky-400/25 bg-sky-400/5 p-4 text-sm">
+            <p className="font-medium text-sky-200">
+              Prices held: {heldCount} record{heldCount === 1 ? "" : "s"}
+            </p>
+            <ul className="mt-1 text-neutral-300">
+              {holds.map((p) => (
+                <li key={p.id}>
+                  Post of {new Date(p.created_at).toLocaleDateString()} —{" "}
+                  {p.record_ids.length} records, through{" "}
+                  {holdDateText(p.hold_until as string)}
+                  {p.reddit_url ? "" : " (no URL saved yet)"}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-neutral-400">
+              A hold ends on its date, when you copy the post&rsquo;s retire
+              body, or with &ldquo;Release price hold&rdquo; on the post
+              below.
+            </p>
+          </div>
+        ) : null}
         {postedInfo.posted_at ? (
           <p className="mt-2 text-xs text-neutral-500">
             Current post: {postedInfo.ids.length} records, copied{" "}
@@ -401,14 +490,26 @@ export function RedditPage() {
           </button>
         </div>
 
+        <h3 className="mt-8 text-lg font-medium">Full catalog table</h3>
+        <p className="mt-1 text-sm text-neutral-400">
+          The whole catalog as one Reddit table. It carries no price hold,
+          so every price in it can change the next day — prefer the weekly
+          post.
+        </p>
+        <div className="mt-3">
+          <button type="button" onClick={copyRedditTable} className={buttonClass}>
+            {isCopied("table") ? "Copied!" : "Copy full catalog table"}
+          </button>
+        </div>
+
         <h3 className="mt-8 text-lg font-medium">Post archive</h3>
         <p className="mt-1 text-sm text-neutral-400">
           Every copied post lands here (r/VinylCollectors doesn&rsquo;t allow
           deleting posts). After posting, paste the post&rsquo;s URL into its
           row. When a new post goes up, use &ldquo;Copy retire body&rdquo; on
           the older posts and paste it over their body on Reddit — it keeps
-          the original table, strikes out anything sold, and links readers to
-          the newest post.
+          the original table, strikes out anything sold, links readers to
+          the newest post, and ends the old post&rsquo;s price hold.
         </p>
         {topLevelPosts.length === 0 ? (
           <p className="mt-3 text-sm text-neutral-500">
@@ -450,6 +551,16 @@ export function RedditPage() {
                     {isCurrent ? (
                       <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">
                         Current
+                      </span>
+                    ) : null}
+                    {postHoldActive(post) ? (
+                      <span className="rounded-full bg-sky-400/15 px-2 py-0.5 text-xs text-sky-200">
+                        Prices held through{" "}
+                        {holdDateText(post.hold_until as string)}
+                      </span>
+                    ) : post.hold_until ? (
+                      <span className="rounded-full border border-white/10 px-2 py-0.5 text-xs text-neutral-400">
+                        Price hold ended
                       </span>
                     ) : null}
                     {post.retired_at ? (
@@ -503,7 +614,7 @@ export function RedditPage() {
                           ? "This is the current post — retire it after the next post goes up"
                           : !newestUrl
                             ? "Save the newest post's URL first so the banner has somewhere to point"
-                            : "Copies the outdated-post body — paste it over this post's body on Reddit"
+                            : "Copies the outdated-post body — paste it over this post's body on Reddit. Ends this post's price hold."
                       }
                     >
                       {isCopied(`retire-${post.id}`)
@@ -520,6 +631,16 @@ export function RedditPage() {
                         ? "Copied!"
                         : "Copy update body"}
                     </button>
+                    {postHoldActive(post) ? (
+                      <button
+                        type="button"
+                        onClick={() => releaseHold(post)}
+                        className={buttonClass}
+                        title="Ends this post's price hold now, so its records can be repriced. Retiring the post does the same."
+                      >
+                        Release price hold
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );

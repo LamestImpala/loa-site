@@ -11,6 +11,7 @@ import {
   isActionable as actionable,
 } from "@/lib/admin/pricing";
 import { useAdmin, useSlice } from "../_shell/admin-provider";
+import { usePriceHolds } from "../_shell/price-holds";
 import { PageHeader } from "../_shell/primitives";
 import { buttonClass, pct } from "../_shell/ui";
 
@@ -31,6 +32,10 @@ export function PricingPage() {
 
   const pendingStatus = useSlice("pending");
   const runsStatus = useSlice("runs");
+  // Prices promised in a live Reddit post can't be approved away.
+  const priceHolds = usePriceHolds();
+  const blockFor = (p: PendingPriceChange) =>
+    approvalBlock(p, byId.get(p.record_id), undefined, priceHolds.get(p.record_id));
   const [expandedRun, setExpandedRun] = useState<number | null>(null);
   const [pendingFilter, setPendingFilter] = useState<"all" | "act" | "other">(
     "all"
@@ -65,14 +70,14 @@ export function PricingPage() {
     // Approving skips changes whose record is sold, held, invoiced or
     // repriced since — they stay pending. Rejecting takes everything.
     const blocked = approve
-      ? list.filter((p) => approvalBlock(p, byId.get(p.record_id)))
+      ? list.filter((p) => blockFor(p))
       : [];
     if (blocked.length > 0) {
       const skip = new Set(blocked);
       list = list.filter((p) => !skip.has(p));
       pushToast(
         "info",
-        `Skipping ${blocked.length} change${blocked.length === 1 ? "" : "s"} on records that are sold, held, invoiced or repriced since — they stay pending.`
+        `Skipping ${blocked.length} change${blocked.length === 1 ? "" : "s"} on records that are sold, held, invoiced, price-held for a Reddit post or repriced since — they stay pending.`
       );
       if (list.length === 0) return;
     }
@@ -154,9 +159,16 @@ export function PricingPage() {
   }
 
   async function resolvePending(p: PendingPriceChange, approve: boolean) {
-    const block = approve ? approvalBlock(p, byId.get(p.record_id)) : null;
+    const block = approve ? blockFor(p) : null;
     if (block) {
-      pushToast("info", `Can't approve yet — the record is ${block}. Reject it, or wait for the sale to close.`);
+      pushToast(
+        "info",
+        `Can't approve yet — the record is ${block}. Reject it, or ${
+          block.startsWith("price-held")
+            ? "release the hold on the Reddit page"
+            : "wait for the sale to close"
+        }.`
+      );
       return;
     }
     if (approve) {
@@ -252,7 +264,7 @@ export function PricingPage() {
               {visiblePending.map((p) => {
                 const record = byId.get(p.record_id);
                 const reason = changeReason(p, runs);
-                const block = approvalBlock(p, record);
+                const block = blockFor(p);
                 return (
                 <div
                   key={p.id}

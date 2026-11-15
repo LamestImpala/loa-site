@@ -6,6 +6,7 @@ import {
   discFormats,
   firstPricePatch,
   planPrice,
+  postHeldIds,
   releaseDetails,
 } from "./price-run.mjs";
 import { releaseDetailsFromDiscogs } from "../lib/record-info.ts";
@@ -202,4 +203,19 @@ test("a $0 draft's first price also puts it on the shop", () => {
   assert.deepEqual(firstPricePatch({ price: 0 }, 34), { price: 34 });
   // a priced record's small raise never publishes anything
   assert.deepEqual(firstPricePatch({ draft: false, price: 33 }, 34), { price: 34 });
+});
+
+test("a live Reddit post holds its records' prices; retired or lapsed posts do not", () => {
+  const now = Date.parse("2026-11-15T12:00:00Z");
+  const held = postHeldIds(
+    [
+      { record_ids: [1, 2], hold_until: "2026-11-22T23:59:59Z", retired_at: null },
+      { record_ids: [3], hold_until: "2026-11-22T23:59:59Z", retired_at: "2026-11-14T00:00:00Z" },
+      { record_ids: [4], hold_until: "2026-11-14T23:59:59Z", retired_at: null },
+      { record_ids: [5], hold_until: null, retired_at: null },
+    ],
+    now
+  );
+  assert.deepEqual([...held].sort(), [1, 2]);
+  assert.equal(postHeldIds(null, now).size, 0);
 });
