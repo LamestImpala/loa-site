@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { GardenWall, ShopHero } from "../shop-hero";
+import { BuyingTerms, HowBuyingWorksLink } from "../buying-terms";
 import { SELLER_INFO } from "@/lib/records";
 import { trackRecordLine } from "@/lib/record-info";
 import {
@@ -18,32 +19,6 @@ export const metadata: Metadata = {
 };
 
 export const revalidate = 60;
-
-function SellerInfoLines({ trackRecord }: { trackRecord: string | null }) {
-  return (
-    <>
-      <div>
-        <strong>Contact:</strong> {SELLER_INFO.contact}
-      </div>
-      <div>
-        <strong>Payment:</strong> {SELLER_INFO.payment}
-      </div>
-      <div>
-        <strong>Shipping:</strong> {SELLER_INFO.posterShipping} Bundle records
-        too and each ships its own way.
-      </div>
-      <div>
-        <strong>Not as described?</strong> Email me and I&rsquo;ll make it
-        right.
-      </div>
-      {trackRecord ? (
-        <div>
-          <strong>Track record:</strong> {trackRecord}, every one packed by me.
-        </div>
-      ) : null}
-    </>
-  );
-}
 
 export default async function PostersPage() {
   const [{ items: posters, error }, { items: all }, redditPostUrl, stats] =
@@ -64,23 +39,9 @@ export default async function PostersPage() {
         <h1>
           <em>Pearl Jam</em> show posters.
         </h1>
-        <p className="shop-hero-lede">
-          Concert posters I bought at the shows or from the artists who drew
-          them, kept flat and out of the sun. Venue, date, edition and size are
-          listed on every one; the photos are of the actual print.
-        </p>
-        <div className="shop-hero-info shop-hero-info-static">
-          <SellerInfoLines trackRecord={trackRecord} />
+        <div className="shop-hero-meta">
+          <HowBuyingWorksLink />
         </div>
-        <details className="shop-hero-info shop-hero-info-details">
-          <summary>How buying works — payment &amp; shipping</summary>
-          <div className="shop-hero-info-detail-body">
-            <SellerInfoLines trackRecord={trackRecord} />
-          </div>
-        </details>
-        <a className="btn btn-primary shop-hero-cta" href="#records">
-          Browse the posters ↓
-        </a>
       </ShopHero>
 
       <GardenWall>
@@ -107,6 +68,12 @@ export default async function PostersPage() {
             redditPostUrl={redditPostUrl}
           />
         )}
+
+        <BuyingTerms kind="poster" trackRecord={trackRecord}>
+          Concert posters I bought at the shows or from the artists who drew
+          them, kept flat and out of the sun. Venue, date, edition and size are
+          listed on every one; the photos are of the actual print.
+        </BuyingTerms>
       </GardenWall>
     </>
   );
