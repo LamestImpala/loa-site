@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { GardenWall, ShopHero } from "../shop-hero";
+import { BuyingTerms, HowBuyingWorksLink } from "../buying-terms";
 import Link from "next/link";
 import { SELLER_INFO } from "@/lib/records";
 import { trackRecordLine } from "@/lib/record-info";
@@ -20,31 +21,6 @@ export const metadata: Metadata = {
 
 export const revalidate = 60;
 
-function SellerInfoLines({ trackRecord }: { trackRecord: string | null }) {
-  return (
-    <>
-      <div>
-        <strong>Contact:</strong> {SELLER_INFO.contact}
-      </div>
-      <div>
-        <strong>Payment:</strong> {SELLER_INFO.payment}
-      </div>
-      <div>
-        <strong>Shipping:</strong> {SELLER_INFO.gearShipping}
-      </div>
-      <div>
-        <strong>Not as described?</strong> Email me and I&rsquo;ll make it
-        right.
-      </div>
-      {trackRecord ? (
-        <div>
-          <strong>Track record:</strong> {trackRecord}, every one packed by me.
-        </div>
-      ) : null}
-    </>
-  );
-}
-
 export default async function EquipmentPage() {
   const [{ items: gear, error }, { items: all }, redditPostUrl, stats] =
     await Promise.all([
@@ -64,28 +40,9 @@ export default async function EquipmentPage() {
         <h1>
           <em>Audio equipment</em> that&rsquo;s earned its keep.
         </h1>
-        <p className="shop-hero-lede">
-          Turntables, amps and the odd accessory I&rsquo;ve upgraded past. Each
-          one was running in my system before it was listed; what works,
-          what&rsquo;s included and any quirks are written up on its page. I
-          write about this gear at{" "}
-          <Link href="https://lateonsetaudiophile.com">
-            Late Onset Audiophile
-          </Link>
-          .
-        </p>
-        <div className="shop-hero-info shop-hero-info-static">
-          <SellerInfoLines trackRecord={trackRecord} />
+        <div className="shop-hero-meta">
+          <HowBuyingWorksLink />
         </div>
-        <details className="shop-hero-info shop-hero-info-details">
-          <summary>How buying works — payment &amp; shipping</summary>
-          <div className="shop-hero-info-detail-body">
-            <SellerInfoLines trackRecord={trackRecord} />
-          </div>
-        </details>
-        <a className="btn btn-primary shop-hero-cta" href="#records">
-          Browse the equipment ↓
-        </a>
       </ShopHero>
 
       <GardenWall>
@@ -112,6 +69,17 @@ export default async function EquipmentPage() {
             redditPostUrl={redditPostUrl}
           />
         )}
+
+        <BuyingTerms kind="gear" trackRecord={trackRecord}>
+          Turntables, amps and the odd accessory I&rsquo;ve upgraded past. Each
+          one was running in my system before it was listed; what works,
+          what&rsquo;s included and any quirks are written up on its page. I
+          write about this gear at{" "}
+          <Link href="https://lateonsetaudiophile.com">
+            Late Onset Audiophile
+          </Link>
+          .
+        </BuyingTerms>
       </GardenWall>
     </>
   );

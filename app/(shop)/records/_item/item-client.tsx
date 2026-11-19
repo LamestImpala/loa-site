@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   FREE_SHIPPING_MIN,
@@ -152,6 +152,35 @@ export function RecordBuyBox({
     []
   );
 
+  // Phones: the price and the buy button sit below the cover, off the first
+  // screen, so a bar pinned to the bottom carries them until the in-page
+  // button scrolls into view (shop.css shows the bar on phones only). Off
+  // screen is the starting assumption, which is true at load on a phone, so
+  // the server's HTML already has the bar.
+  const buyRef = useRef<HTMLButtonElement | null>(null);
+  const [buyInView, setBuyInView] = useState(false);
+  const canBuy = !r.sold && !held;
+  useEffect(() => {
+    const el = buyRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => setBuyInView(entry.isIntersecting),
+      { threshold: 0.5 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [canBuy]);
+  // One bar at a time: once the bundle has something in it, its own bar
+  // (BundleBar, below) takes the bottom of the screen.
+  const showBuyBar =
+    canBuy && !buyInView && bundle.selectedRecords.length === 0;
+  const barShipNote =
+    kind === "record"
+      ? `+ $${SHIPPING_PER_PARCEL} shipping`
+      : kind === "poster"
+        ? `+ $${POSTER_TUBE_RATE} shipping`
+        : "+ shipping, quoted";
+
   return (
     <div className="rp-buy">
       <div className="rp-price-row">
@@ -186,6 +215,7 @@ export function RecordBuyBox({
         <>
           <p className="rp-buy-note">{shipNote}</p>
           <button
+            ref={buyRef}
             type="button"
             className="btn btn-primary btn-block"
             onClick={() => setSheet({ kind: "single", record: r })}
@@ -206,6 +236,30 @@ export function RecordBuyBox({
         </>
       )}
 
+      {showBuyBar ? (
+        <div className="rp-buybar" role="region" aria-label="Price and buying">
+          <div className="shop-shell rp-buybar-inner">
+            <span className="rp-buybar-price">
+              <span className="record-price">${r.price}</span>
+              <span className="rp-buybar-ship">{barShipNote}</span>
+            </span>
+            <button
+              type="button"
+              className="record-select rp-buybar-add"
+              onClick={() => bundle.toggle(r.id)}
+            >
+              + Bundle
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setSheet({ kind: "single", record: r })}
+            >
+              Request to buy
+            </button>
+          </div>
+        </div>
+      ) : null}
       <BundleBar
         records={bundle.selectedRecords}
         onRequest={() => setSheet({ kind: "bundle" })}

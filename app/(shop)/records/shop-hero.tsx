@@ -1,11 +1,13 @@
 import { CelestialArt } from "./celestial-art";
 import { HeroLogo } from "./logo-zoom";
 
-// The title page shared by Records, Posters and Equipment: the copy on an
-// ivory leaf at left, the celestial-observatory engraving filling the right.
-// The emblem heads the copy column rather than sitting on the art, which is
-// too busy (moon, armillary, rabbit) to carry it without a fight. Clicking
-// the emblem opens it full size to zoom into the engraving.
+// The title band shared by Records, Posters and Equipment: the emblem and a
+// few lines of copy on an ivory leaf at left, a strip of the
+// celestial-observatory engraving at right (on top, on phones). It is a
+// band, not a title page, so the listings start on the first screen; the
+// introduction and buying terms sit under them (buying-terms.tsx). The
+// emblem stays off the art, which is too busy (moon, armillary, rabbit) to
+// carry it without a fight. Clicking it opens it full size to zoom in.
 export function ShopHero({ children }: { children: React.ReactNode }) {
   return (
     <div className="shop-hero-band">

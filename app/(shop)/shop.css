@@ -438,11 +438,12 @@ html:has(.shop) {
   }
 }
 
-/* Title page: the copy on an ivory leaf at left, the celestial-observatory
-   engraving filling the right to the window edge (shop-hero.tsx). It hangs
-   in front of the garden wall like a mounted plate: it ends on the plate rule
-   (shared with .shop-rule above) and casts a shadow down onto the wall, so
-   the two engravings never touch. */
+/* Title band: the emblem and a few lines of copy on an ivory leaf at left,
+   a strip of the celestial-observatory engraving filling the right to the
+   window edge (shop-hero.tsx). It is kept short so the listings start on the
+   first screen. It hangs in front of the garden wall like a mounted plate:
+   it ends on the plate rule (shared with .shop-rule above) and casts a
+   shadow down onto the wall, so the two engravings never touch. */
 .shop-hero-band {
   position: relative;
   z-index: 1;
@@ -462,35 +463,35 @@ html:has(.shop) {
   /* No min-width: a hard floor here forces horizontal scroll on narrow phones. */
   min-width: 0;
   /* Left edge lines up with the 1200px shell below. */
-  padding: var(--space-6) calc(var(--space-8) * 1.25)
-    calc(var(--space-8) * 1.25)
+  padding: var(--space-3) var(--space-6) var(--space-3)
     max(var(--space-8), calc(50vw - 600px + var(--space-8)));
-  /* Emblem and kicker share the first row, like a book-plate and its
-     legend; everything else runs the full width of the leaf. */
+  /* The emblem stands at left with the copy stacked beside it, like a
+     book-plate and its legend. */
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   column-gap: var(--space-4);
-  align-content: start;
+  align-content: center;
   align-items: center;
 }
 .shop-hero-copy > * {
-  grid-column: 1 / -1;
+  grid-column: 2;
+  min-width: 0;
   max-width: 660px;
   justify-self: start;
 }
 .shop-hero-copy > .shop-hero-logo + * {
-  grid-column: 2;
   margin: 0;
 }
 /* The emblem's square canvas has a transparent margin, so it is nudged
    left to line its artwork up with the text. */
 .shop-hero-copy > .shop-hero-logo {
   grid-column: 1;
+  grid-row: 1 / span 3;
   display: block;
-  width: 148px;
-  height: 148px;
+  width: 96px;
+  height: 96px;
   object-fit: contain;
-  margin: 0 0 var(--space-3) -6px;
+  margin: 0 0 0 -5px;
   animation: curiofade 0.5s ease both;
 }
 /* The emblem is a button that opens the full-size viewer. */
@@ -644,8 +645,8 @@ html:has(.shop) {
   background: var(--color-ink);
   /* The column takes the copy's height, not the engraving's own 3:2. */
   aspect-ratio: auto;
-  /* Keep the armillary, the moon's face and the rabbit; lose quiet sky. */
-  --cr-art-position: 90% 40%;
+  /* A short strip: keep the moon's face and the armillary's record. */
+  --cr-art-position: 60% 12%;
 }
 .shop .shop-hero-art-img {
   object-fit: cover;
@@ -680,58 +681,77 @@ html:has(.shop) {
 }
 .shop-hero-kicker {
   font-family: var(--font-caps);
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 0.08em;
   color: var(--color-accent-700);
 }
 .shop .shop-hero h1 {
-  font-size: clamp(38px, 4.1vw, 58px);
-  line-height: 1.04;
-  margin: 0 0 var(--space-4);
+  font-size: clamp(27px, 2.6vw, 38px);
+  line-height: 1.08;
+  margin: 2px 0 var(--space-2);
   color: var(--color-ink);
 }
 .shop-hero h1 em {
   color: var(--color-accent-700);
 }
-.shop-hero-lede {
-  font-size: 18px;
+/* Under the title: the rating and the way to the buying terms, as one
+   line that wraps where it must. The rating's own box is dissolved so its
+   pieces and the link share that line. */
+.shop-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  font-size: 15px;
+  color: var(--color-neutral-800);
+}
+.shop-hero-meta .shop-rating {
+  display: contents;
+}
+.shop-hero-meta a {
+  color: var(--color-accent-700);
+  white-space: nowrap;
+}
+.shop-hero-meta .shop-rating + .shop-hero-how {
+  margin-left: var(--space-2);
+}
+
+/* — "How buying works": the introduction and terms, under the listings — */
+.shop-terms {
+  padding-block: var(--space-6) calc(var(--space-8) + var(--space-4));
+  /* Clear of the condensed search bar when the hero's link lands here. */
+  scroll-margin-top: 64px;
+}
+.shop .shop-terms h2 {
+  font-size: 26px;
+  margin: 0 0 var(--space-3);
+  color: var(--color-ink);
+}
+.shop-terms-lede {
+  font-size: 17px;
   line-height: 1.6;
-  max-width: 56ch;
-  margin: 0 0 var(--space-6);
+  max-width: 62ch;
+  margin: 0 0 var(--space-4);
   color: var(--color-neutral-800);
 }
 /* Terms as a ruled list, like a colophon. */
-.shop-hero-info {
-  max-width: 620px;
+.shop-terms-list {
+  max-width: 720px;
   font-size: 15px;
   line-height: 1.5;
   border-top: 1px solid var(--color-divider);
 }
-.shop-hero-info-static > div,
-.shop-hero-info-detail-body > div {
+.shop-terms-list > div {
   padding-block: 7px;
   border-bottom: 1px dotted var(--color-divider);
 }
-.shop-hero-info strong {
+.shop-terms-list strong {
   font-family: var(--font-caps);
   font-weight: 400;
   font-size: 16px;
   letter-spacing: 0.03em;
   color: var(--color-accent-700);
   margin-right: 4px;
-}
-/* Desktop shows the static list; phones get the collapsed <details>. */
-.shop-hero-info-details {
-  display: none;
-}
-.shop-hero-info-details summary {
-  cursor: pointer;
-  padding-block: var(--space-2);
-  font-weight: 700;
-  list-style-position: inside;
-}
-.shop .shop-hero-cta {
-  margin-top: var(--space-6);
 }
 .shop-section {
   padding-bottom: var(--space-6);
@@ -816,7 +836,17 @@ html:has(.shop) {
 /* — controls — */
 .shop-controls {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
+}
+/* The controls sit close over the grid they filter. */
+.shop-controls.shop-section {
+  padding-bottom: var(--space-4);
+}
+/* Phones fold the filters behind this button, and show this one-line
+   summary while they are folded (see the 640px block). */
+.shop .shop-filters-toggle,
+.shop-filter-summary {
+  display: none;
 }
 /* Grid items default to min-width:auto; the nowrap letter scroller would
    otherwise widen the whole controls column past the viewport on phones. */
@@ -1037,20 +1067,23 @@ html:has(.shop) {
   .record-card:hover,
   .record-card:focus-within,
   .shop .record-compact:hover,
-  .shop .record-compact:focus-visible {
+  .shop .record-compact:focus-visible,
+  .shop .record-compact:focus-within {
     position: relative;
     z-index: 6;
   }
   .record-card:hover .disc-peek,
   .record-card:focus-within .disc-peek,
   .record-compact:hover .disc-peek,
-  .record-compact:focus-visible .disc-peek {
+  .record-compact:focus-visible .disc-peek,
+  .record-compact:focus-within .disc-peek {
     transform: translateY(-36%);
   }
   .record-card:hover .disc-peek-face,
   .record-card:focus-within .disc-peek-face,
   .record-compact:hover .disc-peek-face,
-  .record-compact:focus-visible .disc-peek-face {
+  .record-compact:focus-visible .disc-peek-face,
+  .record-compact:focus-within .disc-peek-face {
     animation: discturn 10s linear infinite;
   }
 }
@@ -1203,6 +1236,71 @@ html:has(.shop) {
   color: var(--color-text);
   scroll-margin-top: 84px;
   animation: curiofade 0.35s ease both;
+}
+/* On the records grid the card is a box holding a link and, beside it, the
+   bundle button (records-client.tsx); on the other lists the card is the
+   link itself. */
+.shop .record-compact {
+  position: relative;
+}
+.shop a.record-compact-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.shop a.record-compact-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+/* A square laid exactly over the cover, so the button sits in its corner. */
+.record-compact-actions {
+  position: absolute;
+  inset: var(--space-2) var(--space-2) auto;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+.record-compact-add {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--color-accent);
+  border-radius: 50%;
+  background: var(--color-bg);
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+/* A 44px touch target around the 30px disc. */
+.record-compact-add::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+}
+.record-compact-add:hover {
+  background: var(--color-accent-100);
+}
+.record-compact-add.is-selected {
+  background: var(--color-accent);
+  color: var(--color-accent-100);
+  font-size: 15px;
+}
+.record-compact-add:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 .record-compact-cover {
   position: relative;
@@ -1405,6 +1503,63 @@ html:has(.shop) {
   font-size: 12.5px;
   color: var(--color-neutral-700);
   margin: 0;
+}
+/* — phones: the price and buy button, pinned to the bottom of the screen
+   until the in-page button scrolls into view (item-client.tsx) — */
+.rp-buybar {
+  display: none;
+}
+@media (max-width: 760px) {
+  .rp-buybar {
+    display: block;
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 40;
+    background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--color-divider);
+    box-shadow: 0 -6px 24px color-mix(in srgb, var(--color-text) 10%, transparent);
+    padding-block: var(--space-2);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
+    animation: curiofade 0.2s ease both;
+  }
+  .rp-buybar-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .rp-buybar-price {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-right: auto;
+    line-height: 1.1;
+  }
+  .rp-buybar-price .record-price {
+    font-size: 26px;
+  }
+  .rp-buybar-ship {
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--color-neutral-700);
+  }
+  .rp-buybar .record-select {
+    width: auto;
+    min-height: 44px;
+    margin-top: 0;
+    white-space: nowrap;
+  }
+  .rp-buybar .btn-primary {
+    min-height: 44px;
+    white-space: nowrap;
+  }
+  /* Room under the last of the page, so the bar never covers the footer.
+     Keyed to the buy box, not the bar, which comes and goes with scrolling:
+     the page's height must not change when it does. */
+  .shop:has(.rp-buy) .shop-footer {
+    padding-bottom: calc(var(--space-8) + 72px + env(safe-area-inset-bottom));
+  }
 }
 .shop .rp-section h2 {
   font-size: 20px;
@@ -1949,11 +2104,12 @@ html:has(.shop) {
    the two engravings) and sinks back into it further down. */
 .shop-garden {
   /* How far down the art takes to come up to full strength. */
-  --garden-fade-in: clamp(72px, 8vw, 120px);
+  --garden-fade-in: clamp(24px, 2.8vw, 44px);
   position: relative;
   isolation: isolate;
   background: var(--color-garden);
-  padding: clamp(56px, 9vw, 136px) clamp(0px, 4vw, 120px) clamp(36px, 5vw, 80px);
+  /* A short gap above the sheet: the listings belong on the first screen. */
+  padding: clamp(24px, 2.8vw, 44px) clamp(0px, 4vw, 120px) clamp(36px, 5vw, 80px);
 }
 .shop-garden::before {
   content: "";
@@ -1981,7 +2137,7 @@ html:has(.shop) {
 .shop-garden-sheet {
   max-width: 1200px;
   margin: 0 auto;
-  padding-top: var(--space-8);
+  padding-top: var(--space-6);
   background: var(--color-bg);
   /* Double gold rule just inside the edge, and a soft cast onto the wall. */
   box-shadow:
@@ -2072,9 +2228,8 @@ html:has(.shop) {
   color: color-mix(in srgb, var(--color-ink-muted) 75%, transparent);
 }
 
-/* Tablets and phones: the scene becomes a landscape band on top, shown
-   whole, with the emblem set in its quiet left-hand sky (the space the
-   engraving leaves for it); the copy follows on ivory. */
+/* Tablets and phones: the scene becomes a short landscape strip on top;
+   the emblem and copy follow on ivory. */
 @media (max-width: 900px) {
   .shop-hero {
     grid-template-columns: 1fr;
@@ -2082,32 +2237,43 @@ html:has(.shop) {
   }
   .shop .shop-hero-art {
     order: -1;
-    aspect-ratio: 3 / 2;
+    aspect-ratio: auto;
+    height: clamp(76px, 19vw, 112px);
     border-bottom: 1px solid var(--color-accent-2);
-    --cr-art-position: 50% 50%;
+    --cr-art-position: 50% 30%;
   }
   .shop-hero-art::after {
     display: none;
   }
+  /* The strip is too short for a worded button: the icon alone, with the
+     controller's aria-label, drawn at 34px inside a 44px touch target.
+     "Motion reduced" has no icon, so it goes. */
   .shop .cr-celestial__toggle {
     right: var(--space-3);
-    bottom: var(--space-3);
+    bottom: 50%;
+    transform: translateY(50%);
+    width: 34px;
+    min-height: 34px;
+    padding: 0;
+    gap: 0;
+    font-size: 0;
   }
-  .shop-hero-copy > .shop-hero-logo + * {
-    margin-bottom: var(--space-3);
+  .shop .cr-celestial__toggle::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+  }
+  .shop .cr-celestial__toggle:disabled {
+    display: none;
   }
   .shop-hero-copy > .shop-hero-logo {
-    position: absolute;
-    z-index: 1;
-    left: 3vw;
-    top: calc(100vw / 3 - 19vw);
-    width: 38vw;
-    height: 38vw;
-    margin: 0;
+    width: 80px;
+    height: 80px;
+    margin-left: -4px;
   }
   .shop-garden {
-    --garden-fade-in: 64px;
-    padding: 96px 24px 40px;
+    --garden-fade-in: 32px;
+    padding: 32px 24px 40px;
   }
   .shop-garden::before {
     background-image: url("/images/brand/garden-1000.webp");
@@ -2115,29 +2281,78 @@ html:has(.shop) {
     height: 800px;
   }
   .shop-hero-copy {
-    display: block;
-    padding: var(--space-6) var(--space-8) var(--space-8);
+    padding: var(--space-3) var(--space-8);
   }
 }
 
 @media (max-width: 640px) {
-  /* Compact hero: records should surface within ~1.5 screens. */
-  /* The garden shrinks to a band above an edge-to-edge sheet. */
+  /* The garden shrinks to a thin band above an edge-to-edge sheet. */
   .shop-garden {
-    --garden-fade-in: 48px;
-    padding: 96px 0 0;
+    --garden-fade-in: 14px;
+    padding: 14px 0 0;
   }
   .shop-garden::before {
     height: 640px;
   }
   .shop-garden-sheet {
+    padding-top: var(--space-4);
     box-shadow: 0 -10px 30px rgb(0 0 0 / 0.5);
     border-inline: 0;
     border-bottom: 0;
   }
+  /* The kicker runs the full width; the emblem stands beside the title. */
   .shop-hero-copy {
-    display: block;
-    padding: var(--space-6) var(--space-4) var(--space-6);
+    padding: var(--space-3) var(--space-4);
+    column-gap: var(--space-3);
+  }
+  .shop-hero-copy > .shop-hero-logo + * {
+    grid-column: 1 / -1;
+    margin-bottom: 2px;
+  }
+  .shop-hero-copy > .shop-hero-logo {
+    grid-row: 2 / span 2;
+    width: 60px;
+    height: 60px;
+    margin-left: -3px;
+    align-self: start;
+  }
+  /* The zoom cue, scaled to the smaller emblem. */
+  .shop-hero-logo-badge {
+    right: -2px;
+    bottom: -2px;
+    width: 20px;
+    height: 20px;
+  }
+  .shop-hero-logo-badge svg {
+    width: 12px;
+    height: 12px;
+  }
+  /* A smaller disc on a phone's smaller covers; the touch target stays 44px. */
+  .record-compact-add {
+    right: 4px;
+    bottom: 4px;
+    width: 26px;
+    height: 26px;
+    font-size: 17px;
+  }
+  .record-compact-add::after {
+    inset: -9px;
+  }
+  .record-compact-add.is-selected {
+    font-size: 13px;
+  }
+  .shop-hero-kicker {
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+  }
+  .shop-hero-meta {
+    font-size: 14px;
+  }
+  .shop-hero-meta .shop-rating {
+    font-size: 14px;
+  }
+  .shop-hero-meta .shop-rating-stars {
+    font-size: 15px;
   }
   .shop-nav-links {
     gap: var(--space-4);
@@ -2156,17 +2371,42 @@ html:has(.shop) {
     opacity: 0.18;
   }
   .shop .shop-hero h1 {
-    font-size: clamp(32px, 9vw, 40px);
+    font-size: clamp(22px, 6.4vw, 26px);
+    margin: 0 0 var(--space-1);
   }
-  .shop-hero-lede {
+  .shop-terms-lede {
     font-size: 16px;
-    margin-bottom: var(--space-4);
   }
-  .shop-hero-info-static {
+  /* Records: the search box and a Filters button are the whole control
+     strip until the button is opened, so covers reach the first screen. */
+  .shop-controls.has-filter-toggle {
+    padding-bottom: var(--space-3);
+  }
+  .shop .shop-filters-toggle {
+    display: inline-flex;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+  /* Narrow enough to share a line with the button, wide enough that the
+     sort menu wraps below once the panel is open. */
+  .shop-controls.has-filter-toggle .shop-controls-row .search {
+    flex: 1 1 180px;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .shop-controls.has-filter-toggle:not(.is-filters-open)
+    .shop-controls-row
+    > :not(.search):not(.shop-filters-toggle),
+  .shop-controls.has-filter-toggle:not(.is-filters-open)
+    > :not(.shop-controls-row):not(.shop-filter-summary) {
     display: none;
   }
-  .shop-hero-info-details {
-    display: block;
+  .shop-controls.has-filter-toggle:not(.is-filters-open) .shop-filter-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0;
   }
   .shop-letter {
     min-width: 44px;
@@ -2246,6 +2486,7 @@ html:has(.shop) {
   .record-card,
   .record-compact,
   .shop-sticky-bar,
+  .rp-buybar,
   .shop-skeleton {
     animation: none;
   }

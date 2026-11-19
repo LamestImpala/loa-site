@@ -42,9 +42,10 @@ import Crate from "./crate";
 
 type SortOption = "artist" | "price-asc" | "price-desc" | "discount" | "newest";
 type AvailOption = "all" | "open" | "sold";
-// Grid density: full cards or a compact covers grid. `null` = auto, which
-// resolves to compact on phones once the viewport is known. "crate" swaps
-// the grid for a flip-through bin (crate.tsx) and is only ever chosen.
+// Grid density: full cards or a compact covers grid. `null` = no stored
+// choice, which is the covers grid on every screen: it is what the server
+// sends, and it puts a few rows of records on the first screen. "full" and
+// "crate" (a flip-through bin, crate.tsx) are only ever chosen.
 type ViewOption = "full" | "compact" | "crate";
 
 const SORT_OPTIONS: SortOption[] = [
@@ -83,7 +84,8 @@ export default function RecordsClient({
   const [buySheet, setBuySheet] = useState<BuySheet | null>(null);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [view, setView] = useState<ViewOption | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  // Phones fold every control but the search box behind a "Filters" button.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [stuck, setStuck] = useState(false);
   const [liveMessage, setLiveMessage] = useState("");
@@ -216,8 +218,19 @@ export default function RecordsClient({
     collection !== null ||
     letter !== null;
 
-  // Explicit choice wins; auto = compact on phones, full cards on desktop.
-  const effectiveView: ViewOption = view ?? (isMobile ? "compact" : "full");
+  // What narrows the list besides the search box, for the phone's
+  // "Filters (2)" button.
+  const activeFilters =
+    Number(avail !== "open") +
+    Number(genre !== "all") +
+    Number(grade !== "any") +
+    Number(priceBand !== "any") +
+    Number(decade !== "all") +
+    Number(collection !== null) +
+    Number(letter !== null);
+
+  // An explicit choice wins; otherwise the covers grid.
+  const effectiveView: ViewOption = view ?? "compact";
 
   function chooseView(v: ViewOption) {
     setView(v);
@@ -323,7 +336,7 @@ export default function RecordsClient({
     return () => window.clearTimeout(t);
   }, [query, sort, genre, avail, grade, priceBand, decade, collection, letter]);
 
-  // Stored view choice wins; otherwise the matchMedia effect below decides.
+  // A stored view choice wins over the default.
   useEffect(() => {
     try {
       const stored = localStorage.getItem("cr_view");
@@ -333,14 +346,6 @@ export default function RecordsClient({
     } catch {
       // Private mode etc. — fall back to auto.
     }
-  }, []);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const apply = () => setIsMobile(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
   }, []);
 
   // Condensed sticky bar once the full controls scroll out of view.
@@ -461,14 +466,20 @@ export default function RecordsClient({
     // A coloured pressing peeks out of its sleeve; a sold one stays put.
     const disc = r.sold ? undefined : discStyles?.[r.id];
     if (effectiveView === "compact") {
+      // The card is a link to the record page, with the bundle button as its
+      // sibling (a button can't sit inside a link) laid over the cover's
+      // corner, so the default view keeps the way into a bundle.
       return (
-        <Link
+        <div
           key={r.id}
           id={`r-${r.id}`}
-          href={href}
           className={`card elev-sm record-compact ${r.sold ? "is-sold" : ""} ${
             inBundle ? "is-selected" : ""
           } ${highlightId === r.id ? "is-highlighted" : ""}`}
+        >
+        <Link
+          href={href}
+          className="record-compact-link"
           aria-label={`${r.artist} — ${r.title}, ${
             r.sold ? "sold" : `$${r.price}${held ? ", on hold" : ""}`
           }${disc && disc.mode !== "picture" ? `, ${disc.label} vinyl` : ""}`}
@@ -521,6 +532,23 @@ export default function RecordsClient({
             </span>
           </span>
         </Link>
+        {r.sold || held ? null : (
+          <span className="record-compact-actions">
+            <button
+              type="button"
+              className={`record-compact-add ${inBundle ? "is-selected" : ""}`}
+              aria-pressed={inBundle}
+              aria-label={`${inBundle ? "Remove" : "Add"} ${r.artist} — ${r.title} ${
+                inBundle ? "from" : "to"
+              } your bundle`}
+              title={inBundle ? "In your bundle" : "Add to bundle"}
+              onClick={() => bundle.toggle(r.id)}
+            >
+              <span aria-hidden="true">{inBundle ? "✓" : "+"}</span>
+            </button>
+          </span>
+        )}
+        </div>
       );
     }
     return (
@@ -723,7 +751,9 @@ export default function RecordsClient({
       <section
         id="records"
         ref={controlsRef}
-        className="shop-shell shop-section shop-controls"
+        className={`shop-shell shop-section shop-controls has-filter-toggle ${
+          filtersOpen ? "is-filters-open" : ""
+        }`}
       >
         <div className="shop-controls-row">
           <input
@@ -734,6 +764,16 @@ export default function RecordsClient({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="What are you curious about? Artist, title, label…"
           />
+          {/* Phones only (shop.css): everything after this button, and the
+              rows below, stay folded away until it is opened. */}
+          <button
+            type="button"
+            className="btn btn-secondary shop-filters-toggle"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            Filters{activeFilters > 0 ? ` (${activeFilters})` : ""}
+          </button>
           <select
             className="input"
             aria-label="Sort records"
@@ -892,6 +932,17 @@ export default function RecordsClient({
           site. Bundle up: one or two records ship for $6, {FREE_SHIPPING_MIN}{" "}
           or more ship free.
         </p>
+
+        {/* Phones, filters folded: what the list is narrowed to, and the way
+            back, without opening the panel. */}
+        {hasFilters ? (
+          <p className="shop-filter-summary">
+            <span className="shop-muted">{countLabel}</span>
+            <button type="button" className="btn btn-ghost" onClick={clearFilters}>
+              Clear filters
+            </button>
+          </p>
+        ) : null}
       </section>
 
       {stuck ? (
@@ -921,11 +972,12 @@ export default function RecordsClient({
             <button
               type="button"
               className="btn btn-ghost shop-sticky-filters"
-              onClick={() =>
+              onClick={() => {
+                setFiltersOpen(true);
                 controlsRef.current?.scrollIntoView({
                   behavior: prefersReducedMotion() ? "auto" : "smooth",
-                })
-              }
+                });
+              }}
             >
               Filters{hasFilters ? " •" : ""}
             </button>
