@@ -321,7 +321,9 @@ html:has(.shop) {
 }
 
 /* Visually hidden until keyboard focus. */
-.shop-skip-link {
+/* `.shop a` (the link colour) outranks a bare class, which left this
+   maroon on maroon; the selector has to be at least as specific. */
+.shop a.shop-skip-link {
   position: absolute;
   left: -9999px;
   z-index: 60;
@@ -331,7 +333,7 @@ html:has(.shop) {
   border-radius: 0 0 var(--radius-sm) 0;
   text-decoration: none;
 }
-.shop-skip-link:focus-visible {
+.shop a.shop-skip-link:focus-visible {
   left: 0;
   top: 0;
 }
@@ -1244,6 +1246,7 @@ html:has(.shop) {
   position: relative;
 }
 .shop a.record-compact-link {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -1335,7 +1338,31 @@ html:has(.shop) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The records grid: artist on one line, the album on up to two, so every
+   cover can be told from its neighbour. A row's prices stay level because
+   the price sits at the foot of its card (margin-top: auto, below). */
+.record-compact-names {
+  display: grid;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+.record-compact-artist {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.record-compact-album {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
+}
 .record-compact-price {
+  margin-top: auto;
   font-family: var(--font-heading);
   font-size: 15px;
 }
@@ -1808,6 +1835,16 @@ html:has(.shop) {
   margin: auto;
   width: min(480px, calc(100vw - var(--space-6)));
 }
+/* `.shop dialog` above lifts the browser's own height limit (the lightbox
+   wants that), so a tall buy sheet (a few records, the away notice) ran off
+   both ends of a phone screen with its close button out of reach. It
+   scrolls instead; the selector has to outrank that rule. */
+.shop dialog.shop-dialog {
+  max-height: calc(100vh - var(--space-6));
+  max-height: calc(100dvh - var(--space-6));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .shop-dialog-body {
   display: flex;
   flex-direction: column;
@@ -2056,10 +2093,24 @@ html:has(.shop) {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
+/* In the bundle: a quiet, tinted state. The filled maroon belongs to the
+   "Request" button beside it, and two filled buttons read as one choice. */
 .record-select.is-selected {
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: var(--color-accent-100);
+  background: var(--color-accent-100);
+  border: 1px solid var(--color-accent-300);
+  color: var(--color-accent-800);
+}
+.record-select.is-selected:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-800);
+}
+.record-select-remove {
+  margin-left: var(--space-2);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--color-neutral-700);
 }
 .record-card.is-selected {
   box-shadow: 0 0 0 2px var(--color-accent);
@@ -2502,6 +2553,25 @@ html:has(.shop) {
 }
 
 /* — request sheet: email / Reddit switch and the email form — */
+.shop-dialog-next {
+  display: grid;
+  gap: var(--space-1);
+  font-size: 13.5px;
+  color: var(--color-neutral-700);
+}
+.shop-dialog-next-head {
+  font-family: var(--font-caps);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+}
+.shop-dialog-next ol {
+  margin: 0;
+  list-style: decimal;
+  padding-left: 1.4em;
+  display: grid;
+  gap: 2px;
+}
 .shop-dialog-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;

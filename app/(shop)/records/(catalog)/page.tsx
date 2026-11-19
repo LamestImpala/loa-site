@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { GardenWall, ShopHero } from "../shop-hero";
 import { BuyingTerms, HowBuyingWorksLink } from "../buying-terms";
 import { SELLER_INFO } from "@/lib/records";
-import { trackRecordLine } from "@/lib/record-info";
+import { isReduced, trackRecordLine } from "@/lib/record-info";
 import Link from "next/link";
 import { ratingLine, stars, type ReviewSummary } from "@/lib/review";
 import {
@@ -87,6 +87,8 @@ export default async function RecordsPage() {
       getDiscStyles(),
     ]);
   const trackRecord = trackRecordLine(stats);
+  // The "Drink me" tag is only explained while a record is wearing one.
+  const hasDrops = records.some((r) => !r.sold && isReduced(r));
 
   return (
     <>
@@ -141,8 +143,14 @@ export default async function RecordsPage() {
           >
             Goldmine standard
           </a>
-          , with live Discogs pricing. Spot a &ldquo;Drink me&rdquo; tag?
-          That&rsquo;s a real price drop since yesterday.
+          , with live Discogs pricing.
+          {hasDrops ? (
+            <>
+              {" "}
+              Spot a &ldquo;Drink me&rdquo; tag? That&rsquo;s a real price
+              drop since yesterday.
+            </>
+          ) : null}
         </BuyingTerms>
       </GardenWall>
     </>

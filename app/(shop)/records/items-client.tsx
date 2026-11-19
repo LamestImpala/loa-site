@@ -23,12 +23,14 @@ import {
 import type { DbRecord, ItemKind } from "@/lib/supabase";
 import {
   BundleBar,
+  BundleToggle,
   BuyDialog,
   PhotoLightbox,
   initials,
   prefersReducedMotion,
   tintFor,
   track,
+  buyAction,
   useBundle,
   type BuySheet,
   type LightboxState,
@@ -368,20 +370,16 @@ export default function ItemsClient({
           </p>
         ) : (
           <>
-            <button
-              type="button"
-              className={`record-select ${bundle.has(r.id) ? "is-selected" : ""}`}
-              aria-pressed={bundle.has(r.id)}
-              onClick={() => bundle.toggle(r.id)}
-            >
-              {bundle.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
-            </button>
+            <BundleToggle
+              inBundle={bundle.has(r.id)}
+              onToggle={() => bundle.toggle(r.id)}
+            />
             <button
               type="button"
               className="btn btn-primary btn-block"
-              onClick={() => setBuySheet({ kind: "single", record: r })}
+              onClick={() => setBuySheet(buyAction(r, bundle.selectedRecords).sheet)}
             >
-              Request to buy
+              {buyAction(r, bundle.selectedRecords).label}
             </button>
           </>
         )}
