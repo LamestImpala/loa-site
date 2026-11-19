@@ -13,11 +13,13 @@ import { KIND_PLURALS, kindOf } from "@/lib/items";
 import type { DbRecord } from "@/lib/supabase";
 import {
   BundleBar,
+  BundleToggle,
   BuyDialog,
   PhotoLightbox,
   initials,
   tintFor,
   track,
+  buyAction,
   useBundle,
   type BuySheet,
   type LightboxState,
@@ -126,6 +128,7 @@ export function RecordBuyBox({
   const held = isOnHold(r) && !r.sold;
   const reduced = isReduced(r) && !r.sold;
   const inBundle = bundle.has(r.id);
+  const buy = buyAction(r, bundle.selectedRecords);
   // What adding this item does to shipping, given what's already bundled —
   // counted among items of the same kind, since each kind ships its own way.
   const othersInBundle = bundle.selectedRecords.filter(
@@ -218,18 +221,11 @@ export function RecordBuyBox({
             ref={buyRef}
             type="button"
             className="btn btn-primary btn-block"
-            onClick={() => setSheet({ kind: "single", record: r })}
+            onClick={() => setSheet(buy.sheet)}
           >
-            Request to buy
+            {buy.label}
           </button>
-          <button
-            type="button"
-            className={`record-select ${inBundle ? "is-selected" : ""}`}
-            aria-pressed={inBundle}
-            onClick={() => bundle.toggle(r.id)}
-          >
-            {inBundle ? "✓ In your bundle" : "+ Add to bundle"}
-          </button>
+          <BundleToggle inBundle={inBundle} onToggle={() => bundle.toggle(r.id)} />
           <p className="rp-buy-fine">
             No account needed. {SELLER_INFO.payment}
           </p>

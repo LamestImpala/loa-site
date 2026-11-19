@@ -232,6 +232,62 @@ export function useBundle(records: DbRecord[]) {
   };
 }
 
+// The "add to bundle" switch beside an item. Once the item is in, it turns
+// quiet and says how to take it out again, so it can't be mistaken for the
+// filled "Request" button it sits next to.
+export function BundleToggle({
+  inBundle,
+  onToggle,
+  className = "",
+}: {
+  inBundle: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`record-select ${inBundle ? "is-selected" : ""} ${className}`}
+      aria-pressed={inBundle}
+      onClick={onToggle}
+    >
+      {inBundle ? (
+        <>
+          ✓ In your bundle
+          <span className="record-select-remove">Remove</span>
+        </>
+      ) : (
+        "+ Add to bundle"
+      )}
+    </button>
+  );
+}
+
+// What the "Request" button beside an item sends, and what it says, given
+// what is in the bundle. An item that is part of a bundle of several asks
+// for the bundle (the buyer put them together to buy together); with other
+// things bundled and this one left out, the button says it is for this one
+// alone, so nobody sends one record thinking they sent the lot.
+export function buyAction(
+  record: DbRecord,
+  bundleRecords: DbRecord[]
+): { label: string; sheet: BuySheet } {
+  const inBundle = bundleRecords.some((r) => r.id === record.id);
+  if (inBundle && bundleRecords.length > 1) {
+    return {
+      label: `Request bundle (${bundleRecords.length})`,
+      sheet: { kind: "bundle" },
+    };
+  }
+  return {
+    label:
+      bundleRecords.length > 0 && !inBundle
+        ? "Request just this one"
+        : "Request to buy",
+    sheet: { kind: "single", record },
+  };
+}
+
 export function BundleBar({
   records,
   onRequest,
@@ -254,7 +310,7 @@ export function BundleBar({
         </span>
         <span className="shop-bundle-shipnote">{bundleShipNote(quote)}</span>
         <button type="button" className="btn btn-primary" onClick={onRequest}>
-          Request to buy {records.length}
+          Request bundle ({records.length})
         </button>
         <button type="button" className="btn btn-ghost" onClick={onClear}>
           Clear
@@ -590,6 +646,23 @@ export function BuyDialog({
             </div>
           ) : (
             <>
+              {/* What sending a request sets in motion, before the buyer
+                  commits to it: the same promises the confirmation and the
+                  buying terms make, in order. */}
+              <div className="shop-dialog-next">
+                <span className="shop-dialog-next-head">What happens next</span>
+                <ol>
+                  <li>
+                    I reply, usually within a day, to confirm it&rsquo;s yours.
+                  </li>
+                  <li>You pay a PayPal invoice. I cover the fee.</li>
+                  <li>
+                    {items.every((r) => kindOf(r) === "record")
+                      ? "It ships in a proper LP mailer, and the tracking number comes by email."
+                      : "I pack it, and the tracking number comes by email."}
+                  </li>
+                </ol>
+              </div>
               <div
                 className="shop-dialog-tabs"
                 role="tablist"
@@ -623,8 +696,7 @@ export function BuyDialog({
                   }}
                 >
                   <p className="shop-dialog-hint">
-                    No account needed. I&rsquo;ll email you back to confirm
-                    what&rsquo;s available, then send a PayPal invoice.
+                    No account needed, just an address I can reply to.
                   </p>
                   <label className="shop-dialog-field">
                     <span>Your name (optional)</span>

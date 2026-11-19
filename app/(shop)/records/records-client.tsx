@@ -28,12 +28,14 @@ import type { DiscStyle } from "@/lib/disc-style";
 import { DiscPeek } from "./disc-peek";
 import {
   BundleBar,
+  BundleToggle,
   BuyDialog,
   PhotoLightbox,
   initials,
   prefersReducedMotion,
   tintFor,
   track,
+  buyAction,
   useBundle,
   type BuySheet,
   type LightboxState,
@@ -122,6 +124,27 @@ export default function RecordsClient({
     []
   );
 
+  // A sort that would leave the list exactly as it was is not offered:
+  // "Biggest discount" needs a record marked down right now, "Newest
+  // arrivals" needs listing dates that differ. A link that asks for one
+  // anyway (?sort=newest) gets the alphabetical list.
+  const canSortByDiscount = useMemo(
+    () => records.some((r) => !r.sold && isReduced(r)),
+    [records]
+  );
+  const canSortByNewest = useMemo(
+    () =>
+      new Set(
+        records.filter((r) => !r.sold).map((r) => (r.created_at ?? "").slice(0, 10))
+      ).size > 1,
+    [records]
+  );
+  const activeSort: SortOption =
+    (sort === "discount" && !canSortByDiscount) ||
+    (sort === "newest" && !canSortByNewest)
+      ? "artist"
+      : sort;
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = records.filter((r) => {
@@ -137,19 +160,19 @@ export default function RecordsClient({
       return `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q);
     });
     list.sort((a, b) =>
-      sort === "price-asc"
+      activeSort === "price-asc"
         ? a.price - b.price
-        : sort === "price-desc"
+        : activeSort === "price-desc"
           ? b.price - a.price
-          : sort === "discount"
+          : activeSort === "discount"
             ? (isReduced(b) ? dropPct(b) : 0) - (isReduced(a) ? dropPct(a) : 0)
-            : sort === "newest"
+            : activeSort === "newest"
               ? new Date(b.created_at ?? 0).getTime() -
                 new Date(a.created_at ?? 0).getTime()
               : (a.artist + a.title).localeCompare(b.artist + b.title)
     );
     return list;
-  }, [records, query, sort, avail, genre, grade, priceBand, decade, collection, letter]);
+  }, [records, query, activeSort, avail, genre, grade, priceBand, decade, collection, letter]);
 
   // The rail only features drops worth a look (≥5% or ≥$5); smaller overnight
   // ticks still get the per-card "Drink me" tag but don't headline a section.
@@ -318,7 +341,7 @@ export default function RecordsClient({
     const t = window.setTimeout(() => {
       const p = new URLSearchParams();
       if (query.trim()) p.set("q", query.trim());
-      if (sort !== "artist") p.set("sort", sort);
+      if (activeSort !== "artist") p.set("sort", activeSort);
       if (genre !== "all") p.set("genre", genre);
       if (avail !== "open") p.set("avail", avail);
       if (grade !== "any") p.set("cond", grade);
@@ -334,7 +357,7 @@ export default function RecordsClient({
       );
     }, 300);
     return () => window.clearTimeout(t);
-  }, [query, sort, genre, avail, grade, priceBand, decade, collection, letter]);
+  }, [query, activeSort, genre, avail, grade, priceBand, decade, collection, letter]);
 
   // A stored view choice wins over the default.
   useEffect(() => {
@@ -384,7 +407,7 @@ export default function RecordsClient({
     );
     seps.forEach((s) => io.observe(s));
     return () => io.disconnect();
-  }, [stuck, sort, effectiveView, visible]);
+  }, [stuck, activeSort, effectiveView, visible]);
 
   function openLightbox(r: DbRecord, index: number) {
     track(r.id, "photo_open");
@@ -435,20 +458,16 @@ export default function RecordsClient({
           </p>
         ) : SELLER_INFO.redditUsername ? (
           <>
-            <button
-              type="button"
-              className={`record-select ${bundle.has(r.id) ? "is-selected" : ""}`}
-              aria-pressed={bundle.has(r.id)}
-              onClick={() => bundle.toggle(r.id)}
-            >
-              {bundle.has(r.id) ? "✓ In your bundle" : "+ Add to bundle"}
-            </button>
+            <BundleToggle
+              inBundle={bundle.has(r.id)}
+              onToggle={() => bundle.toggle(r.id)}
+            />
             <button
               type="button"
               className="btn btn-primary btn-block"
-              onClick={() => setBuySheet({ kind: "single", record: r })}
+              onClick={() => setBuySheet(buyAction(r, selectedRecords).sheet)}
             >
-              Request to buy
+              {buyAction(r, selectedRecords).label}
             </button>
           </>
         ) : null}
@@ -522,8 +541,11 @@ export default function RecordsClient({
             ) : null}
           </span>
           </span>
-          <span className="record-compact-title">
-            {r.artist} — {r.title}
+          {/* Artist and album on their own lines: on one line, two records
+              by the same artist both read "Fleetwood Ma…" on a phone. */}
+          <span className="record-compact-names">
+            <span className="record-compact-artist">{r.artist}</span>
+            <span className="record-compact-album">{r.title}</span>
           </span>
           <span className="record-compact-price">
             {r.sold ? null : `$${r.price}`}
@@ -639,6 +661,22 @@ export default function RecordsClient({
   }
 
   // Rendered in the controls row and again in the sticky bar.
+  function sortOptions() {
+    return (
+      <>
+        <option value="artist">Sort: Artist A–Z</option>
+        <option value="price-asc">Price: low → high</option>
+        <option value="price-desc">Price: high → low</option>
+        {canSortByDiscount ? (
+          <option value="discount">Biggest discount</option>
+        ) : null}
+        {canSortByNewest ? (
+          <option value="newest">Newest arrivals</option>
+        ) : null}
+      </>
+    );
+  }
+
   function viewToggle() {
     return (
       <div className="seg" role="group" aria-label="View density">
@@ -777,15 +815,11 @@ export default function RecordsClient({
           <select
             className="input"
             aria-label="Sort records"
-            value={sort}
+            value={activeSort}
             onChange={(e) => setSort(e.target.value as SortOption)}
             style={{ width: "auto" }}
           >
-            <option value="artist">Sort: Artist A–Z</option>
-            <option value="price-asc">Price: low → high</option>
-            <option value="price-desc">Price: high → low</option>
-            <option value="discount">Biggest discount</option>
-            <option value="newest">Newest arrivals</option>
+            {sortOptions()}
           </select>
           {genres.length > 0 ? (
             <select
@@ -959,14 +993,10 @@ export default function RecordsClient({
             <select
               className="input shop-sticky-sort"
               aria-label="Sort records"
-              value={sort}
+              value={activeSort}
               onChange={(e) => setSort(e.target.value as SortOption)}
             >
-              <option value="artist">Sort: Artist A–Z</option>
-              <option value="price-asc">Price: low → high</option>
-              <option value="price-desc">Price: high → low</option>
-              <option value="discount">Biggest discount</option>
-              <option value="newest">Newest arrivals</option>
+              {sortOptions()}
             </select>
             <span className="shop-muted shop-sticky-count">{countLabel}</span>
             <button
@@ -994,18 +1024,19 @@ export default function RecordsClient({
           <Crate
             records={visible}
             discStyles={discStyles}
-            showTabs={sort === "artist"}
+            showTabs={activeSort === "artist"}
             paused={buySheet !== null || lightbox !== null}
             inBundle={bundle.has}
             onToggleBundle={bundle.toggle}
-            onBuy={(record) => setBuySheet({ kind: "single", record })}
+            onBuy={(record) => setBuySheet(buyAction(record, selectedRecords).sheet)}
+            buyLabel={(record) => buyAction(record, selectedRecords).label}
           />
         ) : visible.length > 0 ? (
           <div
             ref={gridRef}
             className={`shop-grid view-${effectiveView} ${stuck ? "has-sticky-bar" : ""}`}
           >
-            {sort === "artist"
+            {activeSort === "artist"
               ? // Letter separators only make sense alphabetically; they stick
                 // below the condensed bar so the current letter stays visible.
                 visible.flatMap((r, i) => {

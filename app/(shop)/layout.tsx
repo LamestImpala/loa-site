@@ -2,14 +2,15 @@ import type { Metadata, Viewport } from "next";
 import { Alice, IM_Fell_English, IM_Fell_English_SC } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
-import { GRADES } from "@/lib/record-info";
+import { GRADES, isReduced } from "@/lib/record-info";
+import { kindOf } from "@/lib/items";
 import { SELLER_INFO } from "@/lib/records";
 import "./celestial-motion.css";
 import "./shop.css";
 import VisitTracker from "./visit-tracker";
 import ShopNavLinks from "./shop-nav-links";
 import { ShippingPauseBanner, ShippingPauseProvider } from "./shipping-pause";
-import { getShippingPause } from "./records/data";
+import { getListedItems, getShippingPause } from "./records/data";
 
 // IM Fell: 17th-century English types, close kin to the Tenniel-era books
 // the Wonderland look borrows from. Roman and italic for display, the
@@ -78,7 +79,18 @@ export default async function ShopLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const pause = await getShippingPause();
+  const [pause, { items }] = await Promise.all([
+    getShippingPause(),
+    getListedItems(),
+  ]);
+  // Posters and Equipment leave the nav and the footer while they have
+  // nothing for sale, and come back with the first listing.
+  const forSale = items.filter((r) => !r.sold);
+  const emptyKinds = (["poster", "gear"] as const).filter(
+    (kind) => !forSale.some((r) => kindOf(r) === kind)
+  );
+  // The footer only explains "Drink me" tags while one is showing.
+  const hasDrops = forSale.some((r) => isReduced(r));
   return (
     <div
       className={`shop ${fell.variable} ${fellSC.variable} ${alice.variable}`}
@@ -104,7 +116,7 @@ export default async function ShopLayout({
         <div className="shop-nav-brand">
           Curiouser <span>Records</span>
         </div>
-        <ShopNavLinks />
+        <ShopNavLinks empty={emptyKinds} />
         <div style={{ flex: 1 }} />
         <a
           className="shop-nav-email"
@@ -130,8 +142,12 @@ export default async function ShopLayout({
               I&rsquo;m a late-onset audiophile in Phoenix thinning out a
               collection that got away from me. Everything is play-graded under
               good light to the Goldmine standard — if I&rsquo;m unsure between
-              two grades, I use the lower one. Prices track Discogs daily, so
-              the &ldquo;Drink me&rdquo; drops are genuine.
+              two grades, I use the lower one. Prices track Discogs daily
+              {hasDrops ? (
+                <>, so the &ldquo;Drink me&rdquo; drops are genuine.</>
+              ) : (
+                "."
+              )}
             </p>
             <p>{SELLER_INFO.guarantee}</p>
           </div>
@@ -145,8 +161,17 @@ export default async function ShopLayout({
           </div>
         </div>
         <div className="shop-footer-bottom">
-          <Link href="/">Records</Link> · <Link href="/posters">Posters</Link> ·{" "}
-          <Link href="/equipment">Equipment</Link> ·{" "}
+          <Link href="/">Records</Link> ·{" "}
+          {emptyKinds.includes("poster") ? null : (
+            <>
+              <Link href="/posters">Posters</Link> ·{" "}
+            </>
+          )}
+          {emptyKinds.includes("gear") ? null : (
+            <>
+              <Link href="/equipment">Equipment</Link> ·{" "}
+            </>
+          )}
           <Link href="/reviews">Reviews</Link>
           <br />
           curiouserrecords.com ·{" "}

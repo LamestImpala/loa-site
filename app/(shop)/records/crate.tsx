@@ -16,7 +16,7 @@ import {
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
 import type { DiscStyle } from "@/lib/disc-style";
-import { initials, prefersReducedMotion, tintFor, track } from "./shop-ui";
+import { BundleToggle, initials, prefersReducedMotion, tintFor, track } from "./shop-ui";
 import Crate3D from "./crate-3d";
 import type { CrateItem } from "./crate-scene";
 
@@ -97,6 +97,7 @@ export default function Crate({
   inBundle,
   onToggleBundle,
   onBuy,
+  buyLabel,
 }: {
   records: DbRecord[];
   // Disc colour by record id, where Discogs describes one (lib/disc-style.ts).
@@ -108,6 +109,9 @@ export default function Crate({
   inBundle: (id: number) => boolean;
   onToggleBundle: (id: number) => void;
   onBuy: (record: DbRecord) => void;
+  // What the buy button says for a record; it depends on the bundle
+  // (shop-ui.tsx buyAction).
+  buyLabel?: (record: DbRecord) => string;
 }) {
   // Position is kept as a record id so filters and sorts keep your place.
   const [currentId, setCurrentId] = useState<number | null>(null);
@@ -421,20 +425,16 @@ export default function Crate({
           </p>
         ) : SELLER_INFO.redditUsername ? (
           <>
-            <button
-              type="button"
-              className={`record-select ${picked ? "is-selected" : ""}`}
-              aria-pressed={picked}
-              onClick={() => onToggleBundle(current.id)}
-            >
-              {picked ? "✓ In your bundle" : "+ Add to bundle"}
-            </button>
+            <BundleToggle
+              inBundle={picked}
+              onToggle={() => onToggleBundle(current.id)}
+            />
             <button
               type="button"
               className="btn btn-primary btn-block"
               onClick={() => onBuy(current)}
             >
-              Request to buy
+              {buyLabel?.(current) ?? "Request to buy"}
             </button>
           </>
         ) : null}
