@@ -1,13 +1,22 @@
 // The 3D record bin behind the Crate view (crate-3d.tsx mounts it).
 //
-// A bin drawn in the shop's engraved-night style: ink boards hatched in
-// antique gold, the real listing covers on the sleeves. The record you stop
-// on lifts out and turns to face you, and its disc slides out in the colour
+// An ebonized walnut crate under soft studio light: box-jointed corner posts,
+// thick rounded rails along the front and sloping sides, aged brass on the
+// lower front corners, and an oxblood leather inset on the front with the
+// shop's name stamped in gold. The real listing
+// covers are on the sleeves. The record you stop on
+// lifts out and turns to face you, and its disc slides out in the colour
 // Discogs describes for the pressing (lib/disc-style.ts).
+//
+// Everything is lit physically (image light from a soft room plus a warm key
+// light that casts shadows), and the wood, leather, foil and vinyl are drawn by small
+// shaders added to three's own materials, so there are no texture files.
 //
 // This module is the only place three.js is imported, and crate-3d.tsx loads
 // it with import() so the catalog doesn't pay for it until the Crate view opens.
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { DiscStyle } from "@/lib/disc-style";
 import { discSeed, hash } from "@/lib/disc-paint";
 
@@ -30,29 +39,31 @@ export type CrateScene = {
   dispose(): void;
 };
 
-// Colours are the shop's palette hexes, used as written (no colour-space maths).
-THREE.ColorManagement.enabled = false;
+// Lit scene: colours go through three's colour management (sRGB in, sRGB out).
+THREE.ColorManagement.enabled = true;
 
-const INK = 0x171d30;
-const INK_2 = 0x10141f;
-const GOLD = 0xb48b48;
-const GOLD_LIGHT = 0xe0c796;
-const GOLD_DEEP = 0x785d30;
+// A palette hex used exactly as written by the unlit shaders (stars, ground),
+// which write straight to the screen.
+const raw = (hex: number) => new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
 const PAPER = new THREE.Color(0xe9dfc9);
 
 // Sleeve and bin measurements, in inches-ish.
 const H = 12.3;
 const T = 0.14;
 const W_IN = 13.5;
-const WALL = 0.45;
+const WALL = 0.5;
 const FLOOR = 0.3;
 const Z_FRONT = 5.4;
 const Z_BACK = -9.0;
 const H_FRONT = 4.6;
 const H_BACK = 9.2;
+// Radius of the rounded walnut rails along the front and sloping sides.
+const RAIL = 0.42;
 const OUTER_W = W_IN + WALL * 2;
 const DEPTH = Z_FRONT - Z_BACK + WALL * 2;
 const Z_MID = (Z_FRONT + Z_BACK) / 2;
+// Box joints: roughly how tall each interlocking finger is.
+const FINGER = 1.0;
 
 // How many sleeves stand behind the lifted one, how many lean flipped in front.
 const BEHIND = 16;
@@ -60,9 +71,17 @@ const FLIPPED = 5;
 const GAP = 0.44;
 const LEAN_B = 0.17;
 const LEAN_F = 0.35;
-const Z_B_REST = -7.4;
-// The front-most flipped sleeve leans against the front rail, not through it.
-const Z_F_REST = 3.45;
+const Z_B_REST = -7.3;
+// The front-most flipped sleeve rests against the inside of the front rail,
+// touching it where the rail's curve runs parallel to the sleeve.
+const Z_F_REST = (() => {
+  const nz = Math.cos(LEAN_F);
+  const ny = -Math.sin(LEAN_F);
+  const off = RAIL + T / 2 + 0.03;
+  const qz = Z_FRONT + RAIL - off * nz;
+  const qy = H_FRONT - RAIL - off * ny;
+  return qz + ((FLOOR - qy) / Math.cos(LEAN_F)) * Math.sin(LEAN_F);
+})();
 
 const CAM = { az: 0.38, el: 0.36, fov: 27, dist: 62, target: new THREE.Vector3(0.2, 10.6, -1.2) };
 const HELD = { x: -1.3, y: 10.3, z: 0.9, rx: -0.3, ry: CAM.az };
@@ -101,7 +120,171 @@ const WORLD_VERTEX = `
   }
 `;
 
-const DISC_FRAGMENT = `
+// Bump a lit surface by a height computed in the shader (three's own
+// perturbNormalArb, which is only compiled in when a material has a bump map).
+const BUMP_GLSL = `
+  vec3 crateBump(vec3 surfPos, vec3 surfNorm, float h, float scale, float faceDir) {
+    vec2 dH = vec2(dFdx(h), dFdy(h)) * scale;
+    vec3 sx = normalize(dFdx(surfPos));
+    vec3 sy = normalize(dFdy(surfPos));
+    vec3 r1 = cross(sy, surfNorm);
+    vec3 r2 = cross(surfNorm, sx);
+    float det = dot(sx, r1) * faceDir;
+    vec3 grad = sign(det) * (dH.x * r1 + dH.y * r2);
+    return normalize(abs(det) * surfNorm - grad);
+  }
+`;
+
+// ── wood ──
+//
+// Ebonized walnut worked out from each board's own coordinates (seeded per
+// board), so the grain runs across the front, front-to-back along the sides
+// and lengthwise on each rail, and the ends show growth rings, which is what
+// makes the joinery read. Deep brown-black with warm grain, rubbed warmer on
+// the rounded rails where hands go, quieter on the broad side faces. Detail
+// finer than a screen pixel fades to its average so the grain doesn't shimmer.
+const WOOD_PARS = `
+  varying vec3 vLocal;
+  varying vec3 vLocalN;
+  varying vec3 vWorldP;
+  varying vec3 vWorldN;
+  uniform vec3 uHalf;     // half the board's size
+  uniform int uAxis;      // the grain runs along 0: x, 1: z, 2: y
+  uniform float uSeed;
+  uniform float uRound;   // 1 = a rounded rail: rubbed on top, not worn along box edges
+  uniform sampler2D uPlaque;
+  uniform float uHasPlaque;
+  uniform vec4 uPanel;    // the leather inset on the front board, in texture coordinates
+  float wHash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  float wNoise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(wHash(i), wHash(i + vec3(1, 0, 0)), f.x), mix(wHash(i + vec3(0, 1, 0)), wHash(i + vec3(1, 1, 0)), f.x), f.y),
+      mix(mix(wHash(i + vec3(0, 0, 1)), wHash(i + vec3(1, 0, 1)), f.x), mix(wHash(i + vec3(0, 1, 1)), wHash(i + vec3(1, 1, 1)), f.x), f.y),
+      f.z);
+  }
+  float wFbm(vec3 p) {
+    float s = 0.0;
+    float a = 0.5;
+    for (int k = 0; k < 3; k++) {
+      s += a * wNoise(p);
+      p = p * 2.07 + 11.3;
+      a *= 0.5;
+    }
+    return s / 0.875;
+  }
+  ${BUMP_GLSL}
+`;
+
+const WOOD_COLOR = `
+  vec3 wp = vLocal;
+  vec3 wq = (uAxis == 0 ? wp.xyz : (uAxis == 1 ? wp.zyx : wp.yxz)) + uSeed;
+  // About how many inches one screen pixel covers here.
+  float wPx = length(fwidth(wp));
+  // Growth rings around a far-off heart, warped so they wander like real grain.
+  float wWarp = wFbm(vec3(wq.x * 0.11, wq.yz * 0.9));
+  float wRing = length(wq.yz + vec2(5.0, -11.0)) * 1.6 + wWarp * 2.4 + wq.x * 0.025;
+  float wRf = fract(wRing);
+  float wLate = smoothstep(0.5, 0.82, wRf) * (1.0 - smoothstep(0.86, 1.0, wRf));
+  wLate = mix(wLate, 0.22, smoothstep(0.14, 0.3, wPx));
+  float wStreak = mix(wNoise(vec3(wq.x * 0.3, wq.y * 9.0, wq.z * 9.0)), 0.5, smoothstep(0.05, 0.12, wPx));
+  float wMid = mix(wNoise(vec3(wq.x * 0.4, wq.y * 22.0, wq.z * 22.0)), 0.5, smoothstep(0.025, 0.06, wPx));
+  float wFine = mix(wNoise(vec3(wq.x * 0.6, wq.y * 55.0, wq.z * 55.0)), 0.5, smoothstep(0.009, 0.02, wPx));
+  float wGrain = clamp(wLate * 0.6 + smoothstep(0.35, 0.85, wStreak) * 0.45 + wMid * 0.25 + wFine * 0.15 - 0.2, 0.0, 1.0);
+  float wTone = wFbm(vec3(wq.x * 0.08, wq.yz * 0.5) + 4.0);
+
+  // Distance to the nearest edge of the board.
+  vec3 wd = uHalf - abs(wp);
+  float wMin = min(wd.x, min(wd.y, wd.z));
+  float wMax = max(wd.x, max(wd.y, wd.z));
+  float wEdge = uRound > 0.5 ? 1.0 : wd.x + wd.y + wd.z - wMin - wMax;
+  float wN1 = wFbm(wp * 2.6 + uSeed * 7.0);
+  float wWear = 1.0 - smoothstep(0.006, 0.03 + 0.11 * wN1 * wN1, wEdge);
+  wWear *= smoothstep(0.42, 0.62, wN1 + 0.3 * wNoise(wp * 11.0));
+  float wScuff = (1.0 - uRound) * smoothstep(0.76, 0.84, wFbm(wp * vec3(1.1, 5.0, 1.1) + 3.0 + uSeed)) * 0.25;
+  wWear = clamp(max(wWear * 1.2, wScuff), 0.0, 1.0);
+
+  // Broad side faces sit darker and quieter; rail tops are rubbed warm.
+  float wSide = (1.0 - uRound) * smoothstep(0.75, 0.95, abs(vWorldN.x));
+  float wRub = uRound * smoothstep(0.05, 0.85, vWorldN.y) * (0.5 + 0.5 * wN1);
+
+  vec3 wBody = mix(vec3(0.028, 0.0095, 0.0042), vec3(0.014, 0.005, 0.0025), wTone);
+  vec3 wWarm = mix(vec3(0.1, 0.034, 0.012), vec3(0.18, 0.06, 0.02), wMid);
+  vec3 wCol = mix(wBody, wWarm, wGrain * (0.85 - 0.4 * wSide));
+  wCol = mix(wCol, mix(vec3(0.07, 0.024, 0.009), vec3(0.15, 0.05, 0.017), wGrain), wRub * 0.75);
+  vec3 wBare = mix(vec3(0.16, 0.058, 0.02), vec3(0.3, 0.12, 0.045), clamp(wGrain * 0.5 + wN1 * 0.5, 0.0, 1.0));
+  wCol = mix(wCol, wBare, wWear);
+  wCol *= 1.0 - 0.25 * wSide;
+  float wRough = mix(0.5 + wGrain * 0.1, 0.33 + wGrain * 0.08, uRound);
+  wRough = mix(wRough, 0.62, wWear) + 0.15 * wSide;
+  float wMetal = 0.0;
+  float wHeight = wGrain * 0.5 + wStreak * 0.25 - wWear * 0.6;
+
+  // The front board: a shallow oxblood leather inset in a walnut frame, the
+  // shop's name stamped in muted gold, a fine pressed border and a sprig
+  // blind-tooled in each corner. Sampled outside the branch so mipmapping works.
+  vec2 puv = wp.xy / (uHalf.xy * 2.0) + 0.5;
+  vec4 pm = texture2D(uPlaque, puv);
+  // Pressed marks: shadow on the side away from the light (upper left), a
+  // faint catch of light on the other.
+  vec2 po = vec2(0.0011, 0.0034);
+  vec4 pmUL = texture2D(uPlaque, puv + vec2(-po.x, po.y));
+  vec4 pmDR = texture2D(uPlaque, puv + vec2(po.x, -po.y));
+  if (uHasPlaque > 0.5 && vLocalN.z > 0.9) {
+    // Inches inside the leather's edge (negative: out on the wood frame).
+    vec2 pIn = min(puv - uPanel.xy, uPanel.zw - puv) * uHalf.xy * 2.0;
+    float pd = min(pIn.x, pIn.y);
+    float inLeather = smoothstep(-0.008, 0.008, pd);
+    float recess = inLeather * (1.0 - smoothstep(0.0, 0.18, pd));
+    float lip = (1.0 - inLeather) * (1.0 - smoothstep(0.0, 0.04, -pd));
+    float lGrain = mix(wNoise(wp * 34.0) * 0.6 + wNoise(wp * 75.0) * 0.4, 0.5, smoothstep(0.008, 0.025, wPx));
+    float lTone = wFbm(wp * 1.6 + 2.0);
+    vec3 leather = mix(vec3(0.09, 0.0095, 0.008), vec3(0.034, 0.0038, 0.0032), lTone * 0.85 + lGrain * 0.3);
+    wCol = mix(wCol, leather, inLeather);
+    wCol *= 1.0 - recess * 0.6;
+    wCol += lip * vec3(0.05, 0.022, 0.009);
+
+    float tHere = max(pm.r, pm.b);
+    float tShade = max(tHere - max(pmUL.r, pmUL.b), 0.0);
+    float tCatch = max(tHere - max(pmDR.r, pmDR.b), 0.0);
+    wCol = mix(wCol, wCol * 0.42, pm.b * inLeather);
+    float foil = pm.r * smoothstep(0.1, 0.4, wNoise(wp * 9.0) + 0.45);
+    vec3 gold = mix(vec3(0.4, 0.25, 0.085), vec3(0.6, 0.41, 0.16), wNoise(wp * 4.0));
+    wCol = mix(wCol, gold, foil);
+    wCol *= 1.0 - 0.5 * tShade * inLeather;
+    wCol += tCatch * inLeather * vec3(0.06, 0.04, 0.02);
+
+    wRough = mix(wRough, 0.52 + lGrain * 0.18 - pm.b * 0.12, inLeather);
+    wRough = mix(wRough, 0.34 + 0.1 * wN1, foil);
+    wMetal = foil * 0.9;
+    wHeight = mix(wHeight, -0.35 + lGrain * 0.35, inLeather) - pm.r * 0.4 - pm.b * 0.35;
+  }
+  diffuseColor.rgb = wCol;
+`;
+
+// Inside the bin the room light falls away toward the floor.
+const WOOD_OCCLUSION = `
+  {
+    float inside = step(abs(vWorldP.x), ${(W_IN / 2 + 0.02).toFixed(3)})
+      * step(vWorldP.z, ${(Z_FRONT + 0.02).toFixed(3)})
+      * step(${(Z_BACK - 0.02).toFixed(3)}, vWorldP.z);
+    float rim = mix(${H_FRONT.toFixed(2)}, ${H_BACK.toFixed(2)}, clamp((${Z_FRONT.toFixed(2)} - vWorldP.z) / ${(Z_FRONT - Z_BACK).toFixed(2)}, 0.0, 1.0));
+    float occ = mix(1.0, mix(0.22, 1.0, smoothstep(0.0, rim, vWorldP.y)), inside);
+    reflectedLight.indirectDiffuse *= occ;
+    // Broad side faces seen edge-on shouldn't mirror the room.
+    reflectedLight.indirectSpecular *= occ * (1.0 - 0.6 * wSide);
+  }
+`;
+
+// The black disc everything without a colour gets; and the pattern recipe for
+// coloured pressings (lib/disc-paint.ts paints the same recipe for the catalog).
+const DISC_PARS = `
   uniform vec4 uCol[3];
   uniform int uCount;
   uniform int uMode;
@@ -110,6 +293,7 @@ const DISC_FRAGMENT = `
   uniform float uSpin;
   varying vec2 vP;
   ${LINES_GLSL}
+  ${BUMP_GLSL}
   float h21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -148,13 +332,7 @@ const DISC_FRAGMENT = `
     }
     return m;
   }
-  void main() {
-    float r = length(vP);
-    // The pressing turns (uSpin); the light on it stays where it is.
-    float lit = atan(vP.y, vP.x);
-    float cs = cos(uSpin);
-    float sn = sin(uSpin);
-    vec2 P = vec2(cs * vP.x - sn * vP.y, sn * vP.x + cs * vP.y);
+  vec4 discPattern(vec2 P, float r) {
     float ang = atan(P.y, P.x);
     vec4 A = uCol[0];
     vec4 B = uCol[1];
@@ -184,31 +362,40 @@ const DISC_FRAGMENT = `
       float wedge = mod(floor((ang + 3.14159) / 6.28318 * uParts), float(uCount));
       base = wedge < 0.5 ? A : (wedge < 1.5 ? B : C);
     }
-
-    vec3 col = base.rgb;
-    float alpha = base.a;
-    float lum = dot(col, vec3(0.3, 0.6, 0.1));
-    float pressed = step(2.35, r) * step(r, 5.6);
-    float groove = lines(r * 5.5, 0.11) * pressed;
-    float sheen = pow(abs(cos(lit - 0.7)), 10.0);
-    // Grooves read as fine dark rings on colour, and catch the light on black.
-    col = mix(col, col * 0.84, groove * smoothstep(0.06, 0.25, lum));
-    vec3 glint = mix(vec3(0.88, 0.76, 0.5), vec3(1.0), smoothstep(0.06, 0.3, lum));
-    col += groove * (0.05 + sheen * 0.3) * glint * mix(1.0, 0.6, smoothstep(0.06, 0.3, lum));
-    col += sheen * 0.035 * pressed;
-    alpha = mix(alpha, 1.0, clamp(groove * 0.12 + sheen * 0.28, 0.0, 1.0) * pressed);
-    // A thin rim so a clear disc still has an edge.
-    alpha = mix(alpha, 1.0, smoothstep(5.74, 5.82, r) * 0.5);
-
-    if (r < 2.15) {
-      col = vec3(0.93, 0.89, 0.81);
-      col = mix(col, vec3(0.71, 0.55, 0.28), lines(r * 2.6 + 0.27, 0.05));
-      col = mix(col, vec3(0.49, 0.19, 0.3), step(r, 0.62) * 0.9);
-      alpha = 1.0;
-    }
-    if (r < 0.15) col = vec3(0.03);
-    gl_FragColor = vec4(col, alpha);
+    return base;
   }
+`;
+
+const DISC_COLOR = `
+  float dR = length(vP);
+  // The pressing turns (uSpin); the light on it stays where it is.
+  float dCs = cos(uSpin);
+  float dSn = sin(uSpin);
+  vec4 dBase = discPattern(vec2(dCs * vP.x - dSn * vP.y, dSn * vP.x + dCs * vP.y), dR);
+  vec3 dCol = dBase.rgb;
+  float dAlpha = dBase.a;
+  float dPressed = step(2.35, dR) * step(dR, 5.6);
+  float dGroove = lines(dR * 5.5, 0.11) * dPressed;
+  // Smooth bands between the tracks, which catch the light differently.
+  float dGap = 0.0;
+  dGap = max(dGap, 1.0 - smoothstep(0.0, 0.028, abs(dR - 3.2)));
+  dGap = max(dGap, 1.0 - smoothstep(0.0, 0.028, abs(dR - 3.95)));
+  dGap = max(dGap, 1.0 - smoothstep(0.0, 0.028, abs(dR - 4.75)));
+  dGap *= dPressed;
+  float dLum = dot(dCol, vec3(0.3, 0.6, 0.1));
+  dCol *= 1.0 - dGroove * 0.2 * smoothstep(0.003, 0.04, dLum);
+  dAlpha = mix(dAlpha, 1.0, clamp(dGroove * 0.12, 0.0, 1.0) * dPressed);
+  // A thin rim so a clear disc still has an edge.
+  dAlpha = mix(dAlpha, 1.0, smoothstep(5.74, 5.82, dR) * 0.5);
+  float dLabel = 1.0 - step(2.15, dR);
+  if (dLabel > 0.5) {
+    dCol = vec3(0.85, 0.77, 0.63);
+    dCol = mix(dCol, vec3(0.46, 0.27, 0.065), lines(dR * 2.6 + 0.27, 0.05));
+    dCol = mix(dCol, vec3(0.2, 0.03, 0.07), step(dR, 0.62) * 0.9);
+    dAlpha = 1.0;
+  }
+  if (dR < 0.15) dCol = vec3(0.001);
+  diffuseColor = vec4(dCol, dAlpha * opacity);
 `;
 
 const DISC_MODES: Record<string, number> = {
@@ -263,70 +450,68 @@ export function createCrateScene(
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // Khronos "PBR Neutral": tames the highlights but keeps album art its own colours.
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor(0x000000, 0);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   renderer.setPixelRatio(dpr);
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
   stage.appendChild(canvas);
+  // Phones and small stages get a lighter shadow map.
+  const small = Math.min(stage.clientWidth || 0, window.innerWidth) < 700;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(CAM.fov, 1, 1, 400);
   scene.add(camera);
   const look = { az: CAM.az, el: CAM.el, dAz: 0, dEl: 0 };
 
-  // ── engraved materials ──
+  // ── light ──
 
-  const light = new THREE.Vector3(0.45, 0.8, 0.55).normalize();
-
-  // Ink surface shaded the way an engraver would: parallel gold lines that
-  // thicken where the light falls, with cross-hatching on the brightest faces.
-  function hatchMaterial(base: number, line: number, freq = 2.3, strength = 0.85) {
-    return own(
-      new THREE.ShaderMaterial({
-        uniforms: {
-          uBase: { value: new THREE.Color(base) },
-          uLine: { value: new THREE.Color(line) },
-          uLight: { value: light },
-          uFreq: { value: freq },
-          uStrength: { value: strength },
-        },
-        // Faces sit a hair behind the outline strokes drawn along their edges.
-        polygonOffset: true,
-        polygonOffsetFactor: 1,
-        polygonOffsetUnits: 1,
-        vertexShader: WORLD_VERTEX,
-        fragmentShader: `
-          uniform vec3 uBase;
-          uniform vec3 uLine;
-          uniform vec3 uLight;
-          uniform float uFreq;
-          uniform float uStrength;
-          varying vec3 vW;
-          varying vec3 vN;
-          ${LINES_GLSL}
-          void main() {
-            vec3 n = normalize(vN);
-            if (!gl_FrontFacing) n = -n;
-            float light = clamp(dot(n, uLight) * 0.5 + 0.5, 0.0, 1.0);
-            light = light * light * (3.0 - 2.0 * light);
-            vec3 grain = normalize(vec3(0.34, 1.0, 0.28));
-            vec3 d1 = normalize(grain - n * dot(grain, n));
-            vec3 d2 = normalize(cross(n, d1) + d1 * 0.5);
-            float a = lines(dot(vW, d1) * uFreq, mix(0.025, 0.105, light));
-            float b = lines(dot(vW, d2) * uFreq * 0.9, 0.05) * smoothstep(0.78, 0.98, light);
-            float ink = clamp(max(a, b * 0.8), 0.0, 1.0);
-            gl_FragColor = vec4(mix(uBase, uLine, ink * uStrength), 1.0);
-          }
-        `,
-      })
-    );
+  // Soft image light from a plain room: what the wood sheen, the foil and the
+  // vinyl reflect.
+  {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    const env = own(pmrem.fromScene(room, 0.04));
+    room.dispose();
+    pmrem.dispose();
+    scene.environment = env.texture;
+    scene.environmentIntensity = 0.55;
   }
+
+  // Warm key light from the upper left, the only one that casts shadows.
+  const key = new THREE.DirectionalLight(0xffe4bf, 3.5);
+  key.position.set(-15, 30, 22);
+  key.target.position.set(0, 7, -1.5);
+  key.castShadow = true;
+  key.shadow.mapSize.set(small ? 1024 : 2048, small ? 1024 : 2048);
+  const sc = key.shadow.camera;
+  sc.left = -17;
+  sc.right = 17;
+  sc.top = 17;
+  sc.bottom = -15;
+  sc.near = 10;
+  sc.far = 80;
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.035;
+  scene.add(key, key.target);
+  // A low neutral fill from the right, and a warm rim from behind that
+  // catches the tops of the sleeves and the rails.
+  const fill = new THREE.DirectionalLight(0xc9b8a6, 0.35);
+  fill.position.set(22, 9, 12);
+  const rim = new THREE.DirectionalLight(0xffc483, 0.8);
+  rim.position.set(14, 20, -26);
+  scene.add(fill, rim);
 
   function canvasTexture(
     w: number,
     h: number,
-    draw: (g: CanvasRenderingContext2D, w: number, h: number) => void
+    draw: (g: CanvasRenderingContext2D, w: number, h: number) => void,
+    color = true
   ) {
     const c = document.createElement("canvas");
     c.width = w;
@@ -334,6 +519,7 @@ export function createCrateScene(
     draw(c.getContext("2d")!, w, h);
     const tex = new THREE.CanvasTexture(c);
     tex.anisotropy = maxAniso;
+    if (color) tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
@@ -342,133 +528,335 @@ export function createCrateScene(
     if ("letterSpacing" in g) (g as unknown as { letterSpacing: string }).letterSpacing = `${px}px`;
   }
 
-  function star(g: CanvasRenderingContext2D, x: number, y: number, r: number) {
-    g.beginPath();
-    for (let k = 0; k < 8; k++) {
-      const rad = k % 2 ? r * 0.22 : r;
-      const ang = (k * Math.PI) / 4;
-      g.lineTo(x + Math.sin(ang) * rad, y - Math.cos(ang) * rad);
-    }
-    g.closePath();
-    g.fill();
-  }
-
   // ── the bin ──
 
-  const wood = hatchMaterial(INK, GOLD);
-  const woodDeep = hatchMaterial(INK_2, 0x5e5560, 2.3, 0.6);
-  const brass = hatchMaterial(GOLD_DEEP, GOLD_LIGHT, 5, 1);
-  const outline = own(new THREE.LineBasicMaterial({ color: GOLD, transparent: true, opacity: 0.75 }));
+  // A small botanical sprig: a curving stem with leaves along it.
+  function sprig(g: CanvasRenderingContext2D, x: number, y: number, ang: number, size: number) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(ang);
+    g.lineWidth = size * 0.04;
+    g.lineCap = "round";
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.quadraticCurveTo(size * 0.5, -size * 0.14, size, -size * 0.04);
+    g.stroke();
+    for (let k = 0; k < 5; k++) {
+      const t = 0.2 + k * 0.17;
+      const px = size * t;
+      const py = -size * 0.14 * 2 * t * (1 - t);
+      for (const side of [1, -1]) {
+        if (k === 4 && side < 0) continue;
+        g.save();
+        g.translate(px, py);
+        g.rotate(side * (0.8 - t * 0.35) - 0.08);
+        g.beginPath();
+        g.ellipse(size * 0.085, 0, size * 0.09, size * 0.036, 0, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+      }
+    }
+    g.beginPath();
+    g.arc(size * 1.03, -size * 0.05, size * 0.035, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
 
-  const boardFace = own(
-    new THREE.MeshBasicMaterial({
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-      map: own(
-        canvasTexture(1152, 368, (g, w, h) => {
-          const grad = g.createLinearGradient(0, 0, 0, h);
-          grad.addColorStop(0, "#1c2339");
-          grad.addColorStop(1, "#10141f");
-          g.fillStyle = grad;
-          g.fillRect(0, 0, w, h);
-          g.strokeStyle = "rgba(180,139,72,0.22)";
-          g.lineWidth = 1.6;
-          for (let x = -h; x < w; x += 12) {
-            g.beginPath();
-            g.moveTo(x, h);
-            g.lineTo(x + h, 0);
-            g.stroke();
-          }
-          g.fillStyle = "#141a2b";
-          g.fillRect(150, 92, w - 300, h - 184);
-          g.strokeStyle = "#b48b48";
-          g.lineWidth = 5;
-          g.strokeRect(18, 18, w - 36, h - 36);
-          g.lineWidth = 2;
-          g.strokeRect(32, 32, w - 64, h - 64);
-          g.strokeRect(150, 92, w - 300, h - 184);
-          g.fillStyle = "#e0c796";
-          g.textAlign = "center";
-          g.textBaseline = "middle";
-          g.font = `400 84px ${fonts.caps}`;
-          spaced(g, 12);
-          g.fillText("Curiouser Records", w / 2 + 6, h / 2 + 4);
-          star(g, 92, h / 2, 26);
-          star(g, w - 92, h / 2, 26);
-        })
-      ),
-    })
+  // The front board's tooling, drawn once: red = gold stamping, blue = blind
+  // (uncoloured) pressing. The leather inset itself is worked out in the shader
+  // from PANEL, so its edge stays crisp at any size.
+  const PX = 100; // canvas pixels to the inch
+  const FRONT_H = H_FRONT - RAIL; // the front board runs up into the rail
+  const PANEL = { side: 0.62, top: 0.66, bottom: 0.34 }; // walnut frame, inches
+  const plaque = own(
+    canvasTexture(
+      Math.round(W_IN * PX),
+      Math.round(FRONT_H * PX),
+      (g, w, h) => {
+        g.fillStyle = "#000";
+        g.fillRect(0, 0, w, h);
+        g.globalCompositeOperation = "lighter";
+        const x0 = PANEL.side * PX;
+        const y0 = PANEL.top * PX;
+        const pw = w - x0 * 2;
+        const ph = h - y0 - PANEL.bottom * PX;
+        // Fine pressed border, with a whisper of gold left in it.
+        g.strokeStyle = "rgb(70,0,255)";
+        g.lineWidth = 3;
+        g.beginPath();
+        g.roundRect(x0 + 15, y0 + 15, pw - 30, ph - 30, 5);
+        g.stroke();
+        // Blind-tooled sprigs in the corners.
+        g.fillStyle = "#00f";
+        g.strokeStyle = "#00f";
+        const sz = Math.min(130, ph * 0.42);
+        sprig(g, x0 + 34, y0 + 32, 0.62, sz);
+        sprig(g, x0 + 34, y0 + ph - 32, -0.62, sz);
+        sprig(g, x0 + pw - 34, y0 + 32, Math.PI - 0.62, sz);
+        sprig(g, x0 + pw - 34, y0 + ph - 32, Math.PI + 0.62, sz);
+        // The name on one centred line, as large as fits between the sprigs.
+        g.fillStyle = "#f00";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        const name = "Curiouser Records";
+        let size = 118;
+        for (; size > 40; size -= 2) {
+          g.font = `400 ${size}px ${fonts.caps}`;
+          spaced(g, size * 0.16);
+          if (g.measureText(name).width <= pw * 0.7) break;
+        }
+        g.fillText(name, w / 2 + size * 0.08, y0 + ph / 2 + size * 0.05);
+      },
+      false
+    )
   );
+  const panelUv = new THREE.Vector4(
+    PANEL.side / W_IN,
+    PANEL.bottom / FRONT_H,
+    1 - PANEL.side / W_IN,
+    1 - PANEL.top / FRONT_H
+  );
+
+  const WOOD_VERTEX_PARS =
+    "#include <common>\nvarying vec3 vLocal;\nvarying vec3 vLocalN;\nvarying vec3 vWorldP;\nvarying vec3 vWorldN;";
+  const WOOD_VERTEX_MAIN =
+    "#include <begin_vertex>\nvLocal = position;\nvLocalN = normal;\n" +
+    "vWorldP = (modelMatrix * vec4(position, 1.0)).xyz;\nvWorldN = normalize(mat3(modelMatrix) * normal);";
+
+  // One walnut material per board size (the edge wear needs the size); boards
+  // of the same size and seed share one.
+  const woodCache = new Map<string, THREE.MeshStandardMaterial>();
+  function wood(
+    w: number,
+    h: number,
+    d: number,
+    axis: 0 | 1 | 2,
+    seed: number,
+    extra: { round?: boolean; plaque?: boolean } = {}
+  ) {
+    const k = [w, h, d, axis, seed, extra.round ? 1 : 0, extra.plaque ? 1 : 0].join("|");
+    const cached = woodCache.get(k);
+    if (cached) return cached;
+    const uniforms = {
+      uHalf: { value: new THREE.Vector3(w / 2, h / 2, d / 2) },
+      uAxis: { value: axis },
+      uSeed: { value: seed },
+      uRound: { value: extra.round ? 1 : 0 },
+      uPlaque: { value: plaque },
+      uHasPlaque: { value: extra.plaque ? 1 : 0 },
+      uPanel: { value: panelUv },
+    };
+    // Dimmer room reflections keep the dark finish from going grey.
+    const m = own(new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0, envMapIntensity: 0.45 }));
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", WOOD_VERTEX_PARS)
+        .replace("#include <begin_vertex>", WOOD_VERTEX_MAIN);
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>\n${WOOD_PARS}`)
+        .replace("#include <color_fragment>", `#include <color_fragment>\n${WOOD_COLOR}`)
+        .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = wRough;")
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = wMetal;")
+        .replace(
+          "#include <normal_fragment_maps>",
+          "#include <normal_fragment_maps>\nnormal = crateBump(-vViewPosition, normal, wHeight, 0.045, faceDirection);"
+        )
+        .replace("#include <aomap_fragment>", `#include <aomap_fragment>\n${WOOD_OCCLUSION}`);
+    };
+    m.customProgramCacheKey = () => "crate-wood";
+    woodCache.set(k, m);
+    return m;
+  }
 
   const bin = new THREE.Group();
   scene.add(bin);
 
-  function addBox(
-    w: number,
-    h: number,
-    d: number,
-    x: number,
-    y: number,
-    z: number,
-    material: THREE.Material | THREE.Material[],
-    edges = true
-  ) {
-    const geo = own(new THREE.BoxGeometry(w, h, d));
-    const mesh = new THREE.Mesh(geo, material);
+  function board(geo: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], x: number, y: number, z: number) {
+    const mesh = new THREE.Mesh(own(geo), material);
     mesh.position.set(x, y, z);
-    if (edges) mesh.add(new THREE.LineSegments(own(new THREE.EdgesGeometry(geo)), outline));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     bin.add(mesh);
     return mesh;
   }
-
-  // No two boards share a face: the floor sits inside the walls and the sides
-  // run between the end boards. Overlapping faces flicker as the view moves.
-  addBox(W_IN, FLOOR, Z_FRONT - Z_BACK, 0, FLOOR / 2, Z_MID, woodDeep, false);
-  addBox(OUTER_W, H_FRONT, WALL, 0, H_FRONT / 2, Z_FRONT + WALL / 2, [
-    wood,
-    wood,
-    wood,
-    wood,
-    boardFace,
-    wood,
-  ]);
-  addBox(OUTER_W, H_BACK, WALL, 0, H_BACK / 2, Z_BACK - WALL / 2, wood);
-
-  // Sides slope from the tall back board down to the low front one.
-  const slopeAt = (z: number) => H_FRONT + ((H_BACK - H_FRONT) * (Z_FRONT + WALL - z)) / DEPTH;
-  const sideShape = new THREE.Shape();
-  sideShape.moveTo(Z_BACK, 0);
-  sideShape.lineTo(Z_FRONT, 0);
-  sideShape.lineTo(Z_FRONT, slopeAt(Z_FRONT));
-  sideShape.lineTo(Z_BACK, slopeAt(Z_BACK));
-  sideShape.closePath();
-  for (const sign of [1, -1]) {
-    const geo = own(new THREE.ExtrudeGeometry(sideShape, { depth: WALL, bevelEnabled: false }));
-    geo.rotateY(-Math.PI / 2);
-    geo.translate(sign > 0 ? W_IN / 2 + WALL : -W_IN / 2, 0, 0);
-    const side = new THREE.Mesh(geo, wood);
-    side.add(new THREE.LineSegments(own(new THREE.EdgesGeometry(geo)), outline));
-    bin.add(side);
+  function plank(w: number, h: number, d: number, axis: 0 | 1 | 2, seed: number, x: number, y: number, z: number, plaqueFace = false) {
+    const r = Math.min(0.06, Math.min(w, h, d) * 0.2);
+    return board(new RoundedBoxGeometry(w, h, d, 2, r), wood(w, h, d, axis, seed, { plaque: plaqueFace }), x, y, z);
   }
 
-  // Brass rails along the top edges.
-  const RAIL = 0.26;
-  addBox(OUTER_W + 0.3, RAIL, WALL + 0.3, 0, H_FRONT + 0.05, Z_FRONT + WALL / 2, brass, false);
-  addBox(OUTER_W + 0.3, RAIL, WALL + 0.3, 0, H_BACK + 0.05, Z_BACK - WALL / 2, brass, false);
-  const slopeRise = H_BACK - H_FRONT;
+  // The rails sit on top of the walls, their inner faces flush with the
+  // inside of the bin so the extra thickness grows outward (the sleeves keep
+  // their clearance). The side rails slope from the front rail up to the back.
+  const RAIL_X = W_IN / 2 + RAIL;
+  const RAIL_ZF = Z_FRONT + RAIL;
+  const RAIL_ZB = Z_BACK - WALL;
+  // Height of the side walls' top edge (the side rails' centre line) at z.
+  const sideTop = (z: number) =>
+    H_FRONT - RAIL + ((H_BACK - H_FRONT) * (RAIL_ZF - z)) / (RAIL_ZF - RAIL_ZB);
+
+  // No two boards share a visible face: the floor sits inside the walls, the
+  // sides run between the end boards, and the corners are separate fingers.
+  plank(W_IN, FLOOR, Z_FRONT - Z_BACK, 1, 3.1, 0, FLOOR / 2, Z_MID);
+  plank(W_IN, FRONT_H, WALL, 0, 0.7, 0, FRONT_H / 2, Z_FRONT + WALL / 2, true);
+  plank(W_IN, H_BACK, WALL, 0, 5.3, 0, H_BACK / 2, Z_BACK - WALL / 2);
+
+  const SIDE_LEN = Z_FRONT - Z_BACK;
+  const BEVEL = 0.04;
+  const sideH = sideTop(Z_BACK);
   for (const sign of [1, -1]) {
-    const rail = addBox(
-      WALL + 0.3,
-      RAIL,
-      Math.hypot(DEPTH, slopeRise),
-      sign * (W_IN / 2 + WALL / 2),
-      (H_FRONT + H_BACK) / 2 + 0.05,
-      Z_MID,
-      brass,
-      false
+    // Drawn with the front at -x (rotateY below turns -x into +z), centred on
+    // the side's bounding box so the edge wear lines up.
+    const hw = SIDE_LEN / 2 - BEVEL;
+    const hb = sideH / 2 - BEVEL;
+    const shape = new THREE.Shape();
+    shape.moveTo(-hw, -hb);
+    shape.lineTo(hw, -hb);
+    shape.lineTo(hw, hb);
+    shape.lineTo(-hw, -sideH / 2 + sideTop(Z_FRONT) - BEVEL);
+    shape.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: WALL - BEVEL * 2,
+      bevelEnabled: true,
+      bevelThickness: BEVEL,
+      bevelSize: BEVEL,
+      bevelSegments: 2,
+    });
+    geo.translate(0, 0, -(WALL - BEVEL * 2) / 2);
+    geo.rotateY(Math.PI / 2);
+    board(geo, wood(WALL, sideH, SIDE_LEN, 1, sign > 0 ? 2.2 : 8.4), sign * (W_IN / 2 + WALL / 2), sideH / 2, Z_MID);
+  }
+
+  // Box-jointed corner posts: fingers alternate between the end board (grain
+  // across) and the side board (end grain showing on the front).
+  const CX = W_IN / 2 + WALL / 2;
+  for (const sx of [1, -1]) {
+    for (const [z, height] of [
+      [Z_FRONT + WALL / 2, FRONT_H],
+      [Z_BACK - WALL / 2, sideTop(Z_BACK - WALL / 2)],
+    ]) {
+      const count = Math.max(3, Math.round(height / FINGER));
+      const finger = height / count;
+      for (let k = 0; k < count; k++) {
+        const fromEnd = k % 2 === 0;
+        plank(
+          WALL,
+          finger,
+          WALL,
+          fromEnd ? 0 : 1,
+          fromEnd ? (z > 0 ? 0.7 : 5.3) : sx > 0 ? 2.2 : 8.4,
+          sx * CX,
+          finger * (k + 0.5),
+          z
+        );
+      }
+    }
+  }
+
+  // A thick, softly rounded rail: a turned profile whose ends show end grain.
+  function railGeometry(len: number) {
+    const f = 0.08;
+    const pts = [new THREE.Vector2(0, -len / 2)];
+    for (let k = 0; k <= 5; k++) {
+      const a = -Math.PI / 2 + (k / 5) * (Math.PI / 2);
+      pts.push(new THREE.Vector2(RAIL - f + Math.cos(a) * f, -len / 2 + f + Math.sin(a) * f));
+    }
+    for (let k = 0; k <= 5; k++) {
+      const a = (k / 5) * (Math.PI / 2);
+      pts.push(new THREE.Vector2(RAIL - f + Math.cos(a) * f, len / 2 - f + Math.sin(a) * f));
+    }
+    pts.push(new THREE.Vector2(0, len / 2));
+    return new THREE.LatheGeometry(pts, 48);
+  }
+  const up = new THREE.Vector3(0, 1, 0);
+  function rail(a: THREE.Vector3, b: THREE.Vector3, seed: number) {
+    const dir = b.clone().sub(a);
+    const len = dir.length();
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    const mesh = board(railGeometry(len), wood(RAIL * 2, len, RAIL * 2, 2, seed, { round: true }), mid.x, mid.y, mid.z);
+    mesh.quaternion.setFromUnitVectors(up, dir.normalize());
+  }
+  // The front rail spans the full width, its end grain capping the corners;
+  // each side rail runs from inside it up to the back corner.
+  rail(new THREE.Vector3(-(RAIL_X + RAIL), H_FRONT - RAIL, RAIL_ZF), new THREE.Vector3(RAIL_X + RAIL, H_FRONT - RAIL, RAIL_ZF), 1.7);
+  for (const sx of [1, -1]) {
+    rail(
+      new THREE.Vector3(sx * RAIL_X, sideTop(RAIL_ZF - RAIL * 0.6), RAIL_ZF - RAIL * 0.6),
+      new THREE.Vector3(sx * RAIL_X, sideTop(RAIL_ZB), RAIL_ZB),
+      sx > 0 ? 4.4 : 9.3
     );
-    rail.rotation.x = Math.atan2(slopeRise, DEPTH);
+  }
+
+  // Aged brass corner protectors round the two lower front corners, wrapping
+  // onto the sides: a darker face with a burnished edge, a domed slotted screw.
+  const brassFace = own(new THREE.MeshStandardMaterial({ color: 0x8a6a37, metalness: 1, roughness: 0.5 }));
+  const brassEdge = own(new THREE.MeshStandardMaterial({ color: 0xd4ad66, metalness: 1, roughness: 0.26 }));
+  const CAP = 1.15;
+  const capShape = new THREE.Shape();
+  capShape.moveTo(0, 0);
+  capShape.lineTo(CAP, 0);
+  capShape.quadraticCurveTo(CAP * 0.9, CAP * 0.9, 0, CAP);
+  capShape.closePath();
+  const capGeo = own(
+    new THREE.ExtrudeGeometry(capShape, {
+      depth: 0.03,
+      bevelEnabled: true,
+      bevelThickness: 0.025,
+      bevelSize: 0.03,
+      bevelSegments: 3,
+      curveSegments: 16,
+    })
+  );
+  const SCREW_R = 0.12;
+  const screwGeo = own(new THREE.SphereGeometry(SCREW_R, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2));
+  screwGeo.rotateX(Math.PI / 2);
+  screwGeo.scale(1, 1, 0.5);
+  {
+    // Flat-on texture coordinates, so the slot runs straight across the dome.
+    const pos = screwGeo.attributes.position;
+    const uv = screwGeo.attributes.uv;
+    for (let k = 0; k < pos.count; k++) {
+      uv.setXY(k, pos.getX(k) / (SCREW_R * 2) + 0.5, pos.getY(k) / (SCREW_R * 2) + 0.5);
+    }
+  }
+  const screwMat = own(
+    new THREE.MeshStandardMaterial({
+      metalness: 1,
+      roughness: 0.36,
+      map: own(
+        canvasTexture(64, 64, (g, w, h) => {
+          const grad = g.createRadialGradient(w / 2, h / 2, 4, w / 2, h / 2, w / 2);
+          grad.addColorStop(0, "#d6b06a");
+          grad.addColorStop(1, "#7e5f2e");
+          g.fillStyle = grad;
+          g.fillRect(0, 0, w, h);
+          g.fillStyle = "#22170a";
+          g.fillRect(6, h / 2 - 4, w - 12, 8);
+        })
+      ),
+    })
+  );
+  const OUT = OUTER_W / 2;
+  const ZO = Z_FRONT + WALL;
+  for (const sx of [1, -1]) {
+    // [rotation about y, mirror] for the plate on the front face, then the side.
+    const plates: [number, number][] = [
+      [0, sx > 0 ? -1 : 1],
+      [sx > 0 ? Math.PI / 2 : -Math.PI / 2, sx > 0 ? 1 : -1],
+    ];
+    for (const [ry, flip] of plates) {
+      const cap = new THREE.Mesh(capGeo, [brassFace, brassEdge]);
+      cap.position.set(sx * OUT, 0.01, ZO);
+      cap.rotation.y = ry;
+      cap.scale.x = flip;
+      cap.castShadow = true;
+      cap.receiveShadow = true;
+      const screw = new THREE.Mesh(screwGeo, screwMat);
+      screw.position.set(CAP * 0.3, CAP * 0.3, 0.05);
+      screw.rotation.z = hash(sx + ry, 7) * Math.PI;
+      cap.add(screw);
+      bin.add(cap);
+    }
   }
 
   // The ground: a pool of shadow and faint hatching that fades into the plate.
@@ -479,8 +867,8 @@ export function createCrateScene(
         transparent: true,
         depthWrite: false,
         uniforms: {
-          uBase: { value: new THREE.Color(0x120c11) },
-          uLine: { value: new THREE.Color(0x4b3b45) },
+          uBase: { value: raw(0x120c11) },
+          uLine: { value: raw(0x4b3b45) },
         },
         vertexShader: WORLD_VERTEX,
         fragmentShader: `
@@ -493,12 +881,13 @@ export function createCrateScene(
             float fade = 1.0 - smoothstep(9.0, 30.0, length(c));
             vec2 q = abs(c) - vec2(${(OUTER_W / 2).toFixed(2)}, ${(DEPTH / 2).toFixed(2)});
             float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-            float shadow = 1.0 - smoothstep(-0.5, 7.5, sd);
+            float shadow = 1.0 - smoothstep(-0.5, 6.0, sd);
             float l1 = lines((vW.x * 0.8 + vW.z * 0.6) * 1.4, 0.07);
             float l2 = lines((vW.x * 0.6 - vW.z * 0.8) * 1.4, 0.05) * 0.6;
-            vec3 col = mix(uBase, uLine, max(l1, l2) * 0.6 * (1.0 - shadow * 0.85));
-            col *= 1.0 - shadow * 0.5;
-            gl_FragColor = vec4(col, fade * mix(0.5, 0.97, shadow));
+            vec3 col = mix(uBase, uLine, max(l1, l2) * 0.45 * (1.0 - shadow * 0.9));
+            float contact = 1.0 - smoothstep(0.0, 1.4, sd);
+            col *= (1.0 - shadow * 0.6) * (1.0 - contact * 0.6);
+            gl_FragColor = vec4(col, fade * mix(0.45, 0.98, max(shadow, contact)));
           }
         `,
       })
@@ -507,6 +896,16 @@ export function createCrateScene(
   ground.rotation.x = -Math.PI / 2;
   ground.renderOrder = -2;
   scene.add(ground);
+  // The key light's shadow of the crate and the lifted record, on that ground.
+  const catcher = new THREE.Mesh(
+    own(new THREE.PlaneGeometry(70, 70)),
+    own(new THREE.ShadowMaterial({ color: 0x07050a, opacity: 0.6, depthWrite: false }))
+  );
+  catcher.rotation.x = -Math.PI / 2;
+  catcher.position.y = 0.002;
+  catcher.renderOrder = -1;
+  catcher.receiveShadow = true;
+  scene.add(catcher);
 
   // ── stars, fixed to the camera so they sit in the plate's sky ──
 
@@ -535,7 +934,7 @@ export function createCrateScene(
       uniforms: {
         uTime: { value: 0 },
         uDpr: { value: dpr },
-        uColor: { value: new THREE.Color(0xf0dcae) },
+        uColor: { value: raw(0xf0dcae) },
       },
       vertexShader: `
         attribute float aSize;
@@ -573,9 +972,18 @@ export function createCrateScene(
 
   const sleeveGeo = own(new THREE.BoxGeometry(H, H, T));
   sleeveGeo.translate(0, H / 2, 0); // pivot on the bottom edge
-  const discGeo = own(new THREE.CircleGeometry(5.85, 72));
-  const tabGeo = own(new THREE.PlaneGeometry(1.9, 1.0));
-  const stickerGeo = own(new THREE.PlaneGeometry(3.5, 2.2));
+  const discGeo = own(new THREE.CircleGeometry(5.85, 128));
+  const tabGeo = own(new THREE.BoxGeometry(1.9, 1.0, 0.03));
+  // The price tag curls a little off the sleeve.
+  const stickerGeo = own(new THREE.PlaneGeometry(3.5, 2.2, 10, 1));
+  {
+    const pos = stickerGeo.attributes.position;
+    for (let k = 0; k < pos.count; k++) {
+      const u = pos.getX(k) / 1.75;
+      pos.setZ(k, 0.05 * u * u + 0.02 * u);
+    }
+    stickerGeo.computeVertexNormals();
+  }
 
   const backTexture = own(
     canvasTexture(256, 256, (g, w, h) => {
@@ -603,7 +1011,16 @@ export function createCrateScene(
   );
 
   // One material per distinct disc; plain black is shared by every sleeve.
-  const discMaterials = new Map<string, THREE.ShaderMaterial>();
+  // Lit vinyl: a clear-coated surface whose highlight stretches out from the
+  // centre the way light runs across real grooves (anisotropy pointed along
+  // the radius), smoother bands between tracks, a matte paper label.
+  const DISC_LIGHTS = THREE.ShaderChunk.lights_physical_fragment
+    .replace(
+      "vec2 anisotropyV = anisotropyVector;",
+      "vec2 anisotropyV = (dR > 0.01 ? vP / dR : vec2(1.0, 0.0)) * length(anisotropyVector) * dPressed * (1.0 - dGap * 0.7);"
+    )
+    .replace("material.clearcoat = clearcoat;", "material.clearcoat = clearcoat * (1.0 - dLabel);");
+  const discMaterials = new Map<string, THREE.MeshPhysicalMaterial>();
   function discMaterialFor(item: CrateItem) {
     const style = item.disc && item.disc.mode !== "picture" ? item.disc : BLACK_DISC;
     const key =
@@ -617,28 +1034,46 @@ export function createCrateScene(
       const rgb = new THREE.Color(c.hex);
       return new THREE.Vector4(rgb.r, rgb.g, rgb.b, c.alpha);
     });
+    const uniforms = {
+      uCol: { value: cols },
+      uCount: { value: style.colors.length },
+      uMode: { value: DISC_MODES[style.mode] ?? 0 },
+      uParts: { value: style.parts ?? 8 },
+      uSeed: { value: discSeed(item.id) },
+      uSpin: { value: 0 },
+    };
     const material = own(
-      new THREE.ShaderMaterial({
+      new THREE.MeshPhysicalMaterial({
         side: THREE.DoubleSide,
         transparent: style.colors.some((c) => c.alpha < 1),
-        uniforms: {
-          uCol: { value: cols },
-          uCount: { value: style.colors.length },
-          uMode: { value: DISC_MODES[style.mode] ?? 0 },
-          uParts: { value: style.parts ?? 8 },
-          uSeed: { value: discSeed(item.id) },
-          uSpin: { value: 0 },
-        },
-        vertexShader: `
-          varying vec2 vP;
-          void main() {
-            vP = position.xy;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `,
-        fragmentShader: DISC_FRAGMENT,
+        roughness: 0.3,
+        metalness: 0,
+        clearcoat: 0.45,
+        clearcoatRoughness: 0.14,
+        anisotropy: 1,
+        envMapIntensity: 2,
       })
     );
+    material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec2 vP;")
+        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvP = position.xy;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", `#include <common>\n${DISC_PARS}`)
+        .replace("#include <color_fragment>", `#include <color_fragment>\n${DISC_COLOR}`)
+        .replace(
+          "#include <roughnessmap_fragment>",
+          "#include <roughnessmap_fragment>\nroughnessFactor = dLabel > 0.5 ? 0.6 : mix(mix(0.34, 0.14, dGap), 0.18, 1.0 - dPressed);"
+        )
+        .replace(
+          "#include <normal_fragment_maps>",
+          "#include <normal_fragment_maps>\nnormal = crateBump(-vViewPosition, normal, (dGroove - dGap) * dPressed, 0.03, faceDirection);"
+        )
+        .replace("#include <lights_physical_fragment>", DISC_LIGHTS);
+    };
+    material.customProgramCacheKey = () => "crate-disc";
+    material.userData.spin = uniforms.uSpin;
     discMaterials.set(key, material);
     return material;
   }
@@ -717,6 +1152,7 @@ export function createCrateScene(
         return;
       }
       tex.anisotropy = maxAniso;
+      tex.colorSpace = THREE.SRGBColorSpace;
       // Send it to the GPU now, not in the middle of the flip that first shows it.
       renderer.initTexture(tex);
       entry.tex = tex;
@@ -826,12 +1262,12 @@ export function createCrateScene(
     p: SleeveState;
     leaving = false;
     exit: Pose | null = null;
-    private front: THREE.MeshBasicMaterial;
-    private back: THREE.MeshBasicMaterial;
-    private edge: THREE.MeshBasicMaterial;
-    private tabMat: THREE.MeshBasicMaterial | null = null;
-    private stickerMat: THREE.MeshBasicMaterial | null = null;
-    private mats: THREE.MeshBasicMaterial[];
+    private front: THREE.MeshStandardMaterial;
+    private back: THREE.MeshStandardMaterial;
+    private edge: THREE.MeshStandardMaterial;
+    private tabMat: THREE.MeshStandardMaterial | null = null;
+    private stickerMat: THREE.MeshStandardMaterial | null = null;
+    private mats: THREE.MeshStandardMaterial[];
     private disc: THREE.Mesh;
     private showDisc: boolean;
     // Set for a coloured disc: the angle it has turned to.
@@ -844,9 +1280,9 @@ export function createCrateScene(
 
     constructor(item: CrateItem, pose: Pose) {
       this.item = item;
-      this.front = new THREE.MeshBasicMaterial({ map: blankTexture });
-      this.back = new THREE.MeshBasicMaterial({ map: backTexture });
-      this.edge = new THREE.MeshBasicMaterial({ color: PAPER });
+      this.front = new THREE.MeshStandardMaterial({ map: blankTexture, roughness: 0.6, envMapIntensity: 0.35 });
+      this.back = new THREE.MeshStandardMaterial({ map: backTexture, roughness: 0.8 });
+      this.edge = new THREE.MeshStandardMaterial({ color: PAPER, roughness: 0.9 });
       this.mats = [this.front, this.back, this.edge];
       this.mesh = new THREE.Mesh(sleeveGeo, [
         this.edge,
@@ -858,24 +1294,29 @@ export function createCrateScene(
       ]);
       this.mesh.rotation.order = "YXZ";
       this.mesh.userData.sleeve = this;
+      this.mesh.castShadow = true;
+      this.mesh.receiveShadow = true;
 
       const discMat = discMaterialFor(item);
       this.disc = new THREE.Mesh(discGeo, discMat);
+      this.disc.castShadow = true;
+      this.disc.receiveShadow = true;
       this.disc.position.set(0, H / 2, 0);
       this.disc.visible = false;
       this.mesh.add(this.disc);
       // A picture disc can't be drawn from a description: it stays in the sleeve.
       this.showDisc = item.disc?.mode !== "picture";
       // Black looks the same at any angle, so only colour turns.
-      if (item.disc && this.showDisc && !reduceMotion) this.spin = discMat.uniforms.uSpin;
+      if (item.disc && this.showDisc && !reduceMotion) this.spin = discMat.userData.spin as { value: number };
 
       if (item.tab) {
-        this.tabMat = new THREE.MeshBasicMaterial({
+        this.tabMat = new THREE.MeshStandardMaterial({
           map: tabTexture(item.tab),
           side: THREE.DoubleSide,
         });
         this.mats.push(this.tabMat);
         const tab = new THREE.Mesh(tabGeo, this.tabMat);
+        tab.castShadow = true;
         tab.position.set(-H / 2 + 1.3 + ((item.tab.charCodeAt(0) * 7) % 5) * 2.3, H + 0.44, 0);
         this.mesh.add(tab);
       }
@@ -908,7 +1349,7 @@ export function createCrateScene(
 
     private sticker() {
       if (this.stickerMat) return;
-      this.stickerMat = new THREE.MeshBasicMaterial({
+      this.stickerMat = new THREE.MeshStandardMaterial({
         map: stickerTexture(this.item.sticker),
         transparent: true,
         opacity: 0,
