@@ -34,6 +34,13 @@ const alice = Alice({
   variable: "--font-alice",
 });
 
+const SHARE_CARD = {
+  url: "/images/brand/share-card.jpg",
+  width: 1200,
+  height: 630,
+  alt: "Curiouser Records — the engraved White Rabbit emblem over a celestial engraving: used vinyl from Phoenix, AZ",
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://curiouserrecords.com"),
   title: "Curiouser Records — Used Vinyl from Phoenix, AZ",
@@ -47,21 +54,16 @@ export const metadata: Metadata = {
     siteName: "Curiouser Records",
     locale: "en_US",
     type: "website",
-    images: [
-      {
-        url: "/images/brand/logo-share.png",
-        width: 800,
-        height: 800,
-        alt: "Curiouser Records — the engraved White Rabbit emblem",
-      },
-    ],
+    // 1200×630 card built by scripts/share-card.mjs. Record pages replace it
+    // with their own cover (itemMetadata in records/_item/item-page.tsx).
+    images: [SHARE_CARD],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Curiouser Records",
     description:
       "Curiouser and curiouser vinyl finds — used records graded to the Goldmine standard and shipped in proper LP mailers.",
-    images: ["/images/brand/logo-share.png"],
+    images: [SHARE_CARD],
   },
 };
 
