@@ -2549,46 +2549,40 @@ html:has(.shop) {
     border-inline: 0;
     border-bottom: 0;
   }
-  /* The kicker runs the full width; the emblem stands beside the title. */
+  /* One emblem per screen: the nav already carries it a few lines up, so
+     the hero drops its copy and the copy takes the full width. (The
+     full-size viewer goes with it; on a phone it had no other home.) */
   .shop-hero-copy {
     padding: var(--space-3) var(--space-4);
-    column-gap: var(--space-3);
+    grid-template-columns: minmax(0, 1fr);
   }
-  .shop-hero-copy > .shop-hero-logo + * {
-    grid-column: 1 / -1;
-    margin-bottom: 2px;
+  .shop-hero-copy > * {
+    grid-column: 1;
   }
   .shop-hero-copy > .shop-hero-logo {
-    grid-row: 2 / span 2;
-    width: 60px;
-    height: 60px;
-    margin-left: -3px;
-    align-self: start;
+    display: none;
   }
-  /* The zoom cue, scaled to the smaller emblem. */
-  .shop-hero-logo-badge {
-    right: -2px;
-    bottom: -2px;
-    width: 20px;
-    height: 20px;
+  .shop-hero-copy > .shop-hero-logo + * {
+    margin-bottom: 2px;
   }
-  .shop-hero-logo-badge svg {
-    width: 12px;
-    height: 12px;
+  /* The celestial strip is tall enough to show the whole engraving's
+     width: the moon's face, the armillary and its record. The star glints
+     follow the crop on their own (lib/celestial-motion.mjs reads it). */
+  .shop .shop-hero-art {
+    height: clamp(140px, 41vw, 180px);
+    --cr-art-position: 50% 6%;
   }
-  /* A smaller disc on a phone's smaller covers; the touch target stays 44px. */
-  .record-compact-add {
-    right: 4px;
-    bottom: 4px;
-    width: 26px;
-    height: 26px;
-    font-size: 17px;
+  /* Two covers to a row on phones, so titles and grades can be read at
+     arm's length; the bundle disc keeps the desktop size and its 44px
+     touch target (the 7px ::after ring). */
+  .record-compact-names {
+    font-size: 14px;
   }
-  .record-compact-add::after {
-    inset: -9px;
+  .record-compact-price {
+    font-size: 16px;
   }
-  .record-compact-add.is-selected {
-    font-size: 13px;
+  .record-compact-grade {
+    font-size: 12.5px;
   }
   .shop-hero-kicker {
     font-size: 12.5px;
@@ -2657,6 +2651,40 @@ html:has(.shop) {
     gap: var(--space-2);
     margin: 0;
   }
+  /* The opened panel as one aligned column: search and the button on top,
+     then sort, genre and the two switches full width with equal segments,
+     then condition, price and pressing two to a row. */
+  .shop-controls.is-filters-open .shop-controls-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+  }
+  .shop-controls.is-filters-open .shop-controls-row > :not(.search):not(.shop-filters-toggle) {
+    grid-column: 1 / -1;
+  }
+  .shop-controls.is-filters-open .shop-controls-row .input,
+  .shop-controls.is-filters-open .shop-filter-row .input {
+    min-height: 44px;
+    min-width: 0;
+  }
+  .shop-controls.is-filters-open .seg {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    min-height: 44px;
+  }
+  .shop-controls.is-filters-open .seg-opt {
+    justify-content: center;
+    font-size: 14px;
+  }
+  .shop-controls.is-filters-open .shop-filter-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* An odd one out at the end takes the whole row. */
+  .shop-controls.is-filters-open .shop-filter-row > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
   .shop-letter {
     min-width: 44px;
     height: 44px;
@@ -2686,7 +2714,7 @@ html:has(.shop) {
     white-space: nowrap;
   }
   .shop-grid.view-compact {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .shop-bundle-summary {
     flex-basis: 100%;
