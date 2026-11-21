@@ -56,7 +56,6 @@ type KindConfig = {
   filters: FilterDef[];
   sorts: SortDef[]; // first is the default
   tags: (r: DbRecord) => string[];
-  shippingNote: string;
   emptyTitle: string; // when nothing of this kind is listed at all
   count: (n: number) => string; // "2 posters", "2 pieces of equipment"
 };
@@ -106,7 +105,6 @@ const CONFIG: Record<Exclude<ItemKind, "record">, KindConfig> = {
         d.print_method ?? "",
       ].filter(Boolean);
     },
-    shippingNote: SELLER_INFO.posterShipping,
     emptyTitle: "Nothing on the wall just yet.",
     count: (n) => `${n} poster${n === 1 ? "" : "s"}`,
   },
@@ -129,7 +127,6 @@ const CONFIG: Record<Exclude<ItemKind, "record">, KindConfig> = {
     ],
     // The category is already the card's meta line.
     tags: (r) => [r.condition ? `Condition: ${r.condition}` : ""].filter(Boolean),
-    shippingNote: SELLER_INFO.gearShipping,
     emptyTitle: "Nothing on the rack just yet.",
     count: (n) => `${n} piece${n === 1 ? "" : "s"} of equipment`,
   },
@@ -618,10 +615,6 @@ export default function ItemsClient({
             </button>
           ) : null}
         </div>
-
-        <p className="shop-controls-note">
-          Request to buy by email or Reddit DM — no account needed on this site. {cfg.shippingNote}
-        </p>
       </section>
 
       {stuck ? (

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
-  FREE_SHIPPING_MIN,
   LETTERS,
   SELLER_INFO,
   artistLetter,
@@ -960,12 +959,6 @@ export default function RecordsClient({
             </button>
           ) : null}
         </div>
-
-        <p className="shop-controls-note">
-          Request to buy by email or Reddit DM — no account needed on this
-          site. Bundle up: one or two records ship for $6, {FREE_SHIPPING_MIN}{" "}
-          or more ship free.
-        </p>
 
         {/* Phones, filters folded: what the list is narrowed to, and the way
             back, without opening the panel. */}

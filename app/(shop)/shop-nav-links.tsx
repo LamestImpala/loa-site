@@ -5,13 +5,15 @@ import { usePathname } from "next/navigation";
 import { SHOP_PATH_PREFIX } from "@/lib/hosts";
 import type { ItemKind } from "@/lib/supabase";
 
-// Records | Posters | Equipment. Each link is "current"
+// Records | Posters | Equipment | Reviews. Each link is "current"
 // on its list page and on its items' detail pages, so the shopper always
-// sees which wall they're looking at.
-const LINKS: { href: string; label: string; match: RegExp; kind: ItemKind }[] = [
+// sees which wall they're looking at. Reviews has no stock, so it always
+// shows.
+const LINKS: { href: string; label: string; match: RegExp; kind?: ItemKind }[] = [
   { href: "/", label: "Records", match: /^\/(r\/|$)/, kind: "record" },
   { href: "/posters", label: "Posters", match: /^\/(posters|p\/)/, kind: "poster" },
   { href: "/equipment", label: "Equipment", match: /^\/(equipment|e\/)/, kind: "gear" },
+  { href: "/reviews", label: "Reviews", match: /^\/reviews\/?$/ },
 ];
 
 export default function ShopNavLinks({
@@ -30,7 +32,7 @@ export default function ShopNavLinks({
     : pathname;
   return (
     <div className="shop-nav-links">
-      {LINKS.filter((l) => !empty.includes(l.kind) || l.match.test(path)).map((l) => (
+      {LINKS.filter((l) => !l.kind || !empty.includes(l.kind) || l.match.test(path)).map((l) => (
         <Link key={l.href} href={l.href} aria-current={l.match.test(path) ? "page" : undefined}>
           {l.label}
         </Link>
