@@ -448,7 +448,7 @@ html:has(.shop) {
    shadow down onto the wall, so the two engravings never touch. */
 .shop-hero-band {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   background: var(--color-bg);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
 }
@@ -1401,8 +1401,9 @@ html:has(.shop) {
 
 /* ── Record page (/r/<id>-<slug>) ─────────────────────────────────── */
 
+/* On the garden sheet, which gives the top its room. */
 .rp {
-  padding-block: var(--space-4) calc(var(--space-8) * 3);
+  padding-block: 0 calc(var(--space-8) + var(--space-4));
 }
 .rp-crumbs {
   display: flex;
@@ -2168,6 +2169,11 @@ html:has(.shop) {
   --garden-art-width: 1536px;
   position: relative;
   isolation: isolate;
+  /* Its own stacking context would otherwise put the pinned bars inside it
+     (the phone buy bar, the bundle bar) under the footer, which comes later
+     on the page. The plates above (hero band, celestial strip) sit higher
+     still, so their shadows fall onto the wall. */
+  z-index: 1;
   /* Contain the sheet's margins; clip (unlike hidden) keeps sticky working
      and stops the screen-tall art showing past a short sheet. */
   display: flow-root;
@@ -2216,6 +2222,50 @@ html:has(.shop) {
 /* The sheet is the page now: no extra bottom border on the last block. */
 .shop-garden-sheet > :last-child {
   margin-bottom: 0;
+}
+
+/* — the celestial strip (pages without the hero) — */
+/* A record page, /reviews and the 404 open on a thin slice of the hero's
+   engraving instead of the full title band, so the cover and price stay on
+   the first screen. Still (no motion controller) and decorative. Like the
+   hero band it is a mounted plate in front of the wall: it ends on the
+   plate rule and casts a shadow down onto the garden. */
+.shop-celestial-band {
+  --band-height: 64px;
+  position: relative;
+  z-index: 2;
+  height: calc(var(--band-height) + 7px);
+  background: var(--color-ink);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+.shop-celestial-band::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 7px;
+  /* Scaled to the window's width; the slice runs through the armillary's
+     gold rings and the record held inside them. */
+  background: url("/images/brand/celestial-1536.webp") 50% var(--band-y, 30%) /
+    cover no-repeat;
+}
+.shop-celestial-band::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 7px;
+  background:
+    linear-gradient(var(--color-accent-2), var(--color-accent-2)) top / 100% 1px
+      no-repeat,
+    linear-gradient(var(--color-accent-2), var(--color-accent-2)) bottom / 100%
+      1px no-repeat,
+    var(--color-ink);
+}
+@media (max-width: 640px) {
+  .shop-celestial-band {
+    --band-height: 40px;
+  }
+  .shop-celestial-band::before {
+    background-image: url("/images/brand/celestial-960.webp");
+  }
 }
 
 /* — footer — */
@@ -2746,8 +2796,9 @@ html:has(.shop) {
   margin-top: var(--space-4);
 }
 /* — /reviews: every published review — */
+/* On the garden sheet, which gives the top its room. */
 .shop-reviews-head {
-  padding-top: var(--space-6);
+  padding-top: 0;
 }
 .shop-reviews-back {
   display: inline-block;
