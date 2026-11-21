@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { GardenWall, ShopHero } from "../shop-hero";
-import { BuyingTerms, HowBuyingWorksLink } from "../buying-terms";
+import { BuyingStrip, BuyingTerms, HowBuyingWorksLink } from "../buying-terms";
 import { SELLER_INFO } from "@/lib/records";
 import { isReduced, trackRecordLine } from "@/lib/record-info";
 import Link from "next/link";
@@ -106,6 +106,8 @@ export default async function RecordsPage() {
       </ShopHero>
 
       <GardenWall>
+        <BuyingStrip kind="record" />
+
         {error ? (
           <div className="shop-shell shop-main">
             <div className="card shop-empty">

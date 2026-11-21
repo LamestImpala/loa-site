@@ -755,6 +755,59 @@ html:has(.shop) {
   color: var(--color-accent-700);
   margin-right: 4px;
 }
+
+/* — the buying strip: the terms in four facts, at the top of the sheet — */
+/* One centred line over a dotted rule on desktop; on phones it wraps to a
+   few short lines, never breaking a fact in two. */
+.shop-buying-strip {
+  margin-bottom: var(--space-3);
+}
+.shop-buying-strip-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 2px var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dotted var(--color-divider);
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--color-neutral-800);
+  text-align: center;
+}
+.shop-buying-strip ul {
+  display: contents;
+  list-style: none;
+}
+.shop-buying-strip li {
+  white-space: nowrap;
+}
+/* A small gold star between facts, from the hero's rating. */
+.shop-buying-strip li + li::before {
+  content: "✦";
+  margin-right: var(--space-3);
+  font-size: 9px;
+  vertical-align: 2px;
+  color: var(--color-accent-2);
+}
+.shop .shop-buying-strip a {
+  color: var(--color-accent-700);
+  white-space: nowrap;
+}
+/* Phones: one fact to a line, no stars (they would start wrapped lines);
+   the last fact shares its line with the link. */
+@media (max-width: 640px) {
+  .shop-buying-strip-line {
+    font-size: 14px;
+    gap: 1px var(--space-2);
+  }
+  .shop-buying-strip li:not(:last-child) {
+    flex-basis: 100%;
+  }
+  .shop-buying-strip li + li::before {
+    content: none;
+  }
+}
 .shop-section {
   padding-bottom: var(--space-6);
 }
@@ -1872,12 +1925,6 @@ html:has(.shop) {
   margin-bottom: var(--space-2);
 }
 
-.shop-controls-note {
-  font-size: 13px;
-  color: var(--color-neutral-700);
-  margin: 0;
-}
-
 /* — condensed sticky controls (appear once the full bar scrolls away) — */
 .shop-sticky-bar {
   position: fixed;
@@ -2675,8 +2722,17 @@ html:has(.shop) {
   .shop-nav-links {
     order: 3;
     flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
     margin-left: 0;
     padding-left: calc(56px + var(--space-3));
+  }
+}
+/* All four links (Records, Posters, Equipment, Reviews) don't fit beside
+   the indent on a narrow phone: start them at the edge instead. */
+@media (max-width: 440px) {
+  .shop-nav-links:has(> :nth-child(4)) {
+    padding-left: 0;
   }
 }
 

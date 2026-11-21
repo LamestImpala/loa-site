@@ -1,5 +1,33 @@
-import { SELLER_INFO } from "@/lib/records";
+import { FREE_SHIPPING_MIN, SELLER_INFO } from "@/lib/records";
 import type { ItemKind } from "@/lib/supabase";
+
+// The same shipping terms, cut down to a few words for the strip.
+const SHIPPING_SHORT: Record<ItemKind, string> = {
+  record: `$6 shipping, free on ${FREE_SHIPPING_MIN} or more`,
+  poster: "$12 flat shipping for any number",
+  gear: "Shipping quoted per order, or free pickup",
+};
+
+// "How buying works" in four facts, at the top of the sheet: a buyer who
+// only browses never scrolls down to the full terms under the listings, so
+// the essentials sit above the search box and link down to the rest. (If
+// FAQ answers come — international shipping, returns, holds — they would
+// start here.)
+export function BuyingStrip({ kind }: { kind: ItemKind }) {
+  return (
+    <aside className="shop-shell shop-buying-strip" aria-label="How buying works">
+      <div className="shop-buying-strip-line">
+        <ul>
+          <li>Request by email or Reddit DM, no account</li>
+          <li>PayPal invoice, I cover the fee</li>
+          <li>{SHIPPING_SHORT[kind]}</li>
+          <li>Not as described? I&rsquo;ll make it right</li>
+        </ul>
+        <a href="#how-buying-works">Full terms ↓</a>
+      </div>
+    </aside>
+  );
+}
 
 // How each kind ships, in the seller's words.
 const SHIPPING: Record<ItemKind, string> = {
