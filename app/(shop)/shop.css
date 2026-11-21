@@ -2150,44 +2150,60 @@ html:has(.shop) {
 
 /* — the garden wall — */
 /* Everything below the hero hangs on the midnight-garden engraving as an
-   ivory sheet. The art is one scene, not a tile: a single layer that rises
-   out of the garden's own dark ground under the hero (a quiet band between
-   the two engravings) and sinks back into it further down. */
+   ivory sheet. The art is one scene, not a tile: a single screen-tall layer
+   (.shop-garden-art) that is pinned to the viewport while the sheet scrolls
+   past, so the garden stays in the side margins from A to Z. It rises out
+   of the garden's own dark ground under the hero (a quiet band between the
+   two engravings, drawn by ::before) and runs down to the footer.
+   position: sticky rather than background-attachment: fixed, which iOS
+   Safari ignores; no scroll listeners. */
 .shop-garden {
   /* How far down the art takes to come up to full strength. */
   --garden-fade-in: clamp(24px, 2.8vw, 44px);
+  /* A short gap above the sheet: the listings belong on the first screen. */
+  --garden-gap-top: clamp(24px, 2.8vw, 44px);
+  --garden-gap-bottom: clamp(24px, 2.8vw, 44px);
+  --garden-gutter: clamp(0px, 4vw, 120px);
+  --garden-art: url("/images/brand/garden-1536.webp");
+  --garden-art-width: 1536px;
   position: relative;
   isolation: isolate;
+  /* Contain the sheet's margins; clip (unlike hidden) keeps sticky working
+     and stops the screen-tall art showing past a short sheet. */
+  display: flow-root;
+  overflow: clip;
   background: var(--color-garden);
-  /* A short gap above the sheet: the listings belong on the first screen. */
-  padding: clamp(24px, 2.8vw, 44px) clamp(0px, 4vw, 120px) clamp(36px, 5vw, 80px);
 }
+.shop-garden-art {
+  position: sticky;
+  top: 0;
+  z-index: -2;
+  height: 100vh;
+  /* Takes no room: the sheet starts at the top of the wall. */
+  margin-bottom: -100vh;
+  /* Wide enough to fill the screen's height too (the art is 3:2). */
+  background: var(--garden-art) 50% 0 /
+    max(var(--garden-art-width), 100%, 150vh) auto no-repeat;
+  pointer-events: none;
+}
+/* The fade up from the garden's dark ground under the hero. It scrolls away
+   with the page, so it never dims the pinned art further down. */
 .shop-garden::before {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: min(100%, 1150px);
+  height: var(--garden-fade-in);
   z-index: -1;
-  background: url("/images/brand/garden-1536.webp") 50% 0 / max(1536px, 100%)
-    auto no-repeat;
-  -webkit-mask-image: linear-gradient(
+  background: linear-gradient(
     to bottom,
-    rgb(0 0 0 / 0.08),
-    #000 var(--garden-fade-in),
-    #000 70%,
+    color-mix(in srgb, var(--color-garden) 92%, transparent),
     transparent
   );
-  mask-image: linear-gradient(
-    to bottom,
-    rgb(0 0 0 / 0.08),
-    #000 var(--garden-fade-in),
-    #000 70%,
-    transparent
-  );
+  pointer-events: none;
 }
 .shop-garden-sheet {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: min(1200px, 100% - 2 * var(--garden-gutter));
+  margin: var(--garden-gap-top) auto var(--garden-gap-bottom);
   padding-top: var(--space-6);
   background: var(--color-bg);
   /* Double gold rule just inside the edge, and a soft cast onto the wall. */
@@ -2322,14 +2338,13 @@ html:has(.shop) {
     height: 80px;
     margin-left: -4px;
   }
+  /* The 1536px art stays: a portrait tablet's screen-tall layer is about
+     that wide, and the 1000px copy would be stretched. */
   .shop-garden {
     --garden-fade-in: 32px;
-    padding: 32px 24px 40px;
-  }
-  .shop-garden::before {
-    background-image: url("/images/brand/garden-1000.webp");
-    background-size: max(900px, 100%) auto;
-    height: 800px;
+    --garden-gap-top: 32px;
+    --garden-gap-bottom: 32px;
+    --garden-gutter: 24px;
   }
   .shop-hero-copy {
     padding: var(--space-3) var(--space-8);
@@ -2340,10 +2355,11 @@ html:has(.shop) {
   /* The garden shrinks to a thin band above an edge-to-edge sheet. */
   .shop-garden {
     --garden-fade-in: 14px;
-    padding: 14px 0 0;
-  }
-  .shop-garden::before {
-    height: 640px;
+    --garden-gap-top: 14px;
+    --garden-gap-bottom: 0px;
+    --garden-gutter: 0px;
+    --garden-art: url("/images/brand/garden-1000.webp");
+    --garden-art-width: 900px;
   }
   .shop-garden-sheet {
     padding-top: var(--space-4);

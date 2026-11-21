@@ -28,6 +28,9 @@ export function ShopHero({ children }: { children: React.ReactNode }) {
 export function GardenWall({ children }: { children: React.ReactNode }) {
   return (
     <div className="shop-garden">
+      {/* The engraving: one screen tall, pinned behind the sheet as it
+          scrolls past, so it stays in the margins all the way down. */}
+      <div className="shop-garden-art" aria-hidden="true" />
       <div className="shop-garden-sheet">{children}</div>
     </div>
   );
