@@ -2312,17 +2312,30 @@ html:has(.shop) {
   overflow: clip;
   background: var(--color-garden);
 }
+/* The art's track: the whole wall, behind the sheet, taking no room. The
+   screen-tall layer (::before) is pinned inside it, so it comes unpinned
+   and scrolls off with the wall's bottom edge instead of running on past
+   it. (It used to be pinned to the wall itself with a -100vh margin, which
+   let it hang up to a screen below the wall, over the footer, with only
+   overflow: clip hiding it; iOS Safari drops that clip for a moment during
+   a fling, so the garden flashed over "About the seller".) */
 .shop-garden-art {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: clip;
+  pointer-events: none;
+}
+.shop-garden-art::before {
+  content: "";
+  display: block;
   position: sticky;
   top: 0;
-  z-index: -2;
-  height: 100vh;
-  /* Takes no room: the sheet starts at the top of the wall. */
-  margin-bottom: -100vh;
+  /* Never taller than the wall either (a short page like the 404). */
+  height: min(100vh, 100%);
   /* Wide enough to fill the screen's height too (the art is 3:2). */
   background: var(--garden-art) 50% 0 /
     max(var(--garden-art-width), 100%, 150vh) auto no-repeat;
-  pointer-events: none;
 }
 /* The fade up from the garden's dark ground under the hero. It scrolls away
    with the page, so it never dims the pinned art further down. */
