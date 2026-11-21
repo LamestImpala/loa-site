@@ -32,6 +32,7 @@ import {
   getRedditPostUrl,
   getShopStats,
 } from "../data";
+import { CelestialBand, GardenWall } from "../shop-hero";
 import { DiscogsLink, RecordBuyBox, RecordGallery } from "./item-client";
 
 /*
@@ -307,256 +308,261 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(r) }} />
-      <div className={`shop-shell rp kind-${actualKind}`}>
-        <nav className="rp-crumbs" aria-label="Breadcrumb">
-          <Link href={listPath}>← All {KIND_PLURALS[actualKind]}</Link>
-          {actualKind === "record" && r.genres?.[0] ? (
-            <>
-              <span aria-hidden="true">/</span>
-              <Link href={`/?genre=${encodeURIComponent(r.genres[0])}`}>{r.genres[0]}</Link>
-            </>
-          ) : null}
-          {actualKind === "poster" && year ? (
-            <>
-              <span aria-hidden="true">/</span>
-              <Link href={`/posters?year=${year}`}>{year}</Link>
-            </>
-          ) : null}
-          {actualKind === "gear" && d.category ? (
-            <>
-              <span aria-hidden="true">/</span>
-              <Link href={`/equipment?cat=${encodeURIComponent(d.category)}`}>{d.category}</Link>
-            </>
-          ) : null}
-        </nav>
-
-        <div className="rp-top">
-          <RecordGallery record={r} />
-
-          <div className="rp-info">
-            <header className="rp-head">
-              <p className="rp-artist">
-                <Link href={`${listPath}?q=${encodeURIComponent(r.artist)}`}>
-                  {cleanDiscogsName(r.artist)}
-                </Link>
-              </p>
-              <h1 className="rp-title">{r.title}</h1>
-              <p className="rp-sub">
-                {actualKind === "record"
-                  ? [spec.year, spec.label, r.collection].filter(Boolean).join(" · ")
-                  : itemSubtitle(r)}
-              </p>
-            </header>
-
-            <RecordBuyBox record={r} bundleCandidates={bundleCandidates} redditPostUrl={redditPostUrl} />
-
-            <section className="rp-section" aria-labelledby="rp-condition">
-              <h2 id="rp-condition">Condition</h2>
-              {actualKind === "record" ? (
-                <dl className="rp-grades">
-                  <div>
-                    <dt>Media</dt>
-                    <dd>
-                      <strong>{r.media}</strong>
-                      {media ? ` — ${media.name}. ${media.meaning}` : null}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Sleeve</dt>
-                    <dd>
-                      <strong>{r.sleeve}</strong>
-                      {sleeve ? ` — ${sleeve.name}.` : null}
-                    </dd>
-                  </div>
-                </dl>
-              ) : (
-                <dl className="rp-grades">
-                  <div>
-                    <dt>Overall</dt>
-                    <dd>
-                      <strong>{r.condition ?? "See photos"}</strong>
-                      {actualKind === "poster" && d.condition_note ? ` — ${d.condition_note}` : null}
-                      {actualKind === "gear" && d.working_note ? ` — ${d.working_note}` : null}
-                    </dd>
-                  </div>
-                </dl>
-              )}
-              {r.notes ? (
-                <blockquote className="rp-note">
-                  <p>{r.notes}</p>
-                  <footer>— my notes on this {actualKind === "record" ? "copy" : "one"}</footer>
-                </blockquote>
-              ) : null}
-              {actualKind === "record" ? (
-                <p className="rp-fine">
-                  Play-graded under good light to the{" "}
-                  <a
-                    href="https://www.discogs.com/selling/resources/how-to-grade-items/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Goldmine standard
-                  </a>
-                  . If I&rsquo;m unsure between two grades, I use the lower one.
-                </p>
-              ) : actualKind === "poster" ? (
-                <p className="rp-fine">
-                  Stored flat and out of the sun. Anything beyond the odd handling mark is
-                  called out above and shown in the photos.
-                </p>
-              ) : (
-                <p className="rp-fine">
-                  Tested in my own system before listing. Anything that doesn&rsquo;t work as
-                  it should is called out above.
-                </p>
-              )}
-            </section>
-
-            {actualKind === "record" ? (
-              <section className="rp-section" aria-labelledby="rp-pressing">
-                <h2 id="rp-pressing">Pressing</h2>
-                <dl className="rp-specs">
-                  <Row label="Released" value={spec.year} />
-                  <Row label="Label · Cat #" value={spec.label} />
-                  <Row label="Format" value={spec.formats} />
-                  {discColours.length ? (
-                    <div>
-                      <dt>Vinyl color</dt>
-                      <dd>
-                        {discColours.map((line) => (
-                          <span className="rp-disc-line" key={line.label}>
-                            <DiscSwatch colors={line.colors} />
-                            {line.label}
-                          </span>
-                        ))}
-                      </dd>
-                    </div>
-                  ) : null}
-                  <Row label="Country" value={r.country} />
-                  <Row label="Barcode" value={r.barcode} />
-                  {r.genres?.length ? (
-                    <div>
-                      <dt>Genre</dt>
-                      <dd>{[...r.genres, ...styles].join(", ")}</dd>
-                    </div>
-                  ) : null}
-                  {r.collection ? (
-                    <div>
-                      <dt>Series</dt>
-                      <dd>
-                        <Link href={`/?coll=${encodeURIComponent(r.collection)}`}>{r.collection}</Link>
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-                <p className="rp-fine">
-                  <DiscogsLink record={r} />
-                </p>
-              </section>
-            ) : actualKind === "poster" ? (
-              <section className="rp-section" aria-labelledby="rp-details">
-                <h2 id="rp-details">The show &amp; the print</h2>
-                <dl className="rp-specs">
-                  <Row label="Show" value={showDate(r)} />
-                  <Row label="Venue" value={d.venue} />
-                  <Row label="City" value={d.city} />
-                  <Row label="Poster artist" value={d.designer} />
-                  <Row label="Edition" value={d.edition} />
-                  <Row label="Size" value={d.dimensions} />
-                  <Row label="Print" value={d.print_method} />
-                </dl>
-              </section>
-            ) : (
-              <section className="rp-section" aria-labelledby="rp-details">
-                <h2 id="rp-details">Details</h2>
-                <dl className="rp-specs">
-                  <Row label="Brand" value={r.artist} />
-                  <Row label="Model" value={r.title} />
-                  <Row label="Category" value={d.category} />
-                  <Row label="Included" value={d.included} />
-                </dl>
-              </section>
-            )}
-
-            {actualKind === "record" && sides.length ? (
-              <section className="rp-section" aria-labelledby="rp-tracks">
-                <h2 id="rp-tracks">Tracklist</h2>
-                <div className="rp-sides">
-                  {sides.map(({ side, tracks }) => (
-                    <div key={side || "all"} className="rp-side">
-                      {side ? <h3>Side {side}</h3> : null}
-                      <ol>
-                        {tracks.map((t, i) => (
-                          <li key={`${t.position}-${i}`}>
-                            <span className="rp-pos">{t.position}</span>
-                            <span className="rp-track">{t.title}</span>
-                            {t.duration ? <span className="rp-dur">{t.duration}</span> : null}
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  ))}
-                </div>
-              </section>
+      <CelestialBand />
+      {/* Hung on the garden wall like the listings, so a buyer arriving
+          from a link lands in the same shop as the home page. */}
+      <GardenWall>
+        <div className={`shop-shell rp kind-${actualKind}`}>
+          <nav className="rp-crumbs" aria-label="Breadcrumb">
+            <Link href={listPath}>← All {KIND_PLURALS[actualKind]}</Link>
+            {actualKind === "record" && r.genres?.[0] ? (
+              <>
+                <span aria-hidden="true">/</span>
+                <Link href={`/?genre=${encodeURIComponent(r.genres[0])}`}>{r.genres[0]}</Link>
+              </>
             ) : null}
+            {actualKind === "poster" && year ? (
+              <>
+                <span aria-hidden="true">/</span>
+                <Link href={`/posters?year=${year}`}>{year}</Link>
+              </>
+            ) : null}
+            {actualKind === "gear" && d.category ? (
+              <>
+                <span aria-hidden="true">/</span>
+                <Link href={`/equipment?cat=${encodeURIComponent(d.category)}`}>{d.category}</Link>
+              </>
+            ) : null}
+          </nav>
 
-            <section className="rp-section" aria-labelledby="rp-shipping">
-              <h2 id="rp-shipping">Shipping &amp; buying</h2>
-              <ul className="rp-terms">
-                <li>{shipping}</li>
-                <li>{SELLER_INFO.payment}</li>
-                <li>{SELLER_INFO.guarantee}</li>
-                {trackRecord ? <li>{trackRecord}, all from my own shelves.</li> : null}
+          <div className="rp-top">
+            <RecordGallery record={r} />
+
+            <div className="rp-info">
+              <header className="rp-head">
+                <p className="rp-artist">
+                  <Link href={`${listPath}?q=${encodeURIComponent(r.artist)}`}>
+                    {cleanDiscogsName(r.artist)}
+                  </Link>
+                </p>
+                <h1 className="rp-title">{r.title}</h1>
+                <p className="rp-sub">
+                  {actualKind === "record"
+                    ? [spec.year, spec.label, r.collection].filter(Boolean).join(" · ")
+                    : itemSubtitle(r)}
+                </p>
+              </header>
+
+              <RecordBuyBox record={r} bundleCandidates={bundleCandidates} redditPostUrl={redditPostUrl} />
+
+              <section className="rp-section" aria-labelledby="rp-condition">
+                <h2 id="rp-condition">Condition</h2>
+                {actualKind === "record" ? (
+                  <dl className="rp-grades">
+                    <div>
+                      <dt>Media</dt>
+                      <dd>
+                        <strong>{r.media}</strong>
+                        {media ? ` — ${media.name}. ${media.meaning}` : null}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Sleeve</dt>
+                      <dd>
+                        <strong>{r.sleeve}</strong>
+                        {sleeve ? ` — ${sleeve.name}.` : null}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <dl className="rp-grades">
+                    <div>
+                      <dt>Overall</dt>
+                      <dd>
+                        <strong>{r.condition ?? "See photos"}</strong>
+                        {actualKind === "poster" && d.condition_note ? ` — ${d.condition_note}` : null}
+                        {actualKind === "gear" && d.working_note ? ` — ${d.working_note}` : null}
+                      </dd>
+                    </div>
+                  </dl>
+                )}
+                {r.notes ? (
+                  <blockquote className="rp-note">
+                    <p>{r.notes}</p>
+                    <footer>— my notes on this {actualKind === "record" ? "copy" : "one"}</footer>
+                  </blockquote>
+                ) : null}
+                {actualKind === "record" ? (
+                  <p className="rp-fine">
+                    Play-graded under good light to the{" "}
+                    <a
+                      href="https://www.discogs.com/selling/resources/how-to-grade-items/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Goldmine standard
+                    </a>
+                    . If I&rsquo;m unsure between two grades, I use the lower one.
+                  </p>
+                ) : actualKind === "poster" ? (
+                  <p className="rp-fine">
+                    Stored flat and out of the sun. Anything beyond the odd handling mark is
+                    called out above and shown in the photos.
+                  </p>
+                ) : (
+                  <p className="rp-fine">
+                    Tested in my own system before listing. Anything that doesn&rsquo;t work as
+                    it should is called out above.
+                  </p>
+                )}
+              </section>
+
+              {actualKind === "record" ? (
+                <section className="rp-section" aria-labelledby="rp-pressing">
+                  <h2 id="rp-pressing">Pressing</h2>
+                  <dl className="rp-specs">
+                    <Row label="Released" value={spec.year} />
+                    <Row label="Label · Cat #" value={spec.label} />
+                    <Row label="Format" value={spec.formats} />
+                    {discColours.length ? (
+                      <div>
+                        <dt>Vinyl color</dt>
+                        <dd>
+                          {discColours.map((line) => (
+                            <span className="rp-disc-line" key={line.label}>
+                              <DiscSwatch colors={line.colors} />
+                              {line.label}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    ) : null}
+                    <Row label="Country" value={r.country} />
+                    <Row label="Barcode" value={r.barcode} />
+                    {r.genres?.length ? (
+                      <div>
+                        <dt>Genre</dt>
+                        <dd>{[...r.genres, ...styles].join(", ")}</dd>
+                      </div>
+                    ) : null}
+                    {r.collection ? (
+                      <div>
+                        <dt>Series</dt>
+                        <dd>
+                          <Link href={`/?coll=${encodeURIComponent(r.collection)}`}>{r.collection}</Link>
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  <p className="rp-fine">
+                    <DiscogsLink record={r} />
+                  </p>
+                </section>
+              ) : actualKind === "poster" ? (
+                <section className="rp-section" aria-labelledby="rp-details">
+                  <h2 id="rp-details">The show &amp; the print</h2>
+                  <dl className="rp-specs">
+                    <Row label="Show" value={showDate(r)} />
+                    <Row label="Venue" value={d.venue} />
+                    <Row label="City" value={d.city} />
+                    <Row label="Poster artist" value={d.designer} />
+                    <Row label="Edition" value={d.edition} />
+                    <Row label="Size" value={d.dimensions} />
+                    <Row label="Print" value={d.print_method} />
+                  </dl>
+                </section>
+              ) : (
+                <section className="rp-section" aria-labelledby="rp-details">
+                  <h2 id="rp-details">Details</h2>
+                  <dl className="rp-specs">
+                    <Row label="Brand" value={r.artist} />
+                    <Row label="Model" value={r.title} />
+                    <Row label="Category" value={d.category} />
+                    <Row label="Included" value={d.included} />
+                  </dl>
+                </section>
+              )}
+
+              {actualKind === "record" && sides.length ? (
+                <section className="rp-section" aria-labelledby="rp-tracks">
+                  <h2 id="rp-tracks">Tracklist</h2>
+                  <div className="rp-sides">
+                    {sides.map(({ side, tracks }) => (
+                      <div key={side || "all"} className="rp-side">
+                        {side ? <h3>Side {side}</h3> : null}
+                        <ol>
+                          {tracks.map((t, i) => (
+                            <li key={`${t.position}-${i}`}>
+                              <span className="rp-pos">{t.position}</span>
+                              <span className="rp-track">{t.title}</span>
+                              {t.duration ? <span className="rp-dur">{t.duration}</span> : null}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="rp-section" aria-labelledby="rp-shipping">
+                <h2 id="rp-shipping">Shipping &amp; buying</h2>
+                <ul className="rp-terms">
+                  <li>{shipping}</li>
+                  <li>{SELLER_INFO.payment}</li>
+                  <li>{SELLER_INFO.guarantee}</li>
+                  {trackRecord ? <li>{trackRecord}, all from my own shelves.</li> : null}
+                </ul>
+              </section>
+            </div>
+          </div>
+
+          {related.length ? (
+            <h2 className="rp-related-heading">
+              {actualKind === "record"
+                ? "More from the shelves"
+                : actualKind === "poster"
+                  ? "Also on the wall"
+                  : "Also on the rack"}
+            </h2>
+          ) : null}
+          {related.map((g, i) => (
+            <section key={g.title} className="rp-related" aria-labelledby={`rel-${i}`}>
+              <div className="rp-related-head">
+                <h3 id={`rel-${i}`}>{g.title}</h3>
+                <Link href={g.href}>See all →</Link>
+              </div>
+              <ul className="rp-related-grid">
+                {g.records.map((x) => {
+                  const cover = coverOf(x);
+                  return (
+                    <li key={x.id}>
+                      <Link href={itemPath(x)} className="rp-related-card">
+                        <span className="rp-related-cover">
+                          {cover ? (
+                            <Image
+                              src={cover}
+                              alt=""
+                              width={240}
+                              height={240}
+                              sizes="(min-width: 900px) 180px, 45vw"
+                            />
+                          ) : null}
+                        </span>
+                        <span className="rp-related-title">{displayName(x)}</span>
+                        <span className="rp-related-meta">
+                          <span>${x.price}</span>
+                          <span>{itemSpecShort(x)}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
-          </div>
+          ))}
         </div>
-
-        {related.length ? (
-          <h2 className="rp-related-heading">
-            {actualKind === "record"
-              ? "More from the shelves"
-              : actualKind === "poster"
-                ? "Also on the wall"
-                : "Also on the rack"}
-          </h2>
-        ) : null}
-        {related.map((g, i) => (
-          <section key={g.title} className="rp-related" aria-labelledby={`rel-${i}`}>
-            <div className="rp-related-head">
-              <h3 id={`rel-${i}`}>{g.title}</h3>
-              <Link href={g.href}>See all →</Link>
-            </div>
-            <ul className="rp-related-grid">
-              {g.records.map((x) => {
-                const cover = coverOf(x);
-                return (
-                  <li key={x.id}>
-                    <Link href={itemPath(x)} className="rp-related-card">
-                      <span className="rp-related-cover">
-                        {cover ? (
-                          <Image
-                            src={cover}
-                            alt=""
-                            width={240}
-                            height={240}
-                            sizes="(min-width: 900px) 180px, 45vw"
-                          />
-                        ) : null}
-                      </span>
-                      <span className="rp-related-title">{displayName(x)}</span>
-                      <span className="rp-related-meta">
-                        <span>${x.price}</span>
-                        <span>{itemSpecShort(x)}</span>
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </div>
+      </GardenWall>
     </>
   );
 }

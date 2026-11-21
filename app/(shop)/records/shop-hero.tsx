@@ -23,6 +23,14 @@ export function ShopHero({ children }: { children: React.ReactNode }) {
   );
 }
 
+// The pages without the hero (a record, the reviews, a missing page): a
+// thin strip of the same celestial engraving under the nav, so they open
+// on the home page's sky without pushing the cover and price down. Still
+// and decorative: no motion controller, just a CSS background.
+export function CelestialBand() {
+  return <div className="shop-celestial-band" aria-hidden="true" />;
+}
+
 // Wraps everything below the hero: the midnight-garden wallpaper as the
 // wall, with the listings on an ivory sheet hung in front of it.
 export function GardenWall({ children }: { children: React.ReactNode }) {
