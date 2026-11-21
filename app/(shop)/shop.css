@@ -1589,6 +1589,91 @@ html:has(.shop) {
     padding-bottom: calc(var(--space-8) + 72px + env(safe-area-inset-bottom));
   }
 }
+/* — desktop: the same bar, slimmer and with the artist and title, once the
+   in-page button has scrolled away. .is-desk comes and goes with the
+   observers in item-client.tsx: it is off until they first report, and off
+   again before the related records' "See all" row reaches the bar, so no
+   room is needed under the page. — */
+.rp-buybar-name,
+.rp-buybar-add-long {
+  display: none;
+}
+@media (min-width: 761px) {
+  .rp-buybar.is-desk {
+    display: block;
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 40;
+    background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--color-accent-2-300);
+    box-shadow: 0 -6px 24px color-mix(in srgb, var(--color-text) 10%, transparent);
+    padding-block: 10px;
+    animation: rp-buybar-rise 0.25s ease both;
+  }
+  .rp-buybar.is-desk .rp-buybar-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+  .rp-buybar-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-right: auto;
+    line-height: 1.2;
+  }
+  .rp-buybar-artist {
+    font-size: 13.5px;
+    color: var(--color-accent-700);
+  }
+  .rp-buybar-title {
+    font-family: var(--font-heading);
+    font-size: 20px;
+    color: var(--color-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rp-buybar.is-desk .rp-buybar-price {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    white-space: nowrap;
+  }
+  .rp-buybar.is-desk .rp-buybar-price .record-price {
+    font-size: 24px;
+  }
+  .rp-buybar.is-desk .rp-buybar-ship {
+    font-size: 12.5px;
+    color: var(--color-neutral-700);
+  }
+  .rp-buybar.is-desk .record-select {
+    width: auto;
+    margin-top: 0;
+    white-space: nowrap;
+  }
+  .rp-buybar.is-desk .btn-primary {
+    white-space: nowrap;
+  }
+  .rp-buybar-add-short {
+    display: none;
+  }
+  .rp-buybar-add-long {
+    display: inline;
+  }
+}
+@keyframes rp-buybar-rise {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 .shop .rp-section h2 {
   font-size: 20px;
   margin-bottom: var(--space-3);
@@ -2604,6 +2689,7 @@ html:has(.shop) {
   .record-compact,
   .shop-sticky-bar,
   .rp-buybar,
+  .rp-buybar.is-desk,
   .shop-skeleton {
     animation: none;
   }
@@ -2811,6 +2897,28 @@ html:has(.shop) {
   line-height: 1.1;
   margin: 0 0 var(--space-3);
   color: var(--color-ink);
+}
+/* Masonry: each review takes its own height, so one long one doesn't
+   stretch the cards beside it into empty boxes, and the next review drops
+   into whichever column comes free first, so the columns stay even. Newest
+   first, across then down; tab order matches. Until review-masonry.tsx has
+   measured the cards it is a plain grid whose cards still keep their own
+   height; then each card spans as many 4px rows as it is tall. */
+.shop-reviews-list.shop-reviews-all {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  align-items: start;
+}
+.shop-reviews-list.shop-reviews-all.is-masonry {
+  grid-auto-rows: 4px;
+  row-gap: 0;
+}
+.shop-reviews-all.is-masonry .shop-quote {
+  margin-bottom: var(--space-4);
+}
+.shop-reviews-end {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-6) 0 0;
 }
 .shop-reviews-list li:target {
   outline: 2px solid var(--color-accent);

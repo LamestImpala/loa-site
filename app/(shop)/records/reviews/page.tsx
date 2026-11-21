@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ratingLine, stars } from "@/lib/review";
 import { getPublishedReviews, getReviewSummary } from "../data";
+import ReviewMasonry from "../review-masonry";
 import ReviewQuoteItem from "../review-quote";
 import { CelestialBand, GardenWall } from "../shop-hero";
 
-// Every published review, newest first. The home page quotes three; this
-// is where the rest live, so a buyer who left one can always find it
+// Every published review, newest first, in full. The home page quotes
+// three; this is where the rest live, so a buyer who left one can always find it
 // (each has an id, /reviews#review-<id>, to link straight to it).
 
 export const metadata: Metadata = {
@@ -46,11 +47,11 @@ export default async function ReviewsPage() {
 
         <section className="shop-shell shop-reviews" aria-label="All reviews">
           {reviews.length > 0 ? (
-            <ul className="shop-reviews-list shop-reviews-all">
+            <ReviewMasonry className="shop-reviews-list shop-reviews-all">
               {reviews.map((q) => (
                 <ReviewQuoteItem key={q.id} quote={q} anchored />
               ))}
-            </ul>
+            </ReviewMasonry>
           ) : (
             <div className="card shop-empty">
               <div className="shop-empty-title">No reviews here yet.</div>
@@ -59,6 +60,12 @@ export default async function ReviewsPage() {
               </p>
             </div>
           )}
+          {/* The way back, for whoever read to the bottom. */}
+          <p className="shop-reviews-end">
+            <Link className="btn btn-primary" href="/">
+              Browse the records
+            </Link>
+          </p>
         </section>
       </GardenWall>
     </>

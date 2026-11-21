@@ -8,7 +8,7 @@ import {
   SELLER_INFO,
   SHIPPING_PER_PARCEL,
 } from "@/lib/records";
-import { discogsUrl, dropPct, isOnHold, isReduced } from "@/lib/record-info";
+import { cleanDiscogsName, discogsUrl, dropPct, isOnHold, isReduced } from "@/lib/record-info";
 import { KIND_PLURALS, kindOf } from "@/lib/items";
 import type { DbRecord } from "@/lib/supabase";
 import {
@@ -155,28 +155,65 @@ export function RecordBuyBox({
     []
   );
 
-  // Phones: the price and the buy button sit below the cover, off the first
-  // screen, so a bar pinned to the bottom carries them until the in-page
-  // button scrolls into view (shop.css shows the bar on phones only). Off
+  // A bar pinned to the bottom of the screen carries the price and buy
+  // button while the in-page button is out of view. One component, one set
+  // of handlers, both widths.
+  // Phones: the button sits below the cover, off the first screen. Off
   // screen is the starting assumption, which is true at load on a phone, so
   // the server's HTML already has the bar.
+  // Desktop (shop.css: .is-desk): the button starts on screen and scrolls
+  // away as the buyer reads down the condition and tracklist. The bar waits
+  // for the observer's first answer (no flash at load), and steps aside
+  // before the related records' "See all" rows reach it, so it never covers
+  // those links (or the footer).
   const buyRef = useRef<HTMLButtonElement | null>(null);
   const [buyInView, setBuyInView] = useState(false);
+  const [observed, setObserved] = useState(false);
+  const [pastEnd, setPastEnd] = useState(false);
   const canBuy = !r.sold && !held;
   useEffect(() => {
     const el = buyRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
-      ([entry]) => setBuyInView(entry.isIntersecting),
+      ([entry]) => {
+        setBuyInView(entry.isIntersecting);
+        setObserved(true);
+      },
       { threshold: 0.5 }
     );
     io.observe(el);
-    return () => io.disconnect();
+    // Where the desktop bar stops: the related records (each section opens
+    // with its "See all" row) and the footer, which together run to the end
+    // of the page. Any of them within a bar's height of the bottom of the
+    // screen means the buyer has reached them. Watching what is on screen,
+    // rather than whether the row is above or below, stays right after a
+    // jump (Home, End, back) that skips past without crossing.
+    const ends = [
+      ...(el.closest(".rp")?.querySelectorAll(".rp-related") ?? []),
+      ...document.querySelectorAll(".shop-footer"),
+    ];
+    const onScreen = new Set<Element>();
+    const endIo = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) onScreen.add(e.target);
+          else onScreen.delete(e.target);
+        }
+        setPastEnd(onScreen.size > 0);
+      },
+      { rootMargin: "0px 0px -96px 0px" }
+    );
+    ends.forEach((x) => endIo.observe(x));
+    return () => {
+      io.disconnect();
+      endIo.disconnect();
+    };
   }, [canBuy]);
   // One bar at a time: once the bundle has something in it, its own bar
   // (BundleBar, below) takes the bottom of the screen.
   const showBuyBar =
     canBuy && !buyInView && bundle.selectedRecords.length === 0;
+  const deskBar = observed && !pastEnd;
   const barShipNote =
     kind === "record"
       ? `+ $${SHIPPING_PER_PARCEL} shipping`
@@ -233,8 +270,16 @@ export function RecordBuyBox({
       )}
 
       {showBuyBar ? (
-        <div className="rp-buybar" role="region" aria-label="Price and buying">
+        <div
+          className={`rp-buybar${deskBar ? " is-desk" : ""}`}
+          role="region"
+          aria-label="Price and buying"
+        >
           <div className="shop-shell rp-buybar-inner">
+            <span className="rp-buybar-name">
+              <span className="rp-buybar-artist">{cleanDiscogsName(r.artist)}</span>
+              <span className="rp-buybar-title">{r.title}</span>
+            </span>
             <span className="rp-buybar-price">
               <span className="record-price">${r.price}</span>
               <span className="rp-buybar-ship">{barShipNote}</span>
@@ -244,7 +289,8 @@ export function RecordBuyBox({
               className="record-select rp-buybar-add"
               onClick={() => bundle.toggle(r.id)}
             >
-              + Bundle
+              <span className="rp-buybar-add-short">+ Bundle</span>
+              <span className="rp-buybar-add-long">+ Add to bundle</span>
             </button>
             <button
               type="button"
