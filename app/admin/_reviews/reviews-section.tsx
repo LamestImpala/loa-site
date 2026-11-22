@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Order, ReviewStatus, ShopReview } from "@/lib/supabase";
+import type { ReviewStatus, ShopReview } from "@/lib/supabase";
 import {
   buyerFirstName,
   publishedReviewUrl,
@@ -14,8 +14,10 @@ import {
   askableOrders,
   IMPORT_SOURCES,
   parseImportedReview,
-  recordsByOrder,
+  recordsBySale,
+  type AskableOrder,
 } from "@/lib/admin/reviews";
+import { orderNumbers } from "@/lib/admin/combined";
 import {
   addImportedReview,
   ensureReviewInvite,
@@ -24,6 +26,7 @@ import {
 } from "@/lib/admin/reviews-db";
 import { buyerLabel } from "@/lib/admin/buyers";
 import { useAdmin } from "../_shell/admin-provider";
+import { CombineControl } from "../_shell/combine-control";
 import { PageHeader } from "../_shell/primitives";
 import { buttonClass, inputClass, smallButtonClass, timeAgo, useCopied } from "../_shell/ui";
 
@@ -32,7 +35,9 @@ import { buttonClass, inputClass, smallButtonClass, timeAgo, useCopied } from ".
 // featured ones are quoted first on the shop home. Reviews from Discogs,
 // eBay or Reddit are typed in below and go live at once. "Ask for a
 // review" lists recent buyers: email buyers get the link automatically
-// ten days after drop-off; anyone's link can be copied into a DM.
+// ten days after drop-off; anyone's link can be copied into a DM. Orders
+// one buyer paid for separately can be combined into one sale there, so
+// they share one row, one link and one review.
 
 const STATUS_STYLE: Record<ReviewStatus, string> = {
   pending: "border-amber-400/40 text-amber-300",
@@ -84,7 +89,8 @@ export function ReviewsSection() {
     () => askableOrders(orders, shipments, reviewInvites, reviews),
     [orders, shipments, reviewInvites, reviews]
   );
-  const bought = useMemo(() => recordsByOrder(records), [records]);
+  // Keyed by order; a combined sale's orders each list the whole sale.
+  const bought = useMemo(() => recordsBySale(records, orders), [records, orders]);
 
   // What the buyer bought, one "Artist — Title" per line.
   function boughtList(orderId: number | null) {
@@ -118,9 +124,12 @@ export function ReviewsSection() {
 
   // Copies the ready-to-paste DM (name, records, link), or just the link.
   // The link is made on first copy, which is what marks the buyer asked.
-  async function copyAsk(order: Order, what: "dm" | "link", inPerson = false) {
+  // A combined sale has one link: the one an order of it already holds,
+  // else a new one on its first order.
+  async function copyAsk(a: AskableOrder, what: "dm" | "link") {
+    const order = a.order;
     try {
-      const invite = await ensureReviewInvite(supabase, order.id);
+      const invite = await ensureReviewInvite(supabase, a.invite?.order_id ?? order.id);
       setReviewInvites((prev) =>
         prev.some((i) => i.id === invite.id) ? prev : [invite, ...prev]
       );
@@ -128,10 +137,10 @@ export function ReviewsSection() {
       const text =
         what === "dm"
           ? reviewDmText({
-              firstName: buyerFirstName(order),
+              firstName: a.members.map(buyerFirstName).find(Boolean) ?? null,
               records: bought.get(order.id) ?? [],
               url,
-              inPerson,
+              inPerson: a.inPerson,
             })
           : url;
       if (await copyText(text, what === "dm" ? "Review request DM" : "Review link")) {
@@ -341,7 +350,8 @@ export function ReviewsSection() {
       <p className="mt-1 text-sm text-neutral-400">
         Buyers whose boxes went out (or were handed over) in the last 60 days.
         Email buyers get their link automatically 10 days after drop-off. For Reddit buyers, copy a
-        ready-to-paste DM with their name, records and link (or just the link).
+        ready-to-paste DM with their name, records and link (or just the link). One buyer, two
+        orders? Combine them and they share one request and one review.
       </p>
       {askable.length === 0 ? (
         <p className="mt-3 text-sm text-neutral-400">Nobody to ask right now.</p>
@@ -366,7 +376,10 @@ export function ReviewsSection() {
                   {buyerLabel(a.order.buyer_username, a.order.buyer_email)}
                 </span>
                 <span className="text-xs text-neutral-500">
-                  order #{a.order.id} · {a.inPerson ? "handed over" : "dropped off"}{" "}
+                  {a.members.length > 1
+                    ? `orders ${orderNumbers(a.members.map((o) => o.id))}`
+                    : `order #${a.order.id}`}{" "}
+                  · {a.inPerson ? "handed over" : "dropped off"}{" "}
                   {timeAgo(a.lastSent)}
                 </span>
                 {asked ? (
@@ -383,7 +396,7 @@ export function ReviewsSection() {
                 <button
                   type="button"
                   className={`ml-auto ${smallButtonClass}`}
-                  onClick={() => copyAsk(a.order, "dm", a.inPerson)}
+                  onClick={() => copyAsk(a, "dm")}
                   title="Copies a ready-to-paste DM with their name, records and review link"
                 >
                   {isCopied(`review-dm-${a.order.id}`)
@@ -395,11 +408,12 @@ export function ReviewsSection() {
                 <button
                   type="button"
                   className={smallButtonClass}
-                  onClick={() => copyAsk(a.order, "link")}
+                  onClick={() => copyAsk(a, "link")}
                   title={asked ? "Same link as before" : "Just the review link"}
                 >
                   {isCopied(`review-link-${a.order.id}`) ? "Copied!" : "Link only"}
                 </button>
+                <CombineControl order={a.order} variant="row" />
                 {boughtList(a.order.id)}
               </li>
             );

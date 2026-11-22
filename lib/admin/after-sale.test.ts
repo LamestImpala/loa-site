@@ -111,3 +111,30 @@ test("a sale from before the orders table has no review to ask for", () => {
   )[0];
   assert.deepEqual(Object.keys(states(afterSaleChecklist(g, none, NOW))), ["reddit"]);
 });
+
+test("a combined order's review step follows its sale", () => {
+  const o = order({ id: 29, status: "paid", buyer_username: "amy", completed_at: null, combined_into: 27 });
+  const g = shipped(o, [rec({ id: 1, sold: true, order_id: 29 })]);
+  const sale = { orderIds: [29, 27], lastSent: SENT, unsent: false, email: false };
+  const review = (ctx: Parameters<typeof afterSaleChecklist>[1]) =>
+    afterSaleChecklist(g, ctx, NOW).find((i) => i.key === "review")!;
+
+  // Asked on the other order: done here too.
+  const copied = { order_id: 27, sent_at: null, used_at: null, created_at: iso(NOW - DAY) };
+  const asked = review({ invites: [copied], reviews: [], sale });
+  assert.equal(asked.state, "done");
+  assert.match(asked.detail, /^link copied /);
+  assert.equal(review({ invites: [], reviews: [{ order_id: 27 }], sale }).state, "done");
+  // Without the sale, order 27's link says nothing about order 29.
+  assert.equal(review({ invites: [copied], reviews: [] }).state, "todo");
+
+  // The other order has an email on file: the daily job emails the sale.
+  const emailed = review({ invites: [], reviews: [], sale: { ...sale, email: true } });
+  assert.equal(emailed.state, "scheduled");
+  assert.match(emailed.detail, /^emails itself /);
+
+  // The other order's box is still home: the one request waits for it.
+  const waits = review({ invites: [], reviews: [], sale: { ...sale, unsent: true } });
+  assert.equal(waits.state, "scheduled");
+  assert.match(waits.detail, /waits for the combined order/);
+});

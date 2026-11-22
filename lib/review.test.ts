@@ -216,3 +216,40 @@ test("review DM: first name, the record, the link, and an out", () => {
   assert.match(met, /^Hey there, thanks again for meeting up! Hope Pearl Jam – Benaroya Hall sounds great\./);
   assert.ok(!met.includes("arrived"));
 });
+
+test("orders to invite: combined orders get one email, from the sale's last box", () => {
+  const orders = [
+    { id: 27, status: "paid" as const, buyer_email: "d@example.com", combined_into: null },
+    { id: 29, status: "paid" as const, buyer_email: "d@example.com", combined_into: 27 },
+    // A Reddit order combined with an email one: the email order is asked.
+    { id: 30, status: "paid" as const, buyer_email: null, combined_into: null },
+    { id: 31, status: "paid" as const, buyer_email: "e@example.com", combined_into: 30 },
+    // A refunded order in the sale doesn't hold it up.
+    { id: 32, status: "refunded" as const, buyer_email: "e@example.com", combined_into: 30 },
+  ];
+  const shipments = [
+    { order_id: 27, sent_at: daysAgo(14) },
+    { order_id: 29, sent_at: daysAgo(12) },
+    { order_id: 30, sent_at: daysAgo(15) },
+    { order_id: 31, sent_at: daysAgo(11) },
+    { order_id: 32, sent_at: null },
+  ];
+  assert.deepEqual(ordersToInvite(orders, shipments, [], now), [
+    { orderId: 27, email: "d@example.com", inPerson: false },
+    { orderId: 31, email: "e@example.com", inPerson: false },
+  ]);
+  // Already asked on any of its orders (a copied link counts): no email.
+  assert.deepEqual(ordersToInvite(orders, shipments, [{ order_id: 29 }, { order_id: 32 }], now), []);
+  // The later box sets the clock: 5 days out is too soon for the whole sale.
+  const tooSoon = shipments.map((s) => (s.order_id === 29 ? { ...s, sent_at: daysAgo(5) } : s));
+  assert.deepEqual(
+    ordersToInvite(orders, tooSoon, [], now).map((d) => d.orderId),
+    [31]
+  );
+  // A box still at home: wait.
+  const home = shipments.map((s) => (s.order_id === 29 ? { ...s, sent_at: null } : s));
+  assert.deepEqual(
+    ordersToInvite(orders, home, [], now).map((d) => d.orderId),
+    [31]
+  );
+});

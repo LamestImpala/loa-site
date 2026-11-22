@@ -32,11 +32,14 @@ import type {
 import { latestMarket, loadSnapshots, type MarketMap } from "@/lib/admin/market";
 import { holdActive, invoiceHold } from "@/lib/admin/records";
 import {
+  combineOrders as combineOrdersDb,
   placeOrder as placeOrderDb,
   releaseOrder as releaseOrderDb,
   renameOrderBuyer,
+  splitOrders as splitOrdersDb,
   type PlacedOrder,
 } from "@/lib/admin/orders-db";
+import { combinePlan, orderNumbers, splitPlan } from "@/lib/admin/combined";
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { partlySoldRequests, unsellPlan, unsoldPatch } from "@/lib/admin/sales";
 import { missingBlock, missingPlan } from "@/lib/admin/missing";
@@ -227,6 +230,10 @@ type AdminContextValue = {
   applyPlacedOrder: (placed: PlacedOrder) => void;
   upsertOrderLocal: (order: Order) => void;
   renameBuyer: (order: Order, buyer: string) => Promise<boolean>;
+  // Tie two paid orders into one sale (one review request and review for
+  // both), or undo it. No confirm — callers ask first.
+  combineOrders: (a: Order, b: Order) => Promise<boolean>;
+  splitOrder: (order: Order) => Promise<boolean>;
   releaseOrder: (order: Order) => Promise<boolean>;
   // Release one record's hold; a held order it leaves empty is cancelled.
   releaseHold: (r: DbRecord) => Promise<boolean>;
@@ -979,6 +986,48 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function combineOrders(a: Order, b: Order) {
+    const plan = combinePlan(orders, a.id, b.id);
+    if (!plan.ok) {
+      pushToast("error", plan.error);
+      return false;
+    }
+    try {
+      const saved = await combineOrdersDb(supabase, plan);
+      if (saved.length === 0) throw new Error("Couldn't combine the orders: nothing was saved");
+      saved.forEach(upsertOrderLocal);
+      const ids = [
+        plan.rootId,
+        ...orders.filter((o) => o.combined_into === plan.rootId).map((o) => o.id),
+        ...plan.ids,
+      ];
+      const sale = [...new Set(ids)].sort((x, y) => x - y);
+      pushToast("success", `Orders ${orderNumbers(sale)} are now one sale ✓`);
+      return true;
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Couldn't combine the orders");
+      return false;
+    }
+  }
+
+  async function splitOrder(order: Order) {
+    const ids = splitPlan(orders, order.id);
+    if (ids.length === 0) {
+      pushToast("error", `Order #${order.id} isn't combined with another`);
+      return false;
+    }
+    try {
+      const saved = await splitOrdersDb(supabase, ids);
+      if (saved.length === 0) throw new Error("Couldn't split the orders: nothing was saved");
+      saved.forEach(upsertOrderLocal);
+      pushToast("success", "Split — each order is its own sale again ✓");
+      return true;
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "Couldn't split the orders");
+      return false;
+    }
+  }
+
   async function releaseOrder(order: Order) {
     try {
       const released = new Set(await releaseOrderDb(supabase, order));
@@ -1602,6 +1651,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     applyPlacedOrder,
     upsertOrderLocal,
     renameBuyer,
+    combineOrders,
+    splitOrder,
     releaseOrder,
     releaseHold,
     unsellRecords,

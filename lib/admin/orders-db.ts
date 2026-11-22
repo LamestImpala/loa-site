@@ -219,3 +219,30 @@ export async function setOrderCompleted(
   }
   return data as Order;
 }
+
+// Tie orders into one sale: every order in the plan points at the sale's
+// first order (see combinePlan). Only the link is written — invoices,
+// boxes and review links stay where they are.
+export async function combineOrders(
+  supabase: SupabaseClient,
+  plan: { rootId: number; ids: number[] }
+): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .update({ combined_into: plan.rootId, updated_at: new Date().toISOString() })
+    .in("id", plan.ids)
+    .select();
+  if (error) throw new Error(`Couldn't combine the orders: ${error.message}`);
+  return (data ?? []) as Order[];
+}
+
+// Undo a combine: these orders are their own sales again (see splitPlan).
+export async function splitOrders(supabase: SupabaseClient, ids: number[]): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .update({ combined_into: null, updated_at: new Date().toISOString() })
+    .in("id", ids)
+    .select();
+  if (error) throw new Error(`Couldn't split the orders: ${error.message}`);
+  return (data ?? []) as Order[];
+}

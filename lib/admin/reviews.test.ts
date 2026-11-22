@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeSupabase } from "./fake-supabase.ts";
 import { DAY, iso, order, rec, shipment } from "./fixtures.ts";
-import { askableOrders, parseImportedReview, recordsByOrder } from "./reviews.ts";
+import { askableOrders, parseImportedReview, recordsByOrder, recordsBySale } from "./reviews.ts";
 import { addImportedReview, ensureReviewInvite, updateReview } from "./reviews-db.ts";
 import type { ReviewInvite } from "../supabase.ts";
 
@@ -127,4 +127,53 @@ test("records by order: grouped, sorted by artist then title, loose records skip
   ]);
   assert.deepEqual(map.get(7)?.map((r) => r.id), [3, 2, 1]);
   assert.equal(map.size, 1);
+});
+
+test("combined orders are one row: last box out, any order's link or review counts", () => {
+  const orders = [
+    order({ id: 27, status: "paid", buyer_username: "Danny Ross", buyer_email: "d@example.com" }),
+    order({ id: 29, status: "paid", buyer_username: "Danny", buyer_email: "d@example.com", combined_into: 27 }),
+    order({ id: 30, status: "paid" }),
+  ];
+  const shipments = [
+    shipment({ order_id: 27, sent_at: iso(now - 9 * DAY) }),
+    shipment({ order_id: 29, sent_at: iso(now - 7 * DAY) }),
+    shipment({ order_id: 30, sent_at: iso(now - 8 * DAY) }),
+  ];
+  const got = askableOrders(orders, shipments, [], [], now);
+  assert.deepEqual(got.map((a) => a.order.id), [27, 30]);
+  assert.deepEqual(got[0].members.map((o) => o.id), [27, 29]);
+  assert.equal(got[0].lastSent, iso(now - 7 * DAY));
+  assert.equal(got[0].autoEmailOn, iso(now + 3 * DAY), "ten days after the sale's last box");
+  assert.deepEqual(got[1].members.map((o) => o.id), [30]);
+
+  // A link copied for the second order is the sale's link.
+  const copied = invite({ id: 5, order_id: 29 });
+  const asked = askableOrders(orders, shipments, [copied], [], now);
+  assert.equal(asked[0].invite, copied);
+  assert.equal(asked[0].autoEmailOn, null);
+
+  // Reviewed (or the link used) on either order: the sale is done.
+  assert.deepEqual(askableOrders(orders, shipments, [], [{ order_id: 29 }], now).map((a) => a.order.id), [30]);
+  assert.deepEqual(
+    askableOrders(orders, shipments, [invite({ order_id: 29, used_at: iso(now) })], [], now).map((a) => a.order.id),
+    [30]
+  );
+
+  // One of its boxes still home: nothing to ask yet.
+  const waiting = [...shipments.slice(0, 1), shipment({ order_id: 29, sent_at: null }), shipments[2]];
+  assert.deepEqual(askableOrders(orders, waiting, [], [], now).map((a) => a.order.id), [30]);
+});
+
+test("a combined sale's orders each list the whole sale's records", () => {
+  const records = [
+    rec({ id: 1, artist: "Natalie Merchant", title: "Tigerlily", order_id: 27 }),
+    rec({ id: 2, artist: "Helmet", title: "Betty", order_id: 29 }),
+    rec({ id: 3, artist: "Wire", title: "154", order_id: 30 }),
+  ];
+  const orders = [{ id: 27, combined_into: null }, { id: 29, combined_into: 27 }, { id: 30, combined_into: null }];
+  const bought = recordsBySale(records, orders);
+  assert.deepEqual(bought.get(27)!.map((r) => r.id), [2, 1]);
+  assert.deepEqual(bought.get(29)!.map((r) => r.id), [2, 1]);
+  assert.deepEqual(bought.get(30)!.map((r) => r.id), [3]);
 });

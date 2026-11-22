@@ -1,6 +1,6 @@
 import type { DbRecord, Order, ReviewInvite, ReviewSource, Shipment, ShopReview } from "../supabase.ts";
 import { INVITE_AFTER_DAYS, MAX_REVIEW_BODY, MAX_REVIEWER_NAME } from "../review.ts";
-import { handDelivered } from "./fulfillment.ts";
+import { saleGroups, saleInvite, saleShipping } from "./combined.ts";
 
 // The Inbox's Reviews section: which recent buyers can still be asked for
 // a review, and the shape check for a review imported from another
@@ -12,15 +12,17 @@ export const ASK_WINDOW_DAYS = 60;
 export const IMPORT_SOURCES: Exclude<ReviewSource, "site">[] = ["discogs", "ebay", "reddit", "other"];
 
 export type AskableOrder = {
-  order: Order;
+  order: Order; // the sale's first paid order
+  members: Order[]; // every paid order in the sale, `order` first (just it, unless combined)
   lastSent: string; // when the last box went out
   inPerson: boolean; // every box was handed over in person, none mailed
   invite: ReviewInvite | null; // existing link, if one was made
   autoEmailOn: string | null; // when the daily job will email it (email buyers, no invite yet)
 };
 
-// Paid orders whose boxes have all gone out in the last ASK_WINDOW_DAYS
-// and that haven't left a review yet, newest drop-off first. Email
+// Paid sales whose boxes have all gone out in the last ASK_WINDOW_DAYS
+// and that haven't left a review yet, newest drop-off first. Orders that
+// were combined are one sale: one row, one link, one review. Email
 // buyers are emailed by the daily job; anyone can be sent a copied link.
 export function askableOrders(
   orders: Order[],
@@ -30,42 +32,43 @@ export function askableOrders(
   now: number = Date.now()
 ): AskableOrder[] {
   const reviewed = new Set(reviews.map((r) => r.order_id).filter((id) => id != null));
-  const inviteByOrder = new Map(invites.map((i) => [i.order_id, i]));
-  const lastSent = new Map<number, string>();
-  const unsent = new Set<number>();
-  const mailed = new Set<number>();
-  for (const s of shipments) {
-    if (s.order_id == null) continue;
-    if (!handDelivered(s)) mailed.add(s.order_id);
-    if (!s.sent_at) unsent.add(s.order_id);
-    else if (!lastSent.has(s.order_id) || s.sent_at > lastSent.get(s.order_id)!) {
-      lastSent.set(s.order_id, s.sent_at);
-    }
-  }
+  const shipping = saleShipping(orders, shipments);
   const day = 86_400_000;
   const since = now - ASK_WINDOW_DAYS * day;
   const out: AskableOrder[] = [];
-  for (const order of orders) {
-    const sent = lastSent.get(order.id);
-    if (order.status !== "paid" || !sent || unsent.has(order.id) || reviewed.has(order.id)) continue;
+  for (const [root, all] of saleGroups(orders)) {
+    const members = all.filter((o) => o.status === "paid");
+    const sale = shipping.get(root);
+    const sent = sale?.lastSent;
+    if (members.length === 0 || !sale || !sent || sale.unsent) continue;
+    if (all.some((o) => reviewed.has(o.id))) continue;
     if (Date.parse(sent) < since) continue;
-    const invite = inviteByOrder.get(order.id) ?? null;
+    const invite = saleInvite(invites, all.map((o) => o.id));
     if (invite?.used_at) continue;
     const autoEmailOn =
-      !invite && order.buyer_email
+      !invite && members.some((o) => o.buyer_email)
         ? new Date(Date.parse(sent) + INVITE_AFTER_DAYS * day).toISOString()
         : null;
-    out.push({ order, lastSent: sent, inPerson: !mailed.has(order.id), invite, autoEmailOn });
+    out.push({
+      order: members[0],
+      members,
+      lastSent: sent,
+      inPerson: !sale.mailed,
+      invite,
+      autoEmailOn,
+    });
   }
   return out.sort((a, b) => b.lastSent.localeCompare(a.lastSent));
 }
+
+type BoughtRecord = Pick<DbRecord, "id" | "artist" | "title">;
 
 // Each order's records, artist then title, so a review row can say what
 // the buyer bought.
 export function recordsByOrder(
   records: Pick<DbRecord, "id" | "artist" | "title" | "order_id">[]
-): Map<number, Pick<DbRecord, "id" | "artist" | "title">[]> {
-  const out = new Map<number, Pick<DbRecord, "id" | "artist" | "title">[]>();
+): Map<number, BoughtRecord[]> {
+  const out = new Map<number, BoughtRecord[]>();
   for (const r of records) {
     if (r.order_id == null) continue;
     const list = out.get(r.order_id) ?? [];
@@ -74,6 +77,24 @@ export function recordsByOrder(
   }
   for (const list of out.values()) {
     list.sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title));
+  }
+  return out;
+}
+
+// The same, but every order of a combined sale maps to the whole sale's
+// records — a review on either order was for all of them.
+export function recordsBySale(
+  records: Pick<DbRecord, "id" | "artist" | "title" | "order_id">[],
+  orders: Pick<Order, "id" | "combined_into">[]
+): Map<number, BoughtRecord[]> {
+  const byOrder = recordsByOrder(records);
+  const out = new Map(byOrder);
+  for (const members of saleGroups(orders).values()) {
+    if (members.length < 2) continue;
+    const all = members
+      .flatMap((o) => byOrder.get(o.id) ?? [])
+      .sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title));
+    for (const o of members) out.set(o.id, all);
   }
   return out;
 }
