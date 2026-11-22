@@ -8,9 +8,12 @@ import type { Order, ReviewInvite, Shipment } from "@/lib/supabase";
 // Daily on the Vercel cron (vercel.json): email a private review link to
 // each buyer whose box went out 10-30 days ago (see ordersToInvite). Only
 // buyers with an email on file — Reddit buyers get their link from "Copy
-// review link" in the admin. The invite row is written before the email so
-// a buyer is never asked twice; a failed send removes it to retry tomorrow.
-// ?dry=1 lists who would be emailed without sending.
+// review link" in the admin. Combined orders are one sale and get one
+// email, so every paid or refunded order is read (not just the ones with
+// an email): a sale's other orders decide whether its boxes are all out
+// and whether it was already asked. The invite row is written before the
+// email so a buyer is never asked twice; a failed send removes it to retry
+// tomorrow. ?dry=1 lists who would be emailed without sending.
 export const maxDuration = 60;
 
 async function run(req: NextRequest) {
@@ -25,9 +28,8 @@ async function run(req: NextRequest) {
     const supabase = serviceSupabase();
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
-      .select("id, status, buyer_email, buyer_username, ship_to")
-      .eq("status", "paid")
-      .not("buyer_email", "is", null);
+      .select("id, status, buyer_email, buyer_username, ship_to, combined_into")
+      .in("status", ["paid", "refunded"]);
     if (ordersError) throw new Error(ordersError.message);
     const ids = (orders ?? []).map((o) => o.id as number);
     if (ids.length === 0) return Response.json({ dry, due: [], sent: [], failed: [] });
@@ -41,7 +43,7 @@ async function run(req: NextRequest) {
     if (invError) throw new Error(invError.message);
 
     const due = ordersToInvite(
-      orders as Pick<Order, "id" | "status" | "buyer_email">[],
+      orders as Pick<Order, "id" | "status" | "buyer_email" | "combined_into">[],
       (shipments ?? []) as Pick<Shipment, "order_id" | "sent_at" | "mode">[],
       (invites ?? []) as Pick<ReviewInvite, "order_id">[]
     );

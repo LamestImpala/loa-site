@@ -2,6 +2,7 @@ import type { Order, ReviewInvite, ShopReview } from "../supabase.ts";
 import { kindOf } from "../items.ts";
 import { INVITE_AFTER_DAYS, INVITE_UNTIL_DAYS } from "../review.ts";
 import type { OrderGroup } from "./fulfillment.ts";
+import { saleInvite, type SaleReviewContext } from "./combined.ts";
 
 // What's left on an order once its boxes have gone: ask for a review,
 // take the records out of the Discogs collection, and (Reddit buyers)
@@ -25,12 +26,17 @@ const DAY = 86_400_000;
 const shortDate = (iso: string | number) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
+type ReviewCtx = {
+  invites: Pick<ReviewInvite, "order_id" | "sent_at" | "used_at" | "created_at">[];
+  reviews: Pick<ShopReview, "order_id">[];
+  // Set when the order was combined with others: the review is asked
+  // once for the whole sale, so its state is the sale's (saleReviewContext).
+  sale?: SaleReviewContext | null;
+};
+
 export function afterSaleChecklist(
   g: Pick<OrderGroup, "order" | "buyer" | "buyerEmail" | "records" | "shipments">,
-  ctx: {
-    invites: Pick<ReviewInvite, "order_id" | "sent_at" | "used_at" | "created_at">[];
-    reviews: Pick<ShopReview, "order_id">[];
-  },
+  ctx: ReviewCtx,
   now: number = Date.now()
 ): AfterSaleItem[] {
   const items: AfterSaleItem[] = [];
@@ -73,17 +79,16 @@ export function afterSaleChecklist(
 function reviewItem(
   order: Order,
   g: Pick<OrderGroup, "buyerEmail" | "shipments">,
-  ctx: {
-    invites: Pick<ReviewInvite, "order_id" | "sent_at" | "used_at" | "created_at">[];
-    reviews: Pick<ShopReview, "order_id">[];
-  },
+  ctx: ReviewCtx,
   now: number
 ): AfterSaleItem {
   const base = { key: "review" as const, label: "Review asked" };
-  if (ctx.reviews.some((r) => r.order_id === order.id)) {
+  const sale = ctx.sale ?? null;
+  const ids = sale ? sale.orderIds : [order.id];
+  if (ctx.reviews.some((r) => r.order_id != null && ids.includes(r.order_id))) {
     return { ...base, state: "done", detail: "review received" };
   }
-  const invite = ctx.invites.find((i) => i.order_id === order.id);
+  const invite = saleInvite(ctx.invites, ids);
   if (invite) {
     return {
       ...base,
@@ -97,11 +102,21 @@ function reviewItem(
   }
   // Email buyers get the link from the daily job, INVITE_AFTER_DAYS after
   // the last box left — as long as that day is still inside its window.
-  const sentAt = g.shipments
-    .map((s) => (s.sent_at ? Date.parse(s.sent_at) : NaN))
-    .filter((t) => Number.isFinite(t))
-    .reduce((a, b) => Math.max(a, b), 0);
-  if (g.buyerEmail && sentAt > 0 && now <= sentAt + INVITE_UNTIL_DAYS * DAY) {
+  // A combined sale is asked once, counted from its last box — so it waits
+  // while another of its orders still has a box at home.
+  if (sale?.unsent) {
+    return { ...base, state: "scheduled", detail: "waits for the combined order's box to go" };
+  }
+  const email = sale ? sale.email : !!g.buyerEmail;
+  const sentAt = sale
+    ? sale.lastSent
+      ? Date.parse(sale.lastSent)
+      : 0
+    : g.shipments
+        .map((s) => (s.sent_at ? Date.parse(s.sent_at) : NaN))
+        .filter((t) => Number.isFinite(t))
+        .reduce((a, b) => Math.max(a, b), 0);
+  if (email && sentAt > 0 && now <= sentAt + INVITE_UNTIL_DAYS * DAY) {
     return {
       ...base,
       state: "scheduled",
@@ -111,7 +126,7 @@ function reviewItem(
   return {
     ...base,
     state: "todo",
-    detail: g.buyerEmail ? "the automatic email didn't go — copy a link" : "copy a review DM",
+    detail: email ? "the automatic email didn't go — copy a link" : "copy a review DM",
   };
 }
 

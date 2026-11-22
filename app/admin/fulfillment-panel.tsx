@@ -40,6 +40,8 @@ import { blurOnEnter, buttonClass, inputClass, smallButtonClass, useCopied } fro
 import { BuyerField } from "./_shell/buyer-field";
 import { EmptyState } from "./_shell/primitives";
 import { EmailBuyer } from "./_ship/email-buyer";
+import { CombineControl } from "./_shell/combine-control";
+import { saleReviewContext } from "@/lib/admin/combined";
 import { AfterSale, OrderTimeline } from "./_ship/order-progress";
 
 /*
@@ -1087,7 +1089,18 @@ export function FulfillmentPanel({
       invoice,
       request: g.order?.request_id != null ? requestById.get(g.order.request_id) : null,
     });
-    const checklist = gone ? afterSaleChecklist(g, { invites: reviewInvites, reviews }, now) : [];
+    // A combined order's review step follows its whole sale.
+    const checklist = gone
+      ? afterSaleChecklist(
+          g,
+          {
+            invites: reviewInvites,
+            reviews,
+            sale: g.order ? saleReviewContext(g.order, orders, shipments) : null,
+          },
+          now
+        )
+      : [];
     const onDiscogs = g.records.filter((r) => !!r.discogs_release_id && !r.discogs_removed);
     const discogsNote = onDiscogs.map((r) => discogsStatus[r.id]).find(Boolean);
     const handedOver = g.shipments.some(handDelivered);
@@ -1259,6 +1272,7 @@ export function FulfillmentPanel({
                       </button>
                     </>
                   ) : null}
+                  {g.order ? <CombineControl order={g.order} /> : null}
                 </div>
                 {needsAddress ? (
                   <p className="mt-2 text-xs text-amber-400">

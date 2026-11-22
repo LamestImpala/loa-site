@@ -7,7 +7,7 @@ import {
   type Shipment,
 } from "./supabase.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
-import { handDelivered } from "./admin/fulfillment.ts";
+import { saleGroups, saleShipping } from "./admin/combined.ts";
 import { escapeHtml, SHOP_URL } from "./order-request.ts";
 import { ADMIN_URL } from "./hosts.ts";
 
@@ -73,41 +73,38 @@ export function parseReviewBody(raw: unknown): ParsedReview {
   return { ok: true, review: { token: b.token.toLowerCase(), rating, body, name } };
 }
 
-// Paid orders due a review email today: an email on file, every parcel
+// Paid sales due a review email today: an email on file, every parcel
 // dropped off, the last one INVITE_AFTER_DAYS–INVITE_UNTIL_DAYS ago, and
-// no invite yet (emailed or copied). Reddit buyers have no email; the
-// admin copies their link into a DM instead. A box handed over in person
-// counts from the hand-over; inPerson (nothing mailed) changes the wording.
+// no invite yet (emailed or copied). Orders that were combined are one
+// sale: one email, counted from its last box, and none if any of its
+// orders was already asked. orderId is the order whose email is used.
+// Reddit buyers have no email; the admin copies their link into a DM
+// instead. A box handed over in person counts from the hand-over;
+// inPerson (nothing mailed) changes the wording.
 export function ordersToInvite(
-  orders: Pick<Order, "id" | "status" | "buyer_email">[],
+  orders: Pick<Order, "id" | "status" | "buyer_email" | "combined_into">[],
   shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[],
   invites: Pick<ReviewInvite, "order_id">[],
   now: Date = new Date()
 ): { orderId: number; email: string; inPerson: boolean }[] {
   const invited = new Set(invites.map((i) => i.order_id));
-  const lastSent = new Map<number, number>();
-  const unsent = new Set<number>();
-  const mailed = new Set<number>();
-  for (const s of shipments) {
-    if (s.order_id == null) continue;
-    if (!handDelivered(s)) mailed.add(s.order_id);
-    if (!s.sent_at) {
-      unsent.add(s.order_id);
-      continue;
-    }
-    const t = Date.parse(s.sent_at);
-    lastSent.set(s.order_id, Math.max(lastSent.get(s.order_id) ?? 0, t));
-  }
+  const shipping = saleShipping(orders, shipments);
   const day = 86_400_000;
   const earliest = now.getTime() - INVITE_UNTIL_DAYS * day;
   const latest = now.getTime() - INVITE_AFTER_DAYS * day;
   const due: { orderId: number; email: string; inPerson: boolean }[] = [];
-  for (const o of orders) {
-    const email = o.buyer_email?.trim().toLowerCase();
-    if (o.status !== "paid" || !email || invited.has(o.id) || unsent.has(o.id)) continue;
-    const sent = lastSent.get(o.id);
-    if (sent == null || sent < earliest || sent > latest) continue;
-    due.push({ orderId: o.id, email, inPerson: !mailed.has(o.id) });
+  for (const [root, members] of saleGroups(orders)) {
+    const sale = shipping.get(root);
+    if (!sale?.lastSent || sale.unsent || members.some((o) => invited.has(o.id))) continue;
+    const sent = Date.parse(sale.lastSent);
+    if (sent < earliest || sent > latest) continue;
+    const to = members.find((o) => o.status === "paid" && o.buyer_email?.trim());
+    if (!to) continue;
+    due.push({
+      orderId: to.id,
+      email: to.buyer_email!.trim().toLowerCase(),
+      inPerson: !sale.mailed,
+    });
   }
   return due;
 }

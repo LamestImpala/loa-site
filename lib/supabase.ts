@@ -132,6 +132,12 @@ export type Order = {
   // Absent on rows read before the 20261114 migration is applied — the
   // admin then leaves "Mark done" out rather than offer a write that fails.
   completed_at?: string | null;
+  // The first order of the sale this one was combined into ("Combine");
+  // null = its own sale. The orders keep their own invoices and boxes —
+  // only review requests and reviews treat the sale as one. Absent on
+  // rows read before the 20261122 migration is applied — the admin then
+  // leaves "Combine" out rather than offer a write that fails.
+  combined_into?: number | null;
   created_at: string;
   updated_at: string;
 };
