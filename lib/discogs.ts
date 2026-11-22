@@ -22,7 +22,11 @@ type DiscogsCollectionResponse = {
   releases?: DiscogsRelease[];
 };
 
-export async function getDiscogsCollection(): Promise<DiscogsRelease[]> {
+// `fresh` skips the hour-long cache: the collection import has to see a
+// record the moment it is added; the public collection page does not.
+export async function getDiscogsCollection(
+  { fresh = false }: { fresh?: boolean } = {}
+): Promise<DiscogsRelease[]> {
   const username = process.env.DISCOGS_USERNAME;
   const token = process.env.DISCOGS_TOKEN;
 
@@ -49,7 +53,7 @@ export async function getDiscogsCollection(): Promise<DiscogsRelease[]> {
           Authorization: `Discogs token=${token}`,
           "User-Agent": "LateOnsetAudiophile/1.0",
         },
-        next: { revalidate: 3600 },
+        ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: 3600 } }),
       });
       attempt += 1;
     } while (response.status >= 500 && attempt < 3);

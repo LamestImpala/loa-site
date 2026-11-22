@@ -9,8 +9,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DbRecord, ItemDetails, ItemKind } from "@/lib/supabase";
 import { KINDS, KIND_LABELS } from "@/lib/items";
-import { releaseDetailsFromDiscogs, type ReleaseDetails } from "@/lib/record-info";
-import { detectCollection } from "@/lib/admin/collection";
+import type { ReleaseDetails } from "@/lib/record-info";
+import { recordRowFromRelease } from "@/lib/admin/discogs-row";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass, drawerClass, inputClass, primaryButtonClass } from "../_shell/ui";
 import { ConditionSelect, DetailsInputs } from "./item-fields";
@@ -109,31 +109,19 @@ export function AddItemDrawer({
       });
       const rel = await res.json();
       if (!res.ok) throw new Error(rel.error || `Discogs returned ${res.status}`);
-      const label = rel.labels?.[0];
-      const descriptions = (rel.formats ?? [])
-        .flatMap((f: { descriptions?: string[] }) => f.descriptions ?? [])
-        .join(", ");
-      const pressing = [
-        rel.year ? String(rel.year) : null,
-        [label?.name, label?.catno].filter(Boolean).join(" ") || null,
-        descriptions || null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const primary =
-        rel.images?.find((im: { type: string }) => im.type === "primary") ?? rel.images?.[0];
+      const row = recordRowFromRelease(rel);
       setRecord({
         discogs_release_id: releaseId,
-        artist: rel.artists?.map((a: { name: string }) => a.name).join(", ") ?? "",
-        title: rel.title ?? "",
-        pressing,
+        artist: row.artist,
+        title: row.title,
+        pressing: row.pressing,
         media: "",
         sleeve: "",
         price: "0",
-        cover_image: primary?.uri ?? rel.thumb ?? "",
-        genres: (rel.genres ?? []).join(", "),
-        collection: detectCollection(rel),
-        details: releaseDetailsFromDiscogs(rel),
+        cover_image: row.cover_image,
+        genres: row.genres.join(", "),
+        collection: row.collection,
+        details: row.details,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch release");

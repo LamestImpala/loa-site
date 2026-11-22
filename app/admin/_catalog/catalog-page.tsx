@@ -85,6 +85,7 @@ export function CatalogPage() {
     visits,
     market,
     pushToast,
+    loadData,
     savingIds,
     setSaving,
     updateRecord,
@@ -226,6 +227,42 @@ export function CatalogPage() {
   // The "Add item" drawer shares the right edge with the details drawer, so
   // opening one closes the other.
   const [adding, setAdding] = useState(false);
+  const [checkingDiscogs, setCheckingDiscogs] = useState(false);
+
+  // Run the hourly Discogs import now: every copy in the Discogs collection
+  // with no record in Stock becomes an ungraded draft.
+  async function checkDiscogs() {
+    setCheckingDiscogs(true);
+    try {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/discogs-import", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${current?.access_token ?? ""}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `The check failed (${res.status})`);
+      const added: number = body.imported?.length ?? 0;
+      const remaining: number = body.remaining ?? 0;
+      const more = remaining > 0 ? ` ${remaining} more will come in on the next checks.` : "";
+      if (added > 0) {
+        pushToast(
+          "success",
+          `Added ${added} draft${added === 1 ? "" : "s"} from Discogs — grade ${added === 1 ? "it" : "them"} to put ${added === 1 ? "it" : "them"} on the shop.${more}`
+        );
+        await loadData();
+      } else if (remaining > 0) {
+        pushToast("error", `Nothing was added this time.${more}`);
+      } else {
+        pushToast("success", "Stock already has everything in your Discogs collection ✓");
+      }
+    } catch (e) {
+      pushToast("error", e instanceof Error ? e.message : "The Discogs check failed.");
+    } finally {
+      setCheckingDiscogs(false);
+    }
+  }
   const openRow = useCallback(
     (id: number | null) => {
       if (id != null) setAdding(false);
@@ -735,16 +772,27 @@ export function CatalogPage() {
             : "Everything you sell. Shown controls whether an item is on the shop at all; Sold keeps it visible with a SOLD badge."
         }
         actions={
-          <button
-            type="button"
-            onClick={() => {
-              openDrawer(null);
-              setAdding(true);
-            }}
-            className={primaryButtonClass}
-          >
-            Add item
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => void checkDiscogs()}
+              disabled={checkingDiscogs}
+              title="Add anything in your Discogs collection that isn't in Stock yet, as a draft. This also runs by itself every hour."
+              className={buttonClass}
+            >
+              {checkingDiscogs ? "Checking Discogs…" : "Check Discogs"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                openDrawer(null);
+                setAdding(true);
+              }}
+              className={primaryButtonClass}
+            >
+              Add item
+            </button>
+          </>
         }
       />
         <div className="mt-6 flex flex-wrap gap-2">
