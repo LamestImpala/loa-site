@@ -54,6 +54,15 @@ export const CatalogRow = memo(function CatalogRow({
 }: Props) {
   const edited = priceDraft !== undefined && priceDraft !== String(r.price);
   const photoCount = (r.photo_urls ?? []).length;
+  // Who the Status badge is about: the buyer of a sold copy, or whoever a
+  // live hold is for. Shown under the badge, not inside it.
+  const who = r.sold
+    ? (r.buyer_username ?? "").trim()
+      ? buyerLabel(r.buyer_username)
+      : ""
+    : holdActive(r)
+      ? buyerLabel(r.hold_buyer)
+      : "";
   return (
     <tr
       className={`border-b border-white/5 last:border-b-0 ${
@@ -183,59 +192,66 @@ export const CatalogRow = memo(function CatalogRow({
         />
       </td>
       <td className="px-3 py-2 align-top text-xs">
-        {r.sold ? (
-          <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
-            Sold{(r.buyer_username ?? "").trim() ? ` · ${buyerLabel(r.buyer_username)}` : ""}
-          </span>
-        ) : holdActive(r) ? (
-          <span
-            className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
-            title={`Held ${holdUntilText(r)}`}
-          >
-            {invoiceHold(r) ? "Invoiced" : "Held"} · {buyerLabel(r.hold_buyer)}
-          </span>
-        ) : r.listed ? (
-          <span className="text-neutral-500">on shop</span>
-        ) : isDraft(r) ? (
-          <span
-            className="rounded-full border border-sky-400/40 px-2 py-0.5 text-sky-300"
-            title={
-              awaitsPriceRun(r)
-                ? "Not on the shop yet — the next price run sets its price and publishes it"
-                : "Not on the shop yet — open it to set a price and publish"
-            }
-          >
-            {awaitsPriceRun(r) ? "Draft · pricing at 6 AM" : "Draft"}
-          </span>
-        ) : (
-          <span className="text-neutral-600">hidden</span>
-        )}
-        {needsPhotos(r) ? (
-          // Buyers want to see the actual copy before paying real money;
-          // the shop otherwise shows a Discogs stock cover.
-          <span
-            className="ml-2 rounded-full border border-sky-400/40 px-2 py-0.5 text-sky-300"
-            title={`$${PHOTO_NUDGE_PRICE}+ with only a stock cover on the shop — add photos of this copy in the drawer`}
-          >
-            Add photos
-          </span>
-        ) : null}
-        {r.discogs_removed && !r.sold ? (
-          // Back for sale (un-sold, or a refund relisted it) but already
-          // out of the Discogs collection — the drawer re-adds it.
-          <span
-            className="ml-2 rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
-            title="This record is for sale again but was removed from your Discogs collection — open the drawer to re-add it"
-          >
-            Re-add to Discogs
-          </span>
-        ) : r.discogs_removed ? (
-          <span
-            className="ml-2 text-neutral-600"
-            title="Removed from your Discogs collection"
-          >
-            ✓ Discogs
-          </span>
+        {/* Badges never wrap inside themselves: a pill that breaks across
+            two lines draws as two half-pills. The buyer's name sits on its
+            own line underneath instead of inside the badge. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 whitespace-nowrap">
+          {r.sold ? (
+            <span className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-emerald-300">
+              Sold
+            </span>
+          ) : holdActive(r) ? (
+            <span
+              className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
+              title={`Held ${holdUntilText(r)}`}
+            >
+              {invoiceHold(r) ? "Invoiced" : "Held"}
+            </span>
+          ) : r.listed ? (
+            <span className="text-neutral-500">on shop</span>
+          ) : isDraft(r) ? (
+            <span
+              className="rounded-full border border-sky-400/40 px-2 py-0.5 text-sky-300"
+              title={
+                awaitsPriceRun(r)
+                  ? "Not on the shop yet — the next price run sets its price and publishes it"
+                  : "Not on the shop yet — open it to set a price and publish"
+              }
+            >
+              {awaitsPriceRun(r) ? "Draft · pricing at 6 AM" : "Draft"}
+            </span>
+          ) : (
+            <span className="text-neutral-600">hidden</span>
+          )}
+          {needsPhotos(r) ? (
+            // Buyers want to see the actual copy before paying real money;
+            // the shop otherwise shows a Discogs stock cover.
+            <span
+              className="rounded-full border border-sky-400/40 px-2 py-0.5 text-sky-300"
+              title={`$${PHOTO_NUDGE_PRICE}+ with only a stock cover on the shop — add photos of this copy in the drawer`}
+            >
+              Add photos
+            </span>
+          ) : null}
+          {r.discogs_removed && !r.sold ? (
+            // Back for sale (un-sold, or a refund relisted it) but already
+            // out of the Discogs collection — the drawer re-adds it.
+            <span
+              className="rounded-full border border-amber-400/40 px-2 py-0.5 text-amber-300"
+              title="This record is for sale again but was removed from your Discogs collection — open the drawer to re-add it"
+            >
+              Re-add to Discogs
+            </span>
+          ) : r.discogs_removed ? (
+            <span className="text-neutral-600" title="Removed from your Discogs collection">
+              ✓ Discogs
+            </span>
+          ) : null}
+        </div>
+        {who ? (
+          <p className="mt-1 max-w-[11rem] truncate text-neutral-400" title={who}>
+            {who}
+          </p>
         ) : null}
       </td>
     </tr>
