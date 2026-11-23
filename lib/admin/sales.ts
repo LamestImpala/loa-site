@@ -173,7 +173,8 @@ export function unsellPlan(
 
 // The sale-desk reply to a buyer: the quote, then how to pay. A Reddit
 // buyer is asked for a PayPal email; an email buyer already gave one, so
-// the invoice goes to the address the reply is sent to.
+// the invoice goes to the address the reply is sent to. Once the invoice
+// exists, the reply carries its payment link instead.
 export function saleReplyText(a: {
   buyer: string;
   email?: string | null;
@@ -185,14 +186,18 @@ export function saleReplyText(a: {
   shippingDetail?: string; // "free on 3+ records", "$6 records + $12 poster tube"
   shippingNote?: string | null; // the equipment "quoted separately" sentence
   total: number;
+  invoiceUrl?: string | null; // the payment link, once the invoice exists
 }): string {
   const byEmail = Boolean(a.email?.trim());
+  const invoiceUrl = a.invoiceUrl?.trim();
   const name = a.buyer.trim().replace(/^u\//, "");
   const hi = name ? (byEmail ? `Hi ${name}!` : `Hi u/${name}!`) : "Hi!";
   const note = (a.creditNote ?? "").trim();
   const creditLine =
     a.credit > 0 ? `\nCredit: −$${a.credit}${note ? ` (${note})` : ""}` : "";
-  const pay = byEmail
+  const pay = invoiceUrl
+    ? `Your PayPal G&S invoice is ready — I cover the fee. You can pay here:\n${invoiceUrl}`
+    : byEmail
     ? "Payment is a PayPal G&S invoice — I cover the fee. I'll send it to this email address once you confirm the list."
     : "Payment is PayPal G&S invoice — I cover the fee. Reply with your PayPal email and I'll send the invoice there, or I can post a payment link here.";
   const detail = a.shippingDetail ?? (a.shipping === 0 ? "free on 3+ records" : "");
