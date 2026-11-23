@@ -160,4 +160,14 @@ test("sale reply: reddit buyers are asked for a PayPal email, email buyers get t
   assert.match(email, /Credit: −\$5 \(sleeve split\)/);
   assert.match(email, /send it to this email address/);
   assert.match(saleReplyText({ ...base, buyer: "" }), /^Hi! /);
+  // Once the invoice exists, the reply links to it instead of promising one.
+  const url = "https://www.paypal.com/invoice/p/#INV2-ABCD";
+  for (const invoiced of [
+    saleReplyText({ ...base, buyer: "u/amy", invoiceUrl: url }),
+    saleReplyText({ ...base, buyer: "Jane", email: "jane@example.com", invoiceUrl: url }),
+  ]) {
+    assert.ok(invoiced.endsWith(`You can pay here:\n${url}`));
+    assert.doesNotMatch(invoiced, /once you confirm|Reply with your PayPal email/);
+  }
+  assert.match(saleReplyText({ ...base, buyer: "u/amy", invoiceUrl: null }), /Reply with your PayPal email/);
 });

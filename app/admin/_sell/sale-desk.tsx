@@ -29,6 +29,7 @@ export function SaleDesk({ desk, paste }: { desk: Desk; paste: PasteDmState }) {
     records,
     setRecords,
     orders,
+    invoices,
     orderRequests,
     sendShopEmail,
     loadData,
@@ -148,6 +149,16 @@ export function SaleDesk({ desk, paste }: { desk: Desk; paste: PasteDmState }) {
     () => liveInvoiceOn(saleRecords, new Map(orders.map((o) => [o.id, o]))),
     [saleRecords, orders]
   );
+  // That invoice's payment link, for the reply: from the saved invoice row
+  // (so it's there after a reload or loading the order back onto the desk),
+  // else from the invoice just created here.
+  const deskInvoiceUrl = useMemo(() => {
+    if (deskInvoice) {
+      const saved = invoices.find((i) => i.paypal_invoice_id === deskInvoice);
+      if (saved?.recipient_view_url) return saved.recipient_view_url;
+    }
+    return saleInvoice?.key === deskKey ? saleInvoice.url : null;
+  }, [deskInvoice, invoices, saleInvoice, deskKey]);
   // What the desk hands to the writes: every record's agreed price and the
   // credit with its reason.
   const saleTerms = useMemo(
@@ -216,6 +227,7 @@ export function SaleDesk({ desk, paste }: { desk: Desk; paste: PasteDmState }) {
       shippingDetail: saleTotals.shippingDetail,
       shippingNote: saleTotals.shippingNote,
       total: saleTotals.total,
+      invoiceUrl: deskInvoiceUrl,
     });
   }
 
@@ -709,7 +721,7 @@ export function SaleDesk({ desk, paste }: { desk: Desk; paste: PasteDmState }) {
                   className={buttonClass}
                   disabled={saleBusy !== null}
                   onClick={emailSaleReply}
-                  title={`Send the breakdown to ${deskEmail} as orders@curiouserrecords.com`}
+                  title={`Send the breakdown${deskInvoiceUrl ? " and the invoice's payment link" : ""} to ${deskEmail} as orders@curiouserrecords.com`}
                 >
                   {saleBusy === "email" ? "Sending…" : "Email reply"}
                 </button>
