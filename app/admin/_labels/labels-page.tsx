@@ -23,7 +23,7 @@ import { setParcelTracking } from "@/lib/admin/shipments-db";
 import { useAdmin } from "../_shell/admin-provider";
 import { NextStep, nextStepLinkClass } from "../_shell/next-step";
 import { buttonClass, inputClass, smallButtonClass } from "../_shell/ui";
-import { extractLines } from "./pdf-text";
+import { readLabel } from "./pdf-text";
 
 // Label intake. Drop the label PDFs from PayPal's Shipping Center: each
 // one is read in the browser for its tracking number and recipient,
@@ -42,6 +42,7 @@ type Row = {
   bytes: ArrayBuffer | null;
   extracted: ExtractedLabel | null; // null while reading
   readable: boolean; // false = no text in the PDF, type it in
+  readError: string | null; // the PDF couldn't be read at all
   tracking: string;
   parcelId: number | null;
   confident: boolean; // the match was clear-cut
@@ -141,6 +142,7 @@ export function LabelsPage() {
       bytes: null,
       extracted: null,
       readable: true,
+      readError: null,
       tracking: "",
       parcelId: null,
       confident: false,
@@ -151,7 +153,7 @@ export function LabelsPage() {
     // never land on the same box.
     for (const row of fresh) {
       const bytes = await row.file.arrayBuffer();
-      const lines = await extractLines(bytes.slice(0));
+      const { lines, error } = await readLabel(bytes.slice(0));
       const extracted = extractLabel(lines);
       setRows((prev) => {
         const taken = new Set(prev.filter((r) => r.key !== row.key).map((r) => r.parcelId));
@@ -164,6 +166,7 @@ export function LabelsPage() {
                 bytes,
                 extracted,
                 readable: lines.length > 0,
+                readError: error,
                 tracking: extracted.tracking ?? "",
                 parcelId: match.best?.shipment.id ?? null,
                 confident: match.confident,
@@ -383,6 +386,13 @@ export function LabelsPage() {
                   <span className="min-w-0 flex-1 truncate">{r.file.name}</span>
                   {!r.bytes ? (
                     <span className="text-xs text-neutral-500">reading…</span>
+                  ) : r.readError ? (
+                    <span
+                      className="text-xs text-red-300"
+                      title={`The label couldn't be read in this browser (${r.readError}) — type the tracking number and pick the box`}
+                    >
+                      couldn’t read it — type it
+                    </span>
                   ) : !r.readable ? (
                     <span className="text-xs text-amber-300" title="The PDF has no text layer — type the tracking number and pick the box">
                       no text found — type it
