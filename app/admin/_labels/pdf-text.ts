@@ -27,9 +27,17 @@ async function pdfjs() {
   return loading;
 }
 
-// The label's text as lines, top to bottom. An unreadable or image-only
-// PDF yields [] so the caller falls back to typing the details in.
-export async function extractLines(bytes: ArrayBuffer): Promise<string[]> {
+export type LabelText = { lines: string[]; error: string | null };
+
+// The label's text as lines, top to bottom. An image-only PDF yields no
+// lines; a PDF that couldn't be read at all also carries the reason, so
+// the page can say so instead of looking like a label with no text.
+//
+// The text is pulled with a stream reader rather than pdf.js's
+// getTextContent(): that helper loops with `for await` over a
+// ReadableStream, which Safari doesn't support, so there every label
+// came back empty.
+export async function readLabel(bytes: ArrayBuffer): Promise<LabelText> {
   try {
     const lib = await pdfjs();
     const task = lib.getDocument({ data: new Uint8Array(bytes) });
@@ -38,19 +46,24 @@ export async function extractLines(bytes: ArrayBuffer): Promise<string[]> {
       const doc = await task.promise;
       for (let i = 1; i <= doc.numPages; i++) {
         const page = await doc.getPage(i);
-        const content = await page.getTextContent();
-        for (const it of content.items) {
-          if ("str" in it && Array.isArray(it.transform)) {
-            items.push({ str: it.str, transform: it.transform });
+        const reader = page.streamTextContent().getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const it of value?.items ?? []) {
+            if ("str" in it && Array.isArray(it.transform)) {
+              items.push({ str: it.str, transform: it.transform });
+            }
           }
         }
       }
     } finally {
       await task.destroy();
     }
-    return linesFromItems(items);
+    return { lines: linesFromItems(items), error: null };
   } catch (e) {
-    console.warn("label text extraction failed:", e instanceof Error ? e.message : e);
-    return [];
+    const error = e instanceof Error ? e.message : String(e);
+    console.warn("label text extraction failed:", error);
+    return { lines: [], error };
   }
 }
