@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/job-auth";
 import {
-  ADMIN_EMAIL,
-  SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
   type ShopMessage,
 } from "@/lib/supabase";
@@ -25,21 +23,8 @@ import { orderEmailSubject } from "@/lib/admin/messages";
 //   attachments: [{ url, filename }] — photos in our public record-photos
 //   bucket, which Resend fetches by URL (parseAttachments refuses the rest).
 
-async function adminClient(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) return null;
-  return supabase;
-}
-
 export async function POST(req: NextRequest) {
-  const supabase = await adminClient(req);
+  const supabase = await requireAdmin(req);
   if (!supabase) return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   if (!emailConfigured()) {
     return NextResponse.json(

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import {
-  ADMIN_EMAIL,
-  SUPABASE_PUBLISHABLE_KEY,
-  SUPABASE_URL,
-} from "@/lib/supabase";
+import { requireAdmin } from "@/lib/job-auth";
 
 // Adds a release back to the owner's Discogs collection — the undo of
 // /api/discogs-remove, for a record that's for sale again after its copy
@@ -16,15 +11,8 @@ import {
 // release — re-added by hand, or a keeper copy — the route adds nothing
 // and answers 409 with the count, unless the admin confirms (`force`).
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  const supabase = await requireAdmin(req);
+  if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
 

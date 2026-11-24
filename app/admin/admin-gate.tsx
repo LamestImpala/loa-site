@@ -10,16 +10,19 @@ import {
 import type { Factor, Session, SupabaseClient } from "@supabase/supabase-js";
 import { ADMIN_EMAIL, getBrowserSupabase } from "@/lib/supabase";
 import { cleanCode, tokenAal, twoStepFor, verifiedTotp } from "@/lib/admin/mfa";
+import { TwoStepSection } from "./_shell/two-step";
 import { buttonClass, inputClass, primaryButtonClass } from "./_shell/ui";
 
 // Client-side sign-in gate shared by every /admin page. It only decides what
 // to render — RLS and the per-route email checks are what actually protect
 // the data — so pages under the gate can assume a signed-in admin session.
 //
-// Two-step sign-in: once an authenticator app is set up (Settings →
-// Account), a password or magic-link session is only half signed in. The
-// gate then asks for the app's 6-digit code and renders the admin only
-// after Supabase has raised the session to "aal2" (lib/admin/mfa.ts).
+// Two-step sign-in: a password or magic-link session is only half signed
+// in. The gate asks for the 6-digit code from the owner's authenticator
+// app and renders the admin only after Supabase has raised the session to
+// "aal2" (lib/admin/mfa.ts) — the level the admin routes (lib/job-auth.ts)
+// and the database policies insist on. An account with no authenticator
+// yet is walked through setting one up instead.
 
 type AdminSession = { supabase: SupabaseClient; session: Session };
 
@@ -251,6 +254,34 @@ export function AdminGate({ children }: { children: ReactNode }) {
         />
       );
     }
+    // No authenticator on the account (a first sign-in, or the old one was
+    // removed after a lost phone): nothing behind the gate would load, so
+    // set one up here. Confirming its first code raises this session.
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <section className="mx-auto max-w-2xl px-4 py-16">
+          <h1 className="text-3xl font-semibold">One more step</h1>
+          <p className="mt-3 text-sm text-neutral-400">
+            The admin only opens with two-step sign-in. Set it up once and
+            you&apos;re in.
+          </p>
+          <TwoStepSection
+            supabase={supabase}
+            onTurnedOn={async () => {
+              const { data } = await supabase.auth.getSession();
+              if (data.session) setSession(data.session);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => supabase.auth.signOut()}
+            className="mt-10 text-sm text-neutral-500 transition hover:text-white"
+          >
+            Sign out
+          </button>
+        </section>
+      </main>
+    );
   }
 
   return (

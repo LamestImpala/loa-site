@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import {
-  ADMIN_EMAIL,
-  SUPABASE_PUBLISHABLE_KEY,
-  SUPABASE_URL,
-} from "@/lib/supabase";
+import { requireAdmin } from "@/lib/job-auth";
 import { removableInstance } from "@/lib/admin/discogs-instances";
 
 // Removes a release from the owner's Discogs collection. The Discogs token
@@ -17,15 +12,8 @@ import { removableInstance } from "@/lib/admin/discogs-instances";
 // can't be undone — so the route deletes nothing and answers 409 with
 // the copies, for the seller to remove the right one on Discogs.
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  const supabase = await requireAdmin(req);
+  if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
 

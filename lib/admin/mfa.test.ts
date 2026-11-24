@@ -50,12 +50,13 @@ test("verified totp: only confirmed authenticator apps count", () => {
   assert.deepEqual(verifiedTotp(undefined), []);
 });
 
-test("two-step: a code is asked for exactly when one is set up and not yet given", () => {
-  // No authenticator yet: password alone still gets in.
-  assert.equal(twoStepFor("aal1", []), "ok");
-  assert.equal(twoStepFor("aal1", null), "ok");
-  // Started but never confirmed: still off.
-  assert.equal(twoStepFor("aal1", [totp("a", "unverified")]), "ok");
+test("two-step: only a session that has given a code gets in", () => {
+  // No authenticator yet: set one up first.
+  assert.equal(twoStepFor("aal1", []), "setup");
+  assert.equal(twoStepFor("aal1", null), "setup");
+  // Started but never confirmed: same as none.
+  assert.equal(twoStepFor("aal1", [totp("a", "unverified")]), "setup");
+  assert.equal(twoStepFor(null, []), "setup");
   // Set up, session is password- or magic-link-only: ask.
   assert.equal(twoStepFor("aal1", [totp("a", "verified")]), "challenge");
   // A token with no readable level is treated as not having passed.

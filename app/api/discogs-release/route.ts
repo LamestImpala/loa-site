@@ -1,24 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import {
-  ADMIN_EMAIL,
-  SUPABASE_PUBLISHABLE_KEY,
-  SUPABASE_URL,
-} from "@/lib/supabase";
+import { requireAdmin } from "@/lib/job-auth";
 
 // Fetches a Discogs release for the admin's "Add a record" form. Runs
 // server-side so the request carries the Discogs token when configured —
 // anonymous browser calls to api.discogs.com hit rate limits quickly.
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  const supabase = await requireAdmin(req);
+  if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
 

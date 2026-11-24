@@ -9,7 +9,8 @@ import { buttonClass, inputClass, primaryButtonClass, smallButtonClass } from ".
 // the QR code or type the key, then prove it with a first code), see the
 // ones already set up, and remove one. Once an authenticator is on the
 // account, the sign-in gate asks for its code after the password or magic
-// link (admin-gate.tsx).
+// link, and won't open the admin without one (admin-gate.tsx, which also
+// shows this section on its own when the account has none yet).
 //
 // It talks to Supabase Auth only, and reports in place rather than through
 // the admin's toasts, so it has no need of the admin data provider.
@@ -170,7 +171,7 @@ export function TwoStepSection({
       kind: "ok",
       text: left.length
         ? "Removed. Its codes no longer work."
-        : "Removed. Two-step sign-in is off: the password alone signs in again.",
+        : "Removed. The admin will ask you to set up two-step sign-in again before it opens.",
     });
   }
 
@@ -236,7 +237,7 @@ export function TwoStepSection({
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="text-neutral-400">
                         {devices.length === 1
-                          ? "This turns two-step sign-in off."
+                          ? "It's the only one: the admin stays shut until you set up another."
                           : "Its codes will stop working."}
                       </span>
                       <button
