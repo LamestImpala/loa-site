@@ -39,15 +39,17 @@ export function verifiedTotp<F extends FactorLike>(factors: readonly F[] | null 
 }
 
 // What stands between a signed-in admin and the admin pages:
-//   "ok"        — the session has passed a code, or no authenticator is set
-//                 up yet (two-step sign-in is off);
+//   "ok"        — the session has passed a code;
 //   "challenge" — an authenticator is set up and this session hasn't
-//                 answered it: ask for a code first.
-export type TwoStep = "ok" | "challenge";
+//                 answered it: ask for a code first;
+//   "setup"     — no authenticator yet. The server routes and the database
+//                 only answer a session that has given a code, so the
+//                 admin has nothing to show until one is set up.
+export type TwoStep = "ok" | "challenge" | "setup";
 
 export function twoStepFor(aal: string | null, factors: readonly FactorLike[] | null | undefined): TwoStep {
   if (aal === "aal2") return "ok";
-  return verifiedTotp(factors).length > 0 ? "challenge" : "ok";
+  return verifiedTotp(factors).length > 0 ? "challenge" : "setup";
 }
 
 // Six digits, whatever was typed or pasted around them ("123 456").

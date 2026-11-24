@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/job-auth";
 import {
-  ADMIN_EMAIL,
-  SUPABASE_PUBLISHABLE_KEY,
-  SUPABASE_URL,
   type Invoice,
   type Order,
   type OrderRequest,
@@ -49,26 +46,13 @@ import {
 //   DELETE ?id=INV2-…              — cancel the invoice on PayPal, cancel
 //     its order, and release the records (stamp + hold + order cleared).
 
-async function adminClient(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) return null;
-  return supabase;
-}
-
 function invoiceIdFrom(req: NextRequest): string | null {
   const id = req.nextUrl.searchParams.get("id")?.trim() ?? "";
   return /^[A-Z0-9-]{6,64}$/i.test(id) ? id : null;
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await adminClient(req);
+  const supabase = await requireAdmin(req);
   if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
@@ -356,7 +340,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = await adminClient(req);
+  const supabase = await requireAdmin(req);
   if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
@@ -397,7 +381,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const supabase = await adminClient(req);
+  const supabase = await requireAdmin(req);
   if (!supabase) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
