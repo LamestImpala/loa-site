@@ -2,9 +2,15 @@ import { createHmac } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Per-visitor limits for the public write endpoints. A visitor is their IP
-// address, stored only as a keyed hash: the route counts that hash's recent
-// rows in the table it is about to write to, so there is no counter table
-// to keep clean. Server-only (it needs the hashing secret).
+// address, stored only as a keyed hash. Two ways to count, by how often the
+// endpoint is written to:
+//   - overLimit(): the route counts that hash's recent rows in the table it
+//     is about to write to. No counter to keep clean; right for rare writes
+//     that already store the hash (order requests).
+//   - hitAllowed(): one counter row per visitor per window, bumped in the
+//     database in a single statement. Right for frequent writes whose rows
+//     should not carry the hash (tracking).
+// Server-only (it needs the hashing secret).
 
 // The caller's address as Vercel reports it. Vercel sets x-real-ip on every
 // request and overwrites whatever the client sent, so it can't be forged
@@ -86,4 +92,39 @@ export async function overLimit(
     return false;
   }
   return (count ?? 0) >= w.max;
+}
+
+export type HitLimit = {
+  // What is being limited, e.g. "track". One window length per scope.
+  scope: string;
+  visitor: string;
+  windowSeconds: number;
+  max: number;
+};
+
+// Counts one hit for this visitor and says whether it is still within the
+// limit: at most `max` per fixed window of `windowSeconds`. The count lives
+// in the rate_hits table and is bumped by the rate_hit() database function
+// in one statement, so a burst of parallel requests can't slip past it, and
+// finished windows are deleted as new ones start.
+//
+// A failed call reads as "allowed", like overLimit(): the limit must never
+// be why a real shopper's hit is lost, and each table it guards keeps its
+// own shop-wide cap in the database. That includes the function not
+// existing yet (PGRST202), which is the case between this code going live
+// and its migration being applied, so that one isn't logged.
+export async function hitAllowed(db: SupabaseClient, l: HitLimit): Promise<boolean> {
+  const { data, error } = await db.rpc("rate_hit", {
+    p_scope: l.scope,
+    p_visitor: l.visitor,
+    p_max: l.max,
+    p_window_seconds: l.windowSeconds,
+  });
+  if (error) {
+    if (error.code !== "PGRST202") {
+      console.error(`rate limit: rate_hit(${l.scope}) failed:`, error.message);
+    }
+    return true;
+  }
+  return data !== false;
 }

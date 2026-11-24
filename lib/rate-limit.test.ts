@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeSupabase } from "./admin/fake-supabase.ts";
-import { clientIp, ipBucket, overLimit, visitorHash } from "./rate-limit.ts";
+import { clientIp, hitAllowed, ipBucket, overLimit, visitorHash } from "./rate-limit.ts";
 
 test("client ip: Vercel's x-real-ip wins, then the first forwarded hop, else none", () => {
   assert.equal(clientIp(new Headers({ "x-real-ip": " 203.0.113.9 ", "x-forwarded-for": "10.0.0.1" })), "203.0.113.9");
@@ -70,4 +70,42 @@ test("over limit: a failed count never blocks", async () => {
   } as unknown as Parameters<typeof overLimit>[0];
   const w = { table: "hits", column: "who", value: "a", windowMs: 1000, max: 1 };
   assert.equal(await overLimit(broken, w), false);
+});
+
+const limit = { scope: "track", visitor: "v1", windowSeconds: 600, max: 3 };
+
+test("hit allowed: passes the limit to rate_hit and returns its answer", async () => {
+  const { client, db } = fakeSupabase({});
+  const calls: unknown[] = [];
+  let answer = true;
+  db.rpcs.rate_hit = (args) => {
+    calls.push(args);
+    return { data: answer, error: null };
+  };
+  assert.equal(await hitAllowed(client, limit), true);
+  answer = false;
+  assert.equal(await hitAllowed(client, limit), false);
+  assert.deepEqual(calls[0], {
+    p_scope: "track",
+    p_visitor: "v1",
+    p_max: 3,
+    p_window_seconds: 600,
+  });
+});
+
+test("hit allowed: a failed count never blocks, and a missing function isn't logged", async () => {
+  const { client, db } = fakeSupabase({});
+  const logged: unknown[] = [];
+  const realError = console.error;
+  console.error = (...a: unknown[]) => logged.push(a);
+  try {
+    // No rate_hit function yet: the code is live before its migration.
+    assert.equal(await hitAllowed(client, limit), true);
+    assert.equal(logged.length, 0);
+    db.rpcs.rate_hit = () => ({ data: null, error: { message: "connection reset" } });
+    assert.equal(await hitAllowed(client, limit), true);
+    assert.equal(logged.length, 1);
+  } finally {
+    console.error = realError;
+  }
 });

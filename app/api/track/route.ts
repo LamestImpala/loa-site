@@ -1,72 +1,32 @@
 import { NextRequest, after } from "next/server";
-import { createServerSupabase } from "@/lib/supabase";
+import { clientIp, visitorHash, visitorSecret } from "@/lib/rate-limit";
+import { serviceSupabase } from "@/lib/supabase-service";
+import { parseTrackBody } from "@/lib/track";
+import { saveTrack } from "@/lib/track-db";
 
-// Unauthenticated by design — shoppers log interest events and page visits
-// via sendBeacon. Validation here is the abuse guard; RLS only allows anon
-// INSERTs.
-const EVENTS = new Set(["photo_open", "discogs_click", "bundle_add", "buy_request"]);
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PATH_RE = /^\/records(\/[\w\-./%]*)?$/;
-const HOST_RE = /^[a-z0-9.-]{1,100}$/i;
+// Unauthenticated by design: shoppers log interest clicks and page visits
+// via sendBeacon. This route is the only way a hit is saved. The public
+// key can't insert into record_events or shop_visits, so every hit passes
+// the shape check (parseTrackBody) and the per-visitor limit (saveTrack)
+// before the service role writes it.
+//
+// A well-formed hit is always answered 204, saved or not: over the limit
+// it is dropped without a word, because tracking must never show a
+// shopper an error. The browser side skips the call entirely when the
+// cr_no_track opt-out is set (track / trackVisit in shop-ui.tsx).
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-  const recordId = body?.record_id;
-  const event = body?.event;
-  const sessionId = body?.session_id;
-  if (event === "visit") return logVisit(body, sessionId);
-  if (
-    !Number.isInteger(recordId) ||
-    recordId <= 0 ||
-    typeof event !== "string" ||
-    !EVENTS.has(event) ||
-    typeof sessionId !== "string" ||
-    !UUID_RE.test(sessionId)
-  ) {
-    return new Response(null, { status: 400 });
-  }
-  // Respond immediately; the insert runs after the response is sent.
+  const hit = parseTrackBody(await req.json().catch(() => null));
+  if (!hit) return new Response(null, { status: 400 });
+  const ip = clientIp(req.headers);
+  // Respond immediately; the limit and the insert run after the response.
   after(async () => {
-    const { error } = await createServerSupabase()
-      .from("record_events")
-      .insert({ record_id: recordId, event_type: event, session_id: sessionId });
-    if (error) console.error("track insert failed:", error.message);
-  });
-  return new Response(null, { status: 204 });
-}
-
-// A shop page load: { event: "visit", path, record_id?, referrer_host? }.
-function logVisit(body: Record<string, unknown>, sessionId: unknown) {
-  const { path, record_id: recordId, referrer_host: referrerHost } = body;
-  if (
-    typeof sessionId !== "string" ||
-    !UUID_RE.test(sessionId) ||
-    typeof path !== "string" ||
-    path.length > 200 ||
-    !PATH_RE.test(path) ||
-    (recordId != null && (!Number.isInteger(recordId) || (recordId as number) <= 0)) ||
-    (referrerHost != null &&
-      (typeof referrerHost !== "string" || !HOST_RE.test(referrerHost)))
-  ) {
-    return new Response(null, { status: 400 });
-  }
-  after(async () => {
-    const supabase = createServerSupabase();
-    const row = {
-      session_id: sessionId,
-      path,
-      record_id: (recordId as number | undefined) ?? null,
-      referrer_host: (referrerHost as string | undefined)?.toLowerCase() ?? null,
-    };
-    let { error } = await supabase.from("shop_visits").insert(row);
-    // A stale or mistyped record id fails the foreign key; keep the visit.
-    if (error?.code === "23503") {
-      ({ error } = await supabase
-        .from("shop_visits")
-        .insert({ ...row, record_id: null }));
+    try {
+      await saveTrack(serviceSupabase(), hit, visitorHash(ip, visitorSecret()));
+    } catch (e) {
+      // No service key (local dev has none): nothing is saved.
+      console.error("track:", e instanceof Error ? e.message : e);
     }
-    if (error) console.error("visit insert failed:", error.message);
   });
   return new Response(null, { status: 204 });
 }

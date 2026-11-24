@@ -2,9 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // A tiny in-memory stand-in for the Supabase query builder, for node tests
 // of the *-db.ts writes. Only what those files call: select / insert /
-// update / delete with eq, neq, in, is, gte, or (is.null / lt), order, limit,
-// single, maybeSingle, and head counts. Rows are plain objects; `fail`
-// makes the next matching write error, to test partial failures.
+// update / delete with eq, neq, in, is, gte, lt, or (is.null / lt), order,
+// limit, single, maybeSingle, head counts and counted deletes. Rows are
+// plain objects; `fail` makes the next matching write error, to test
+// partial failures. `rpc` runs the stand-in a test puts in `db.rpcs`.
 
 type Row = Record<string, unknown>;
 type Filter = (r: Row) => boolean;
@@ -15,13 +16,19 @@ export type FakeDb = {
   // The next insert into `table` errors instead of saving — once, unless
   // `when` is given, in which case every insert it matches errors.
   failInsert: { table: string; message: string; code?: string; when?: (row: Row) => boolean }[];
+  // Stand-ins for database functions, by name. A name that isn't here
+  // answers the way PostgREST does for a function that doesn't exist.
+  rpcs: Record<
+    string,
+    (args: Row) => { data: unknown; error: { message: string; code?: string } | null }
+  >;
 };
 
 export function fakeSupabase(tables: Record<string, Row[]>): {
   client: SupabaseClient;
   db: FakeDb;
 } {
-  const db: FakeDb = { tables, fail: [], failInsert: [] };
+  const db: FakeDb = { tables, fail: [], failInsert: [], rpcs: {} };
   let nextId = 1000;
 
   function builder(table: string) {
@@ -73,7 +80,7 @@ export function fakeSupabase(tables: Record<string, Row[]>): {
       }
       if (op === "delete") {
         db.tables[table] = rows().filter((r) => !hit.includes(r));
-        return { data: hit, error: null };
+        return { data: hit, error: null, ...(count ? { count: hit.length } : {}) };
       }
       for (const r of hit) Object.assign(r, payload);
       return { data: hit, error: null };
@@ -95,8 +102,9 @@ export function fakeSupabase(tables: Record<string, Row[]>): {
         payload = patch;
         return q;
       },
-      delete() {
+      delete(opts?: { count?: string }) {
         op = "delete";
+        if (opts?.count) count = true;
         return q;
       },
       upsert(row: Row, opts: { onConflict: string }) {
@@ -126,6 +134,10 @@ export function fakeSupabase(tables: Record<string, Row[]>): {
       },
       gte(col: string, v: unknown) {
         filters.push((r) => r[col] != null && String(r[col]) >= String(v));
+        return q;
+      },
+      lt(col: string, v: unknown) {
+        filters.push((r) => r[col] != null && String(r[col]) < String(v));
         return q;
       },
       in(col: string, vs: unknown[]) {
@@ -175,6 +187,13 @@ export function fakeSupabase(tables: Record<string, Row[]>): {
     return q;
   }
 
-  const client = { from: (table: string) => builder(table) } as unknown as SupabaseClient;
+  const client = {
+    from: (table: string) => builder(table),
+    rpc: async (name: string, args: Row = {}) =>
+      db.rpcs[name]?.(args) ?? {
+        data: null,
+        error: { message: `Could not find the function public.${name}`, code: "PGRST202" },
+      },
+  } as unknown as SupabaseClient;
   return { client, db };
 }
