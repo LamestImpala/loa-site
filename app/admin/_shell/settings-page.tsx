@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAdmin } from "./admin-provider";
+import { TwoStepSection } from "./two-step";
 import { buttonClass, inputClass } from "./ui";
 import {
   NOTE_MAX,
@@ -135,8 +136,8 @@ export function SettingsPage() {
 
   async function savePassword() {
     setPwStatus("");
-    if (newPassword.length < 8) {
-      setPwStatus("Password must be at least 8 characters.");
+    if (newPassword.length < 12) {
+      setPwStatus("Password must be at least 12 characters.");
       return;
     }
     const { error } = await supabase.auth.updateUser({ password: newPassword });
@@ -273,7 +274,7 @@ export function SettingsPage() {
           autoComplete="new-password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          placeholder="New password (8+ characters)"
+          placeholder="New password (12+ characters)"
           className={`flex-1 ${inputClass}`}
         />
         <button type="button" onClick={savePassword} className={buttonClass}>
@@ -291,6 +292,8 @@ export function SettingsPage() {
           {pwStatus}
         </p>
       ) : null}
+
+      <TwoStepSection supabase={supabase} />
     </>
   );
 }
