@@ -3,6 +3,7 @@ import { authorizeJob } from "@/lib/job-auth";
 import { emailConfigured, sendEmail } from "@/lib/email";
 import { buyerFirstName, ordersToInvite, reviewRequestEmail, reviewUrl } from "@/lib/review";
 import { serviceSupabase } from "@/lib/supabase-service";
+import { expireTracking, type TrackExpiry } from "@/lib/track-db";
 import type { Order, ReviewInvite, Shipment } from "@/lib/supabase";
 
 // Daily on the Vercel cron (vercel.json): email a private review link to
@@ -14,15 +15,40 @@ import type { Order, ReviewInvite, Shipment } from "@/lib/supabase";
 // and whether it was already asked. The invite row is written before the
 // email so a buyer is never asked twice; a failed send removes it to retry
 // tomorrow. ?dry=1 lists who would be emailed without sending.
+//
+// As the shop's one daily job it also does the daily housekeeping: shopper
+// tracking (clicks and page visits) older than a year is deleted, see
+// expireTracking. That runs first and on its own, so neither part can stop
+// the other; ?dry=1 only counts what would go. Its result is the
+// `tracking` field of every answer.
 export const maxDuration = 60;
+
+async function expireOldTracking(dry: boolean): Promise<TrackExpiry | { errors: string[] }> {
+  try {
+    const t = await expireTracking(serviceSupabase(), { dry });
+    if (t.errors.length > 0) {
+      console.error("review-requests: tracking cleanup failed:", t.errors.join("; "));
+    } else if (!dry && t.record_events + t.shop_visits > 0) {
+      console.log(
+        `review-requests: deleted ${t.record_events} clicks and ${t.shop_visits} visits from before ${t.before}`
+      );
+    }
+    return t;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "cleanup failed";
+    console.error("review-requests: tracking cleanup failed:", message);
+    return { errors: [message] };
+  }
+}
 
 async function run(req: NextRequest) {
   if (!(await authorizeJob(req))) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   const dry = req.nextUrl.searchParams.get("dry") === "1";
+  const tracking = await expireOldTracking(dry);
   if (!dry && !emailConfigured()) {
-    return Response.json({ error: "RESEND_API_KEY is not set" }, { status: 500 });
+    return Response.json({ error: "RESEND_API_KEY is not set", tracking }, { status: 500 });
   }
   try {
     const supabase = serviceSupabase();
@@ -32,7 +58,7 @@ async function run(req: NextRequest) {
       .in("status", ["paid", "refunded"]);
     if (ordersError) throw new Error(ordersError.message);
     const ids = (orders ?? []).map((o) => o.id as number);
-    if (ids.length === 0) return Response.json({ dry, due: [], sent: [], failed: [] });
+    if (ids.length === 0) return Response.json({ dry, due: [], sent: [], failed: [], tracking });
 
     const [{ data: shipments, error: shipError }, { data: invites, error: invError }] =
       await Promise.all([
@@ -47,7 +73,7 @@ async function run(req: NextRequest) {
       (shipments ?? []) as Pick<Shipment, "order_id" | "sent_at" | "mode">[],
       (invites ?? []) as Pick<ReviewInvite, "order_id">[]
     );
-    if (dry) return Response.json({ dry, due, sent: [], failed: [] });
+    if (dry) return Response.json({ dry, due, sent: [], failed: [], tracking });
 
     const byId = new Map((orders ?? []).map((o) => [o.id as number, o]));
     const sent: number[] = [];
@@ -88,10 +114,13 @@ async function run(req: NextRequest) {
           `${failed.length ? `, failed ${failed.map((f) => `#${f.orderId}: ${f.error}`).join("; ")}` : ""}`
       );
     }
-    return Response.json({ dry, due, sent, failed });
+    return Response.json({ dry, due, sent, failed, tracking });
   } catch (e) {
     console.error("review-requests failed:", e instanceof Error ? e.message : e);
-    return Response.json({ error: e instanceof Error ? e.message : "run failed" }, { status: 500 });
+    return Response.json(
+      { error: e instanceof Error ? e.message : "run failed", tracking },
+      { status: 500 }
+    );
   }
 }
 

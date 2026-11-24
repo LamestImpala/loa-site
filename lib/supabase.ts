@@ -306,6 +306,8 @@ export type MarketSnapshotRow = {
 
 // Per-record aggregate of shopper click events (record_interest view);
 // "sessions" are distinct anonymous visitors, "events" are raw clicks.
+// Covers the clicks still kept: the daily job deletes tracking older than
+// a year (expireTracking in lib/track-db.ts).
 export type RecordInterest = {
   record_id: number;
   interest_events: number;
@@ -315,8 +317,8 @@ export type RecordInterest = {
   last_event_at: string;
 };
 
-// Raw shopper click event (record_events table); RLS only lets the admin
-// read these. Powers the day-by-day interest breakdown in the admin.
+// Raw shopper click event (record_events table), written only by
+// /api/track with the service role; RLS only lets the admin read these. Powers the day-by-day interest breakdown in the admin.
 export type RecordEventRow = {
   record_id: number;
   event_type: "photo_open" | "discogs_click" | "bundle_add" | "buy_request";
