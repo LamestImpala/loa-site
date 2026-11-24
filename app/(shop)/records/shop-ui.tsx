@@ -24,7 +24,7 @@ import {
   shippingFor,
   type ShippingQuote,
 } from "@/lib/items";
-import { getBrowserSupabase, type DbRecord } from "@/lib/supabase";
+import type { DbRecord } from "@/lib/supabase";
 import { shippingPauseSentence, shippingPauseShort } from "@/lib/shipping-pause";
 import { useShippingPause } from "../shipping-pause";
 
@@ -394,26 +394,33 @@ function composeUrl(subject: string, message?: string) {
     : `${base}&message=${encodeURIComponent(message)}`;
 }
 
-// Fire-and-forget: save the request so /admin can load it by ref code. The
-// trigger revalidates ids and recomputes totals server-side; errors are
-// swallowed because the DM must go out regardless (paste parser is the
-// fallback). No .select() — the anon role has no read access to the table.
+// Fire-and-forget: save the request so /admin can load it by ref code. It
+// goes through /api/order-request like the email form (the browser can't
+// write to the table itself); the server revalidates ids and recomputes
+// totals. Errors are swallowed because the DM must go out regardless
+// (paste parser is the fallback). keepalive lets the save finish even if
+// the buyer leaves the page for Reddit straight away.
 function persistOrderRequest(
   refCode: string,
   ids: number[],
   buyerUsername: string
 ) {
   const buyer = buyerUsername.trim().replace(/^\/?u\//i, "");
-  getBrowserSupabase()
-    .from("order_requests")
-    .insert({
-      ref_code: refCode,
+  fetch("/api/order-request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    keepalive: true,
+    body: JSON.stringify({
+      channel: "reddit",
       record_ids: ids,
-      buyer_username: buyer || null,
+      buyer_username: buyer || undefined,
+      ref_code: refCode,
+    }),
+  })
+    .then((res) => {
+      if (!res.ok) console.warn("order request not saved:", res.status);
     })
-    .then(({ error }) => {
-      if (error) console.warn("order request not saved:", error.message);
-    });
+    .catch(() => console.warn("order request not saved: network error"));
 }
 
 // Fallback when the request endpoint is down: a plain email to the shop

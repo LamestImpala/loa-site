@@ -1,27 +1,41 @@
 import { ADMIN_EMAIL } from "./supabase.ts";
-import { bundleBreakdown, type BundleItem } from "./records.ts";
+import { bundleBreakdown, REF_CODE_ALPHABET, type BundleItem } from "./records.ts";
 import { ORDERS_ADDRESS } from "./email.ts";
 import { bundleKindSummary, countKinds, itemSpecShort, shippingSentence } from "./items.ts";
 import { shippingPauseSentence, type ShippingPause } from "./shipping-pause.ts";
 import { ADMIN_URL } from "./hosts.ts";
 
-// The shop's email "Request to buy": what the form may send, and the two
-// emails that go out when it lands — a notification to the admin and a
-// confirmation to the buyer. Pure; the route owns the database and Resend.
+// The shop's "Request to buy": what the two forms (email, Reddit DM) may
+// send, and the two emails that go out when an email request lands — a
+// notification to the admin and a confirmation to the buyer. Pure; the
+// route owns the database and Resend.
 
 export const MAX_REQUEST_RECORDS = 40;
 export const MAX_NAME = 80;
+export const MAX_USERNAME = 40;
 export const MAX_MESSAGE = 1000;
 export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const SHOP_URL = "https://curiouserrecords.com";
 export const ADMIN_REQUESTS_URL = `${ADMIN_URL}/sell#requests`;
 
-export type OrderRequestBody = {
-  recordIds: number[];
-  buyerName: string | null;
-  buyerEmail: string;
-  message: string | null;
-};
+const REF_CODE_RE = new RegExp(`^CR-[${REF_CODE_ALPHABET}]{4}$`);
+
+export type OrderRequestBody =
+  | {
+      channel: "email";
+      recordIds: number[];
+      buyerName: string | null;
+      buyerEmail: string;
+      message: string | null;
+    }
+  | {
+      // The Reddit DM path: the browser already put its ref code in the DM,
+      // so the saved row has to carry that same code.
+      channel: "reddit";
+      recordIds: number[];
+      buyerUsername: string | null;
+      refCode: string | null;
+    };
 
 export type ParsedBody =
   | { ok: true; body: OrderRequestBody }
@@ -42,6 +56,24 @@ export function parseOrderRequestBody(raw: unknown): ParsedBody {
   ) {
     return { ok: false, error: "Pick at least one record" };
   }
+  if (b.channel === "reddit") {
+    const code = typeof b.ref_code === "string" ? b.ref_code.trim().toUpperCase() : "";
+    if (code && !REF_CODE_RE.test(code)) return { ok: false, error: "Invalid request" };
+    // The trigger keeps the handle only if it looks like a real one.
+    const handle =
+      typeof b.buyer_username === "string"
+        ? b.buyer_username.trim().replace(/^\/?u\//i, "").slice(0, MAX_USERNAME)
+        : "";
+    return {
+      ok: true,
+      body: {
+        channel: "reddit",
+        recordIds: ids as number[],
+        buyerUsername: handle || null,
+        refCode: code || null,
+      },
+    };
+  }
   const email = typeof b.buyer_email === "string" ? b.buyer_email.trim().toLowerCase() : "";
   if (!email || email.length > 254 || !EMAIL_RE.test(email)) {
     return { ok: false, error: "Enter a valid email address" };
@@ -52,6 +84,7 @@ export function parseOrderRequestBody(raw: unknown): ParsedBody {
   return {
     ok: true,
     body: {
+      channel: "email",
       recordIds: ids as number[],
       buyerName: name || null,
       buyerEmail: email,
@@ -190,11 +223,27 @@ export function adminPaidNotificationEmail(a: PaidEmailArgs) {
   };
 }
 
+// A name the confirmation may repeat back: a few words of letters, spaces,
+// hyphens and apostrophes. Anything else (links, digits, a sentence) gets
+// the plain greeting, because the name is typed by whoever filled in the
+// form and the email goes to an address nobody has verified.
+const GREETING_NAME_RE = /^\p{L}[\p{L}\p{M}'’-]*(?: [\p{L}\p{M}'’-]+){0,2}$/u;
+const MAX_GREETING_NAME = 40;
+
+export function greetingName(name: string | null): string | null {
+  const n = (name ?? "").trim().replace(/\s+/g, " ");
+  return n && n.length <= MAX_GREETING_NAME && GREETING_NAME_RE.test(n) ? n : null;
+}
+
 // To the buyer: the quote, the ref code, and what happens next. Reply-To is
-// the orders address so an answer lands in the admin Inbox.
+// the orders address so an answer lands in the admin Inbox. It never
+// carries the buyer's note and greets by name only when greetingName()
+// allows: the form would otherwise send a stranger's words to any address
+// from the shop's own domain. The admin notification keeps both.
 export function buyerConfirmationEmail(a: RequestEmailArgs) {
   const q = quoteLines(a.items);
-  const hi = a.buyerName ? `Hi ${a.buyerName}!` : "Hi!";
+  const name = greetingName(a.buyerName);
+  const hi = name ? `Hi ${name}!` : "Hi!";
   const noun = requestNoun(a.items);
   const subject = `Got your ${noun ? `${noun} ` : ""}request (Ref ${a.refCode})`;
   const ships = shippingSentence(a.items);
@@ -211,15 +260,12 @@ export function buyerConfirmationEmail(a: RequestEmailArgs) {
     `I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods & Services invoice (I cover the fee), sent to this email once we've settled the list. ${ships}`,
     "",
     ...(away ? [away, ""] : []),
-    a.message ? `Your note: ${a.message}\n` : "",
     "— Curiouser Records",
   ]
     .filter((l) => l !== "")
     .join("\n");
   const html = `<p>${escapeHtml(hi)}</p><p>Thanks for your request from <a href="${SHOP_URL}">curiouserrecords.com</a>. Here's what you asked about:</p>${q.html}<p>Ref: <code>${a.refCode}</code></p><p>I'll reply from this address, usually within a day, to confirm what's available. Payment is a PayPal Goods &amp; Services invoice (I cover the fee), sent to this email once we've settled the list. ${escapeHtml(ships)}</p>${
     away ? `<p><strong>${escapeHtml(away)}</strong></p>` : ""
-  }${
-    a.message ? `<p style="color:#666">Your note: ${escapeHtml(a.message).replace(/\n/g, "<br>")}</p>` : ""
   }<p>— Curiouser Records</p>`;
   return { to: a.buyerEmail, subject, text, html, replyTo: ORDERS_ADDRESS };
 }

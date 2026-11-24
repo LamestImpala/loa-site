@@ -5,6 +5,7 @@ import {
   adminNotificationEmail,
   adminPaidNotificationEmail,
   buyerConfirmationEmail,
+  greetingName,
   parseOrderRequestBody,
 } from "./order-request.ts";
 
@@ -15,6 +16,7 @@ test("order request body: ids deduped, email lowercased, blanks become null", ()
   assert.ok(r.ok && !("honeypot" in r));
   if (r.ok && "body" in r) {
     assert.deepEqual(r.body, {
+      channel: "email",
       recordIds: [3, 1],
       buyerName: "Jane",
       buyerEmail: "jane@example.com",
@@ -37,10 +39,41 @@ test("order request body: rejects bad ids and emails; honeypot short-circuits", 
 test("order request body: name and note are trimmed and capped", () => {
   const r = parseOrderRequestBody({ ...good, buyer_name: "x".repeat(100), message: " y".repeat(600) });
   assert.ok(r.ok && "body" in r);
-  if (r.ok && "body" in r) {
+  if (r.ok && "body" in r && r.body.channel === "email") {
     assert.equal(r.body.buyerName?.length, 80);
     assert.equal(r.body.message?.length, 1000);
   }
+});
+
+test("order request body: the Reddit channel carries ids, a handle and the DM's ref code", () => {
+  const r = parseOrderRequestBody({
+    channel: "reddit",
+    record_ids: [7, 7, 2],
+    buyer_username: " /u/vinyl_fan ",
+    ref_code: "cr-ab23",
+  });
+  assert.ok(r.ok && "body" in r);
+  if (r.ok && "body" in r) {
+    assert.deepEqual(r.body, {
+      channel: "reddit",
+      recordIds: [7, 2],
+      buyerUsername: "vinyl_fan",
+      refCode: "CR-AB23",
+    });
+  }
+  // No email is needed, and none is taken: nothing here can reach an inbox.
+  const bare = parseOrderRequestBody({ channel: "reddit", record_ids: [1], buyer_email: "x@y.zz" });
+  assert.ok(bare.ok && "body" in bare);
+  if (bare.ok && "body" in bare) {
+    assert.deepEqual(bare.body, { channel: "reddit", recordIds: [1], buyerUsername: null, refCode: null });
+  }
+  // A ref code outside the shop's alphabet (0, 1, I, L, O) or shape is refused.
+  for (const bad of ["CR-AB10", "CR-ABCDE", "XX-AB23", "CR-AB2", "'; drop table"]) {
+    assert.equal(parseOrderRequestBody({ channel: "reddit", record_ids: [1], ref_code: bad }).ok, false, bad);
+  }
+  assert.equal(parseOrderRequestBody({ channel: "reddit", record_ids: [] }).ok, false);
+  // Anything that isn't "reddit" is the email form and needs an address.
+  assert.equal(parseOrderRequestBody({ channel: "fax", record_ids: [1] }).ok, false);
 });
 
 const args = {
@@ -77,10 +110,49 @@ test("buyer confirmation: greets by name, carries the ref and quote, replies go 
   assert.match(m.text, /Total: \$56/);
   const anon = buyerConfirmationEmail({ ...args, buyerName: null, message: null });
   assert.match(anon.text, /^Hi!/);
-  assert.ok(!anon.text.includes("Your note"));
-  assert.ok(!anon.html.includes("<script"), "html escaped");
-  const sneaky = buyerConfirmationEmail({ ...args, message: "<script>x</script>" });
-  assert.ok(!sneaky.html.includes("<script>"));
+});
+
+test("buyer confirmation: never repeats the note", () => {
+  // args.message is set; the admin gets it, the unverified address doesn't.
+  const m = buyerConfirmationEmail(args);
+  assert.ok(!m.text.includes("hold till Friday") && !m.html.includes("hold till Friday"));
+  assert.ok(!m.text.includes("Your note") && !m.html.includes("Your note"));
+  const spam = "Claim your prize at https://evil.example/win <script>x</script>";
+  const s = buyerConfirmationEmail({ ...args, message: spam });
+  for (const part of [s.subject, s.text, s.html]) {
+    assert.ok(!part.includes("evil.example") && !part.includes("prize") && !part.includes("<script"));
+  }
+  assert.match(adminNotificationEmail({ ...args, message: spam }).text, /evil\.example/);
+});
+
+test("buyer confirmation: a name is repeated only when it is a few plain words", () => {
+  for (const ok of ["Jane", "Mary Anne", "O'Neil-Smith", "José Ángel", "Jean-Luc D’Arcy", "  Jane  Doe "]) {
+    assert.ok(greetingName(ok), ok);
+  }
+  assert.equal(greetingName("  Jane  Doe "), "Jane Doe");
+  const unsafe = [
+    "evil.example",
+    "Visit https://evil.example",
+    "Jane <b>",
+    "Win $500",
+    "Jane2",
+    "Jane, call 555 0100",
+    "Jane\nBcc: x@y.zz",
+    "Your account is locked click here",
+    "x".repeat(41),
+    "-Jane",
+    "",
+  ];
+  for (const name of unsafe) {
+    assert.equal(greetingName(name), null, JSON.stringify(name));
+    const m = buyerConfirmationEmail({ ...args, buyerName: name });
+    assert.match(m.text, /^Hi!\n/, JSON.stringify(name));
+    assert.match(m.html, /^<p>Hi!<\/p>/, JSON.stringify(name));
+    if (name) assert.ok(!m.text.includes(name) && !m.html.includes(name), JSON.stringify(name));
+  }
+  assert.equal(greetingName(null), null);
+  // The admin still sees exactly what was typed.
+  assert.match(adminNotificationEmail({ ...args, buyerName: "Jane2" }).subject, /from Jane2 /);
 });
 
 test("buyer confirmation: carries the away notice only when a pause is set", () => {
