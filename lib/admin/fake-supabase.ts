@@ -12,13 +12,16 @@ type Filter = (r: Row) => boolean;
 export type FakeDb = {
   tables: Record<string, Row[]>;
   fail: { table: string; id: unknown; message: string }[];
+  // The next insert into `table` errors instead of saving — once, unless
+  // `when` is given, in which case every insert it matches errors.
+  failInsert: { table: string; message: string; code?: string; when?: (row: Row) => boolean }[];
 };
 
 export function fakeSupabase(tables: Record<string, Row[]>): {
   client: SupabaseClient;
   db: FakeDb;
 } {
-  const db: FakeDb = { tables, fail: [] };
+  const db: FakeDb = { tables, fail: [], failInsert: [] };
   let nextId = 1000;
 
   function builder(table: string) {
@@ -42,8 +45,19 @@ export function fakeSupabase(tables: Record<string, Row[]>): {
       return limitN == null ? out : out.slice(0, limitN);
     };
 
-    function run(): { data: unknown; error: { message: string } | null; count?: number } {
+    function run(): {
+      data: unknown;
+      error: { message: string; code?: string } | null;
+      count?: number;
+    } {
       if (op === "insert") {
+        const refused = db.failInsert.find(
+          (f) => f.table === table && (!f.when || f.when(payload ?? {}))
+        );
+        if (refused) {
+          if (!refused.when) db.failInsert = db.failInsert.filter((f) => f !== refused);
+          return { data: null, error: { message: refused.message, code: refused.code } };
+        }
         const row = { id: nextId++, created_at: new Date().toISOString(), ...payload };
         rows().push(row);
         return { data: [row], error: null };

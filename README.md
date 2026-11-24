@@ -77,9 +77,21 @@ Rules with tests: `lib/admin/pack-list.ts`, `lib/admin/label-intake.ts`,
 Buyers without a Reddit account order by email. The shop's **Request to buy**
 sheet has two tabs: **Email** (default — name, email, optional note) and
 **Reddit DM** (the pre-filled message, as before). Both save an
-`order_requests` row with a `CR-XXXX` ref code; the email path
-(`POST /api/order-request`) also emails the admin a notification and the
-buyer a confirmation, both from `orders@curiouserrecords.com`.
+`order_requests` row with a `CR-XXXX` ref code through
+`POST /api/order-request`; the email path also emails the admin a
+notification and the buyer a confirmation, both from
+`orders@curiouserrecords.com`.
+
+That route is the only way a request is saved: the public key can't insert
+into `order_requests`. It allows 5 requests an hour per visitor (the IP,
+stored only as a keyed hash in `ip_hash`) and 3 a day per buyer email, and
+the `validate_order_request` trigger enforces the same two limits again
+under a lock (so a parallel burst can't slip past) with a shop-wide cap of
+120 an hour behind them. The buyer's confirmation never repeats their note, and greets
+them by name only when the name is a few plain words: the form can't be
+used to send a stranger's text from the shop's address. Rules with tests:
+`lib/rate-limit.ts`, `lib/order-request-db.ts`; schema
+`supabase/migrations/20261123_order_request_limits.sql`.
 
 Mail *to* orders@ is received by Resend and delivered to
 `POST /api/email-inbound` (Svix-signed webhook), which files it in

@@ -1,63 +1,59 @@
 import { NextRequest, NextResponse, after } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabase, type ItemDetails, type ItemKind } from "@/lib/supabase";
+import { serviceSupabase } from "@/lib/supabase-service";
 import { makeRefCode } from "@/lib/records";
 import {
   adminNotificationEmail,
   buyerConfirmationEmail,
   parseOrderRequestBody,
 } from "@/lib/order-request";
+import { saveOrderRequest } from "@/lib/order-request-db";
+import { clientIp, visitorHash, visitorSecret } from "@/lib/rate-limit";
 import { emailConfigured, sendEmail } from "@/lib/email";
 import { fetchShippingPause } from "@/lib/shipping-pause";
 
-// The shop's email "Request to buy". Unauthenticated by design, like
-// /api/track: strict validation here, the anon role's INSERT-only policy
-// on order_requests, and the validate_order_request trigger (flood cap,
-// listed/unsold ids only, totals, email shape) are the guards. The row is
-// saved before answering; the two emails (admin notification, buyer
-// confirmation) go out after the response and are best-effort — the
-// request is in the admin Inbox either way.
+// The shop's "Request to buy", both channels: the email form and the
+// Reddit DM sheet. Unauthenticated by design, and the only way a request
+// is saved: the public key can't insert into order_requests, so every one
+// passes the shape check here and the per-visitor limits in
+// saveOrderRequest() before the service role writes it. The
+// validate_order_request trigger then keeps listed/unsold ids only,
+// recomputes the totals and holds a shop-wide hourly cap as a backstop.
+//
+// The row is saved before answering. An email request then sends two
+// emails after the response (admin notification, buyer confirmation),
+// best-effort — the request is in the admin Inbox either way. A Reddit
+// request sends none; the buyer's DM is the message.
 
 export async function POST(req: NextRequest) {
   const parsed = parseOrderRequestBody(await req.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   if ("honeypot" in parsed) return new Response(null, { status: 204 });
-  const { recordIds, buyerName, buyerEmail, message } = parsed.body;
+  const body = parsed.body;
 
-  const supabase = createServerSupabase();
-  const refCode = makeRefCode();
-  // No .select(): the anon role can't read the table back.
-  const { error } = await supabase.from("order_requests").insert({
-    ref_code: refCode,
-    record_ids: recordIds,
-    channel: "email",
-    buyer_name: buyerName,
-    buyer_email: buyerEmail,
-    message,
-  });
-  if (error) {
-    const msg = error.message || "";
-    if (/rate limited/i.test(msg)) {
-      return NextResponse.json(
-        { error: "Too many requests right now — please try again in a bit." },
-        { status: 429 }
-      );
-    }
-    if (/no valid records/i.test(msg)) {
-      return NextResponse.json(
-        { error: "Those records are no longer available." },
-        { status: 409 }
-      );
-    }
-    if (/email required|too many records/i.test(msg)) {
-      return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
-    }
-    console.error("order-request insert failed:", msg);
+  let db: SupabaseClient;
+  let visitor: string;
+  try {
+    db = serviceSupabase();
+    visitor = visitorHash(clientIp(req.headers), visitorSecret());
+  } catch (e) {
+    console.error("order-request:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Couldn't save the request" }, { status: 502 });
   }
 
+  // A Reddit request arrives with the code already in the buyer's DM.
+  const refCode = (body.channel === "reddit" && body.refCode) || makeRefCode();
+  const saved = await saveOrderRequest(db, body, { refCode, visitor });
+  if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: saved.status });
+  if (body.channel !== "email") return NextResponse.json({ refCode });
+
+  const { recordIds, buyerName, buyerEmail, message } = body;
   after(async () => {
     if (!emailConfigured()) return;
-    // The same snapshot the trigger took: listed, unsold, in catalog order.
+    // Public reads, so the public client: the same snapshot the trigger
+    // took — listed, unsold, in catalog order.
+    const supabase = createServerSupabase();
     const [{ data, error: readError }, shippingPause] = await Promise.all([
       supabase
         .from("records")
