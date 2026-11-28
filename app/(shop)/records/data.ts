@@ -57,6 +57,19 @@ export const getDiscColors = cache(async (): Promise<Record<number, string>> => 
   return typed;
 });
 
+// Ids of the listed records the owner has marked Top Shelf. Its own query,
+// and empty on any error, so the shop still loads where the column isn't
+// there yet.
+export const getTopShelfIds = cache(async (): Promise<number[]> => {
+  const { data, error } = await createServerSupabase()
+    .from("records")
+    .select("id")
+    .eq("listed", true)
+    .eq("top_shelf", true);
+  if (error || !data) return [];
+  return (data as { id: number }[]).map((row) => row.id);
+});
+
 // Disc colour per record id, for the catalog and the crate view, read from
 // what Discogs says about each pressing (records.disc_formats) unless the
 // owner has said it in their own words. Its own query, and empty on any

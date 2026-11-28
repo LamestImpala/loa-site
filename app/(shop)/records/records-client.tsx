@@ -21,6 +21,8 @@ import {
   meetsGrade,
   pressingDecade,
   recordPath,
+  TOP_SHELF_LABEL,
+  TOP_SHELF_NOTE,
 } from "@/lib/record-info";
 import type { DbRecord } from "@/lib/supabase";
 import type { DiscStyle } from "@/lib/disc-style";
@@ -432,6 +434,11 @@ export default function RecordsClient({
           {reduced ? (
             <span className="tag tag-accent-2">Drink me · ↓ {dropPct(r)}%</span>
           ) : null}
+          {r.top_shelf && !r.sold ? (
+            <span className="tag tag-top-shelf" title={TOP_SHELF_NOTE}>
+              {TOP_SHELF_LABEL}
+            </span>
+          ) : null}
         </div>
 
         {r.notes ? <p className="record-notes">{r.notes}</p> : null}
@@ -536,6 +543,10 @@ export default function RecordsClient({
             ) : reduced ? (
               <span className="tag tag-accent-2 record-mini-badge">
                 ↓ {dropPct(r)}%
+              </span>
+            ) : r.top_shelf ? (
+              <span className="tag tag-top-shelf record-mini-badge">
+                TOP SHELF
               </span>
             ) : null}
           </span>

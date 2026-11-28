@@ -12,6 +12,8 @@ import {
   isOnHold,
   relatedGroups,
   splitPressing,
+  TOP_SHELF_LABEL,
+  TOP_SHELF_NOTE,
   trackRecordLine,
 } from "@/lib/record-info";
 import {
@@ -31,6 +33,7 @@ import {
   getListedItems,
   getRedditPostUrl,
   getShopStats,
+  getTopShelfIds,
 } from "../data";
 import { CelestialBand, GardenWall } from "../shop-hero";
 import { DiscogsLink, RecordBuyBox, RecordGallery } from "./item-client";
@@ -274,6 +277,7 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
   // Record-only bits.
   const spec = splitPressing(r.pressing);
   const discColours = discColourLines(r.disc_formats, (await getDiscColors())[r.id]);
+  const topShelf = !r.sold && (await getTopShelfIds()).includes(r.id);
   const media = gradeInfo(r.media);
   const sleeve = gradeInfo(r.sleeve);
   const sides = groupBySide(r.tracklist ?? []);
@@ -352,6 +356,13 @@ export async function ItemPage({ kind, slug }: { kind: ItemKind; slug: string })
                     : itemSubtitle(r)}
                 </p>
               </header>
+
+              {topShelf ? (
+                <p className="rp-top-shelf">
+                  <span className="tag tag-top-shelf">{TOP_SHELF_LABEL}</span>{" "}
+                  {TOP_SHELF_NOTE}
+                </p>
+              ) : null}
 
               <RecordBuyBox record={r} bundleCandidates={bundleCandidates} redditPostUrl={redditPostUrl} />
 

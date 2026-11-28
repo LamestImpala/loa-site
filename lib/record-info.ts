@@ -28,6 +28,13 @@ export function isReduced(
   );
 }
 
+// Top Shelf (records.top_shelf): the owner's own picks, priced at what it
+// would take to let them go rather than at market. The note says so, so a
+// price over Discogs reads as a choice, not a mistake.
+export const TOP_SHELF_LABEL = "Top Shelf";
+export const TOP_SHELF_NOTE =
+  "The ones I reach for first. Priced at what it would take for me to let it go, not at market. I’m just as happy to keep it.";
+
 export function isOnHold(r: Pick<DbRecord, "hold_until">, now = Date.now()) {
   return !!r.hold_until && new Date(r.hold_until).getTime() > now;
 }

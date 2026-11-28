@@ -296,6 +296,12 @@ html:has(.shop) {
   background: var(--color-accent-2-100);
   color: var(--color-accent-2-800);
 }
+/* Top Shelf: the owner's own picks, priced to keep (records.top_shelf).
+   Solid brass so it reads as a mark of favour, not a sale sticker. */
+.shop .tag-top-shelf {
+  background: var(--color-accent-2-800);
+  color: var(--color-accent-2-100);
+}
 .shop .tag-neutral {
   background: var(--color-neutral-100);
   color: var(--color-neutral-800);
@@ -1784,6 +1790,16 @@ html:has(.shop) {
 .rp-note footer {
   font-size: 12.5px;
   color: var(--color-neutral-700);
+}
+.rp-top-shelf {
+  margin: 0 0 var(--space-4);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-neutral-800);
+}
+.rp-top-shelf .tag {
+  margin-right: var(--space-1);
+  vertical-align: 1px;
 }
 .rp-fine {
   font-size: 13px;

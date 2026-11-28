@@ -12,6 +12,7 @@ import {
   getRedditPostUrl,
   getReviewSummary,
   getShopStats,
+  getTopShelfIds,
 } from "../data";
 import RecordsClient from "../records-client";
 import ReviewQuoteItem from "../review-quote";
@@ -77,18 +78,30 @@ function ReviewQuotes({ summary }: { summary: ReviewSummary }) {
 }
 
 export default async function RecordsPage() {
-  const [{ records, error }, { items: all }, redditPostUrl, stats, reviews, discStyles] =
-    await Promise.all([
-      getListedRecords(),
-      getListedItems(),
-      getRedditPostUrl(),
-      getShopStats(),
-      getReviewSummary(),
-      getDiscStyles(),
-    ]);
+  const [
+    { records: listed, error },
+    { items: all },
+    redditPostUrl,
+    stats,
+    reviews,
+    discStyles,
+    topShelfIds,
+  ] = await Promise.all([
+    getListedRecords(),
+    getListedItems(),
+    getRedditPostUrl(),
+    getShopStats(),
+    getReviewSummary(),
+    getDiscStyles(),
+    getTopShelfIds(),
+  ]);
+  const topShelf = new Set(topShelfIds);
+  const records = listed.map((r) => (topShelf.has(r.id) ? { ...r, top_shelf: true } : r));
   const trackRecord = trackRecordLine(stats);
-  // The "Drink me" tag is only explained while a record is wearing one.
+  // The "Drink me" and "Top Shelf" tags are only explained while a record is
+  // wearing one.
   const hasDrops = records.some((r) => !r.sold && isReduced(r));
+  const hasTopShelf = records.some((r) => !r.sold && r.top_shelf);
 
   return (
     <>
@@ -151,6 +164,14 @@ export default async function RecordsPage() {
               {" "}
               Spot a &ldquo;Drink me&rdquo; tag? That&rsquo;s a real price
               drop since yesterday.
+            </>
+          ) : null}
+          {hasTopShelf ? (
+            <>
+              {" "}
+              &ldquo;Top Shelf&rdquo; records are the ones I reach for first,
+              priced at what it would take for me to let them go, not at
+              market.
             </>
           ) : null}
         </BuyingTerms>

@@ -70,6 +70,10 @@ export type DbRecord = {
   disc_colors?: string | null;
   collection: string | null; // curated series like "VMP" or "IVC"
   manual_price?: boolean; // true = daily price run leaves this record alone
+  // Owner's Top Shelf pick: priced at what it takes to let it go, not at
+  // market. Tagged on the shop, never in a Reddit post. Admin rows only;
+  // the shop reads it with getTopShelfIds (app/(shop)/records/data.ts).
+  top_shelf?: boolean;
   photo_urls: string[]; // uploaded photos of the actual copy (Supabase Storage)
   hold_buyer?: string | null; // admin-only; who claimed it
   hold_until: string | null; // public; active hold when in the future

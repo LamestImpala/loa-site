@@ -10,6 +10,8 @@ import {
   WEEKLY_PICK_COUNT,
   demandRatio,
   dropPct,
+  forSaleOnShop,
+  offerable,
   heldPrices,
   holdDateText,
   holdEnd,
@@ -48,6 +50,19 @@ test("full-catalog post lists only listed, unsold, unheld records, alphabeticall
   assert.equal(lines(md)[0], "[For Sale] 3 vinyl records — collection sale, audiophile pressings — PayPal G&S");
   assert.ok(md.includes(SHOP_URL));
   assert.ok(md.includes(`bundles of ${FREE_SHIPPING_MIN}+ records`));
+});
+
+test("Top Shelf records stay out of every post but still count as on the shop", () => {
+  const records = [
+    rec({ id: 1, artist: "Zappa", title: "Hot Rats" }),
+    rec({ id: 2, artist: "Stick Figure", title: "Free Flow Sessions", price: 350, top_shelf: true }),
+  ];
+  const rows = tableRows(redditMarkdown(records, NOW));
+  assert.equal(rows.length, 1);
+  assert.match(rows[0], /^\| Zappa \|/);
+  assert.deepEqual(pickWeekly(records, {}, [], { now: NOW }).map((r) => r.id), [1]);
+  assert.equal(offerable(records[1], NOW), false);
+  assert.equal(forSaleOnShop(records[1], NOW), true);
 });
 
 test("posters and equipment stay out of the vinyl post", () => {
