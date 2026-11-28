@@ -131,7 +131,7 @@ test("weekly post: headline artists by want count, Discogs links, year only", ()
   assert.ok(!md.includes("Price drops"));
 });
 
-test("weekly post leads with price drops when the pick has recent ones", () => {
+test("weekly post never mentions price drops, even when the pick has recent ones", () => {
   const dropped = rec({ id: 1, price: 20, prev_price: 40, updated_at: iso(NOW - 2 * DAY) });
   const stale = rec({ id: 2, price: 20, prev_price: 40, updated_at: iso(NOW - 30 * DAY) });
   assert.equal(isRecentDrop(dropped, NOW), true);
@@ -139,8 +139,8 @@ test("weekly post leads with price drops when the pick has recent ones", () => {
   assert.equal(isRecentDrop(rec({ price: 40, prev_price: 20, updated_at: iso(NOW) }), NOW), false);
   assert.equal(dropPct(dropped), 0.5);
   const md = redditWeeklyMarkdown([dropped, rec({ id: 3 })], 10, {});
-  assert.ok(lines(md)[0].startsWith("[For Sale] Price drops + scarce picks"));
-  assert.ok(md.includes("**Price drops** — 1 of these 2 came down in the last two weeks"));
+  assert.ok(lines(md)[0].startsWith("[For Sale] Weekly picks"));
+  assert.ok(!/price drop/i.test(md));
   assert.ok(!md.includes("~~"), "old prices are never shown");
 });
 
