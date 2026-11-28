@@ -354,6 +354,8 @@ const DISC_PARS = `
     } else if (uMode == 4) {
       float wob = (fbm(vec2(cos(ang), sin(ang)) * 1.6 + uSeed) - 0.5) * 1.6;
       base = mix(B, A, smoothstep(3.75 + wob, 3.4 + wob, r));
+      // A third colour splatters over both.
+      if (uCount > 2) base = mix(base, C, splat(P * 1.3 - uSeed, 9.0, 0.0));
     } else if (uMode == 5) {
       float band = (P.y / 5.85 * 0.5 + 0.5) * float(uCount);
       base = band < 1.0 ? A : (band < 2.0 ? B : C);

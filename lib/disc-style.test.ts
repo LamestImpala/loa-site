@@ -90,6 +90,13 @@ test("split, colour-in-colour and wedges", () => {
   assert.equal(inner?.mode, "inner");
   assert.deepEqual(inner?.colors.map((c) => c.hex), ["#1f55b8", "#c41e25"]);
   assert.equal(discStyle(vinyl("Yellow in Clear"))?.mode, "inner");
+  // Colour-in-colour with a splatter: inner, outer, then the flecks.
+  const flecked = discStyle(
+    vinyl("Oxblood Red / Blue Colour-In-Colour Effect With Black Splatter, Bootleg Edition")
+  );
+  assert.equal(flecked?.mode, "inner");
+  assert.deepEqual(flecked?.colors.map((c) => c.hex), ["#7d1016", "#1f55b8", "#0c0d12"]);
+  assert.equal(flecked?.label, "Oxblood Red / Blue Colour-In-Colour Effect With Black Splatter");
   assert.equal(discStyle(vinyl("Orange & Blueberry Quad", "2"))?.parts, 4);
   assert.equal(discStyle(vinyl("Clear/Ruby Pinwheel (Beach Ball)"))?.parts, 8);
   assert.equal(discStyle(vinyl("Tri-Colour Red, White & Blue"))?.mode, "stripes");
@@ -188,6 +195,11 @@ test("the peeking disc roughs in the pressing's pattern", () => {
   // Splatter: flecks over the base colour, which comes last.
   assert.match(face("Clear With Red Splatter"), /^radial-gradient\(circle at .*, rgb\([^)]+\)$/);
   assert.match(face("Blue In Red"), /^radial-gradient\(circle, /);
+  // …and with a splatter, flecks over the two.
+  assert.match(
+    face("Red / Blue Colour-In-Colour With Black Splatter"),
+    /^radial-gradient\(circle at .*radial-gradient\(circle, [^]*\)$/
+  );
   assert.equal(discFace({ mode: "picture", colors: [], label: "Picture disc" }), "");
   const quad = discFace({
     mode: "wedges",

@@ -165,6 +165,8 @@ export function discPixels(style: DiscStyle, seed: number, size: number): Uint8C
         const wob =
           (fbm(Math.cos(ang) * 1.6 + seed, Math.sin(ang) * 1.6 + seed) - 0.5) * 1.6;
         mix(B, A, smoothstep(3.75 + wob, 3.4 + wob, r));
+        // A third colour splatters over both.
+        if (count > 2) mix([...base], C, splat(x * 1.3 - seed, y * 1.3 - seed, 9, 0));
       } else if (mode === 5) {
         const band = ((y / R) * 0.5 + 0.5) * count;
         mix(A, band < 1 ? A : band < 2 ? B : C, 1);
