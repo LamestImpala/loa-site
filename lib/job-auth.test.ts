@@ -1,7 +1,14 @@
 // node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { adminToken, authorizeJob, bearerToken, requireAdmin, type EmailLookup } from "./job-auth.ts";
+import {
+  adminToken,
+  authorizeJob,
+  bearerToken,
+  requireAdmin,
+  sameSecret,
+  type EmailLookup,
+} from "./job-auth.ts";
 import { ADMIN_EMAIL } from "./supabase.ts";
 
 // An unsigned token shaped like Supabase's. The auth server is what tells
@@ -62,6 +69,10 @@ test("authorize job: the cron secret still works, the owner needs the second ste
     process.env.CRON_SECRET = "cron-secret-for-this-test";
     assert.equal(await authorizeJob(req("cron-secret-for-this-test"), unreachable), true);
     assert.equal(await authorizeJob(req("wrong-secret"), unreachable), false);
+    // Near misses: a prefix, a longer string, one character off.
+    assert.equal(await authorizeJob(req("cron-secret-for-this-tes"), unreachable), false);
+    assert.equal(await authorizeJob(req("cron-secret-for-this-test!"), unreachable), false);
+    assert.equal(await authorizeJob(req("cron-secret-for-this-tesT"), unreachable), false);
     assert.equal(await authorizeJob(req(), unreachable), false);
     assert.equal(await authorizeJob(req(aal2), owner), true);
     assert.equal(await authorizeJob(req(aal1), owner), false);
@@ -74,4 +85,14 @@ test("authorize job: the cron secret still works, the owner needs the second ste
     if (before === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = before;
   }
+});
+
+test("same secret: equal strings only, whatever their lengths", () => {
+  assert.equal(sameSecret("abc", "abc"), true);
+  assert.equal(sameSecret("abc", "abd"), false);
+  // Different lengths must answer false, not throw.
+  assert.equal(sameSecret("abc", "abcd"), false);
+  assert.equal(sameSecret("", "abc"), false);
+  assert.equal(sameSecret("", ""), true);
+  assert.equal(sameSecret("clé-secrète", "clé-secrète"), true);
 });
