@@ -1,5 +1,6 @@
 import type { DbRecord, Invoice, Order, OrderRequest, Shipment } from "../supabase.ts";
 import { kindOf } from "../items.ts";
+import { trackingLabel } from "../delivery.ts";
 
 // Fulfillment rules: how sold records and boxes (shipments rows — "parcel"
 // in the older code) group per order, where an order stands from request
@@ -242,7 +243,7 @@ export function orderPhase(
 // not yet done is "current"; `at` is when a step happened, where the
 // tables recorded it (a label has no timestamp of its own).
 export type TimelineStep = {
-  key: "request" | "invoice" | "paid" | "pulled" | "packed" | "labeled" | "sent";
+  key: "request" | "invoice" | "paid" | "pulled" | "packed" | "labeled" | "sent" | "delivered";
   label: string;
   state: "done" | "current" | "todo";
   at: string | null;
@@ -331,6 +332,27 @@ export function orderTimeline(
     at: gone ? latest(boxes.map((s) => s.sent_at)) : null,
     detail: sent > 0 && !gone ? `${sent} of ${boxes.length} boxes` : undefined,
   });
+
+  // Delivered, from carrier tracking (/api/delivery-check). Only once the
+  // check has looked at one of the boxes, so orders from before tracking —
+  // and boxes handed over — don't sit on an unticked step forever.
+  const tracked = mailed.filter((s) => !!s.tracking_checked_at || !!s.delivered_at);
+  if (!inPerson && tracked.length > 0) {
+    const arrived = mailed.filter((s) => !!s.delivered_at);
+    const all = gone && arrived.length === mailed.length;
+    const waiting = mailed.find((s) => !s.delivered_at && s.tracking_status);
+    add({
+      key: "delivered",
+      label: "Delivered",
+      done: all,
+      at: all ? latest(mailed.map((s) => s.delivered_at ?? null)) : null,
+      detail: all
+        ? undefined
+        : arrived.length > 0
+          ? `${arrived.length} of ${mailed.length} boxes`
+          : (trackingLabel(waiting?.tracking_status)?.toLowerCase() ?? undefined),
+    });
+  }
 
   let currentSet = false;
   return steps.map(({ done, ...step }) => {

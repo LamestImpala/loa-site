@@ -7,7 +7,9 @@ import { expireTracking, type TrackExpiry } from "@/lib/track-db";
 import type { Order, ReviewInvite, Shipment } from "@/lib/supabase";
 
 // Daily on the Vercel cron (vercel.json): email a private review link to
-// each buyer whose box went out 10-30 days ago (see ordersToInvite). Only
+// each buyer whose box arrived a few days ago — or, when tracking never
+// said delivered, went out 10 days ago — within 30 days of drop-off (see
+// ordersToInvite; /api/delivery-check fills in delivered_at). Only
 // buyers with an email on file — Reddit buyers get their link from "Copy
 // review link" in the admin. Combined orders are one sale and get one
 // email, so every paid or refunded order is read (not just the ones with
@@ -62,7 +64,10 @@ async function run(req: NextRequest) {
 
     const [{ data: shipments, error: shipError }, { data: invites, error: invError }] =
       await Promise.all([
-        supabase.from("shipments").select("order_id, sent_at, mode").in("order_id", ids),
+        supabase
+          .from("shipments")
+          .select("order_id, sent_at, mode, delivered_at")
+          .in("order_id", ids),
         supabase.from("review_invites").select("order_id").in("order_id", ids),
       ]);
     if (shipError) throw new Error(shipError.message);
@@ -70,7 +75,7 @@ async function run(req: NextRequest) {
 
     const due = ordersToInvite(
       orders as Pick<Order, "id" | "status" | "buyer_email" | "combined_into">[],
-      (shipments ?? []) as Pick<Shipment, "order_id" | "sent_at" | "mode">[],
+      (shipments ?? []) as Pick<Shipment, "order_id" | "sent_at" | "mode" | "delivered_at">[],
       (invites ?? []) as Pick<ReviewInvite, "order_id">[]
     );
     if (dry) return Response.json({ dry, due, sent: [], failed: [], tracking });

@@ -19,11 +19,33 @@ export const MAX_REVIEW_BODY = 1200;
 export const MAX_REVIEWER_NAME = 60;
 export const ADMIN_REVIEWS_URL = `${ADMIN_URL}/reviews`;
 
-// The invite goes out once the box has had time to arrive and be played:
-// 10 days after drop-off. Boxes sent more than 30 days ago are left alone,
-// so turning the job on doesn't email every past buyer at once.
+// The invite goes out once the records have had time to be played:
+// INVITE_AFTER_DELIVERY_DAYS after the last box reached the buyer (tracking
+// scanned it delivered, or it was handed over in person). When tracking
+// never says delivered, it goes INVITE_AFTER_DAYS after drop-off, as it
+// always did. Boxes sent more than 30 days ago are left alone, so turning
+// the job on doesn't email every past buyer at once.
+export const INVITE_AFTER_DELIVERY_DAYS = 3;
 export const INVITE_AFTER_DAYS = 10;
 export const INVITE_UNTIL_DAYS = 30;
+
+const DAY_MS = 86_400_000;
+
+// When a sale's review ask is due (ms), from its boxes: whichever comes
+// first of a few days after arrival and the drop-off fallback. Null until
+// every box has gone out.
+export function reviewDueAt(sale: {
+  lastSent: string | null;
+  unsent?: boolean;
+  lastArrived?: string | null;
+}): number | null {
+  if (!sale.lastSent || sale.unsent) return null;
+  const fallback = Date.parse(sale.lastSent) + INVITE_AFTER_DAYS * DAY_MS;
+  const arrived = sale.lastArrived ? Date.parse(sale.lastArrived) : NaN;
+  return Number.isFinite(arrived)
+    ? Math.min(fallback, arrived + INVITE_AFTER_DELIVERY_DAYS * DAY_MS)
+    : fallback;
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -74,30 +96,33 @@ export function parseReviewBody(raw: unknown): ParsedReview {
 }
 
 // Paid sales due a review email today: an email on file, every parcel
-// dropped off, the last one INVITE_AFTER_DAYS–INVITE_UNTIL_DAYS ago, and
-// no invite yet (emailed or copied). Orders that were combined are one
-// sale: one email, counted from its last box, and none if any of its
-// orders was already asked. orderId is the order whose email is used.
-// Reddit buyers have no email; the admin copies their link into a DM
-// instead. A box handed over in person counts from the hand-over;
-// inPerson (nothing mailed) changes the wording.
+// dropped off, the last one at most INVITE_UNTIL_DAYS ago, its due day
+// reached (reviewDueAt: a few days after delivery, or INVITE_AFTER_DAYS
+// after drop-off), and no invite yet (emailed or copied). Orders that were
+// combined are one sale: one email, counted from its last box, and none if
+// any of its orders was already asked. orderId is the order whose email is
+// used. Reddit buyers have no email; the admin copies their link into a DM
+// instead. A box handed over in person arrived at the hand-over; inPerson
+// (nothing mailed) changes the wording.
 export function ordersToInvite(
   orders: Pick<Order, "id" | "status" | "buyer_email" | "combined_into">[],
-  shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[],
+  shipments: (Pick<Shipment, "order_id" | "sent_at"> & {
+    mode?: string | null;
+    delivered_at?: string | null;
+  })[],
   invites: Pick<ReviewInvite, "order_id">[],
   now: Date = new Date()
 ): { orderId: number; email: string; inPerson: boolean }[] {
   const invited = new Set(invites.map((i) => i.order_id));
   const shipping = saleShipping(orders, shipments);
-  const day = 86_400_000;
-  const earliest = now.getTime() - INVITE_UNTIL_DAYS * day;
-  const latest = now.getTime() - INVITE_AFTER_DAYS * day;
+  const earliest = now.getTime() - INVITE_UNTIL_DAYS * DAY_MS;
   const due: { orderId: number; email: string; inPerson: boolean }[] = [];
   for (const [root, members] of saleGroups(orders)) {
     const sale = shipping.get(root);
     if (!sale?.lastSent || sale.unsent || members.some((o) => invited.has(o.id))) continue;
-    const sent = Date.parse(sale.lastSent);
-    if (sent < earliest || sent > latest) continue;
+    if (Date.parse(sale.lastSent) < earliest) continue;
+    const dueAt = reviewDueAt(sale);
+    if (dueAt == null || dueAt > now.getTime()) continue;
     const to = members.find((o) => o.status === "paid" && o.buyer_email?.trim());
     if (!to) continue;
     due.push({

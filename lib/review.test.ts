@@ -11,6 +11,7 @@ import {
   ratingLine,
   reviewMonth,
   reviewDmText,
+  reviewDueAt,
   reviewRequestEmail,
   stars,
   toReviewQuotes,
@@ -56,6 +57,7 @@ test("review body: text and name are capped", () => {
 });
 
 const now = new Date("2026-11-20T15:00:00Z");
+const iso = (t: number) => new Date(t).toISOString();
 const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000).toISOString();
 
 test("orders to invite: paid, emailed buyer, box out 10-30 days, not yet invited", () => {
@@ -252,4 +254,39 @@ test("orders to invite: combined orders get one email, from the sale's last box"
     ordersToInvite(orders, home, [], now).map((d) => d.orderId),
     [31]
   );
+});
+
+test("orders to invite: three days after tracking says delivered", () => {
+  const orders = [
+    { id: 1, status: "paid" as const, buyer_email: "a@example.com" }, // delivered 3 days ago: due
+    { id: 2, status: "paid" as const, buyer_email: "b@example.com" }, // delivered yesterday: not yet
+    { id: 3, status: "paid" as const, buyer_email: "c@example.com" }, // one of two boxes delivered
+    { id: 4, status: "paid" as const, buyer_email: "d@example.com" }, // handed over 3 days ago
+  ];
+  const shipments = [
+    { order_id: 1, sent_at: daysAgo(6), delivered_at: daysAgo(3) },
+    { order_id: 2, sent_at: daysAgo(6), delivered_at: daysAgo(1) },
+    { order_id: 3, sent_at: daysAgo(6), delivered_at: daysAgo(4) },
+    { order_id: 3, sent_at: daysAgo(6), delivered_at: null },
+    { order_id: 4, sent_at: daysAgo(3), mode: "hand" },
+  ];
+  assert.deepEqual(ordersToInvite(orders, shipments, [], now), [
+    { orderId: 1, email: "a@example.com", inPerson: false },
+    { orderId: 4, email: "d@example.com", inPerson: true },
+  ]);
+});
+
+test("review due: whichever comes first of delivery + 3 days and drop-off + 10", () => {
+  const day = 86_400_000;
+  const sent = "2026-11-01T12:00:00.000Z";
+  const t = Date.parse(sent);
+  assert.equal(reviewDueAt({ lastSent: sent }), t + 10 * day, "no delivery yet: the old timer");
+  assert.equal(reviewDueAt({ lastSent: sent, lastArrived: iso(t + 2 * day) }), t + 5 * day);
+  assert.equal(
+    reviewDueAt({ lastSent: sent, lastArrived: iso(t + 9 * day) }),
+    t + 10 * day,
+    "a slow delivery doesn't push it past the old timer"
+  );
+  assert.equal(reviewDueAt({ lastSent: sent, unsent: true }), null);
+  assert.equal(reviewDueAt({ lastSent: null }), null);
 });

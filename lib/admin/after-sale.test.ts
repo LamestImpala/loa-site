@@ -52,7 +52,11 @@ test("an email buyer: the review email sends itself, and there's no Reddit step"
   const g = shipped(o, [rec({ id: 1, sold: true, order_id: 1 })]);
   const items = afterSaleChecklist(g, none, NOW);
   assert.deepEqual(states(items), { review: "scheduled" });
-  assert.equal(items[0].detail, "emails itself Nov 20", "ten days after the box left");
+  assert.equal(
+    items[0].detail,
+    "emails itself by Nov 20 — 3 days after delivery if sooner",
+    "ten days after the box left, unless tracking says delivered first"
+  );
   assert.deepEqual(openAfterSale(items), []);
 
   // Past the daily job's window with no invite: it never went.
@@ -115,7 +119,7 @@ test("a sale from before the orders table has no review to ask for", () => {
 test("a combined order's review step follows its sale", () => {
   const o = order({ id: 29, status: "paid", buyer_username: "amy", completed_at: null, combined_into: 27 });
   const g = shipped(o, [rec({ id: 1, sold: true, order_id: 29 })]);
-  const sale = { orderIds: [29, 27], lastSent: SENT, unsent: false, email: false };
+  const sale = { orderIds: [29, 27], lastSent: SENT, unsent: false, lastArrived: null, mailed: true, email: false };
   const review = (ctx: Parameters<typeof afterSaleChecklist>[1]) =>
     afterSaleChecklist(g, ctx, NOW).find((i) => i.key === "review")!;
 
@@ -137,4 +141,23 @@ test("a combined order's review step follows its sale", () => {
   const waits = review({ invites: [], reviews: [], sale: { ...sale, unsent: true } });
   assert.equal(waits.state, "scheduled");
   assert.match(waits.detail, /waits for the combined order/);
+});
+
+test("once tracking says delivered, the review email is three days later", () => {
+  const o = order({ id: 1, status: "paid", buyer_username: "Amy", buyer_email: "amy@example.com", completed_at: null });
+  const g = shipped(o, [rec({ id: 1, sold: true, order_id: 1 })]);
+  // Delivered at 4:49 pm Arizona time — Nov 11 there, already Nov 12 in UTC.
+  g.shipments[0].delivered_at = "2026-11-11T23:49:00Z";
+  const items = afterSaleChecklist(g, none, NOW);
+  assert.equal(items[0].state, "scheduled");
+  assert.equal(items[0].detail, "delivered Nov 11 · emails itself Nov 14");
+});
+
+test("a Reddit buyer's delivered box says it's time for the DM", () => {
+  const o = order({ id: 1, status: "paid", buyer_username: "amy", completed_at: null });
+  const g = shipped(o, [rec({ id: 1, sold: true, order_id: 1 })]);
+  g.shipments[0].delivered_at = "2026-11-11T18:00:00Z";
+  const review = afterSaleChecklist(g, none, NOW).find((i) => i.key === "review")!;
+  assert.equal(review.state, "todo");
+  assert.equal(review.detail, "delivered Nov 11 — copy a review DM");
 });

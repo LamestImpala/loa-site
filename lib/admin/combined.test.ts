@@ -137,10 +137,30 @@ test("sale shipping: the last box out, and a box (or paid order) still home", ()
     shipment({ order_id: 3, sent_at: early, mode: "hand" }),
     shipment({ order_id: 4, sent_at: null }), // refunded: doesn't hold the sale up
   ]);
-  assert.deepEqual(shipping.get(1), { lastSent: late, unsent: false, mailed: true });
-  assert.deepEqual(shipping.get(3), { lastSent: early, unsent: false, mailed: false });
+  // Sale 1's mailed box has no delivery yet, so it hasn't all arrived;
+  // sale 3 was handed over, which is its arrival.
+  assert.deepEqual(shipping.get(1), { lastSent: late, unsent: false, mailed: true, lastArrived: null });
+  assert.deepEqual(shipping.get(3), { lastSent: early, unsent: false, mailed: false, lastArrived: early });
   // A paid order with no box yet keeps the sale waiting.
-  assert.equal(saleShipping(orders, [shipment({ order_id: 1, sent_at: early })]).get(1)!.unsent, true);
+  const waiting = saleShipping(orders, [shipment({ order_id: 1, sent_at: early, mode: "hand" })]).get(1)!;
+  assert.deepEqual([waiting.unsent, waiting.lastArrived], [true, null]);
+});
+
+test("sale shipping: arrived once every box is delivered or handed over", () => {
+  const orders = [paid(1), paid(2, { combined_into: 1 })];
+  const sent = iso(T - 6 * DAY);
+  const d1 = iso(T - 3 * DAY);
+  const d2 = iso(T - 2 * DAY);
+  const one = saleShipping(orders, [
+    shipment({ order_id: 1, sent_at: sent, delivered_at: d1 }),
+    shipment({ order_id: 2, sent_at: sent, delivered_at: null }),
+  ]).get(1)!;
+  assert.equal(one.lastArrived, null, "the second box is still on its way");
+  const both = saleShipping(orders, [
+    shipment({ order_id: 1, sent_at: sent, delivered_at: d2 }),
+    shipment({ order_id: 2, sent_at: sent, delivered_at: d1 }),
+  ]).get(1)!;
+  assert.equal(both.lastArrived, d2, "the later of the two");
 });
 
 test("sale invite: the used link, else the emailed one, else the oldest", () => {
@@ -173,6 +193,8 @@ test("review context: null for an order on its own, the sale's state when combin
     orderIds: [2, 1],
     lastSent: sent,
     unsent: true,
+    lastArrived: null,
+    mailed: true,
     email: true,
   });
 });

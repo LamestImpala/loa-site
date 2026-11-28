@@ -1,5 +1,5 @@
 import type { DbRecord, Order, ReviewInvite, ReviewSource, Shipment, ShopReview } from "../supabase.ts";
-import { INVITE_AFTER_DAYS, MAX_REVIEW_BODY, MAX_REVIEWER_NAME } from "../review.ts";
+import { MAX_REVIEW_BODY, MAX_REVIEWER_NAME, reviewDueAt } from "../review.ts";
 import { saleGroups, saleInvite, saleShipping } from "./combined.ts";
 
 // The Inbox's Reviews section: which recent buyers can still be asked for
@@ -26,7 +26,10 @@ export type AskableOrder = {
 // buyers are emailed by the daily job; anyone can be sent a copied link.
 export function askableOrders(
   orders: Order[],
-  shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[],
+  shipments: (Pick<Shipment, "order_id" | "sent_at"> & {
+    mode?: string | null;
+    delivered_at?: string | null;
+  })[],
   invites: ReviewInvite[],
   reviews: Pick<ShopReview, "order_id">[],
   now: number = Date.now()
@@ -45,9 +48,10 @@ export function askableOrders(
     if (Date.parse(sent) < since) continue;
     const invite = saleInvite(invites, all.map((o) => o.id));
     if (invite?.used_at) continue;
+    const dueAt = reviewDueAt(sale);
     const autoEmailOn =
-      !invite && members.some((o) => o.buyer_email)
-        ? new Date(Date.parse(sent) + INVITE_AFTER_DAYS * day).toISOString()
+      !invite && dueAt != null && members.some((o) => o.buyer_email)
+        ? new Date(dueAt).toISOString()
         : null;
     out.push({
       order: members[0],
