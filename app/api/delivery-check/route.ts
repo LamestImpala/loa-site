@@ -5,7 +5,8 @@ import { fetchShippoTrack, shippoConfigured } from "@/lib/delivery";
 import { sweepDeliveries } from "@/lib/delivery-db";
 import { serviceSupabase } from "@/lib/supabase-service";
 
-// Every few hours on the Vercel cron (vercel.json): ask Shippo where each
+// Once a day on the Vercel cron (vercel.json), at 02:00 UTC — 6 pm Pacific
+// in winter, 7 pm in summer, after the day's deliveries: ask Shippo where each
 // recently dropped-off box is, and mark the ones the carrier scanned
 // delivered (shipments.delivered_at). The daily review job then emails
 // email buyers a few days after delivery; for a Reddit buyer the admin is
