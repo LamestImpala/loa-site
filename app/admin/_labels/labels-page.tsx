@@ -31,6 +31,8 @@ import { readLabel } from "./pdf-text";
 // glance-check. "Save tracking & print" writes each tracking number onto
 // its box and opens one PDF with the labels in Box # order — 4×6 pages
 // for the thermal printer, or two per letter sheet for half-sheet stock.
+// "Save tracking only" writes the numbers and opens nothing, for labels
+// already printed straight from PayPal.
 // Letter-size labels (bought before PayPal's format was switched to 4×6)
 // default to being cropped onto 4×6 pages so they print on the thermal
 // printer too; half-sheet stock is still a choice.
@@ -67,7 +69,7 @@ export function LabelsPage() {
   // printer (the format going forward), or two per sheet on half-sheet stock.
   const [letterTarget, setLetterTarget] = useState<Layout>("thermal");
   const [startOnBottom, setStartOnBottom] = useState(false);
-  const [busy, setBusy] = useState<null | "combine" | "save">(null);
+  const [busy, setBusy] = useState<null | "combine" | "save" | "saveOnly">(null);
   const [savedBoxes, setSavedBoxes] = useState(0); // boxes given tracking by the last save
   const [dragging, setDragging] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -271,21 +273,57 @@ export function LabelsPage() {
   }
 
   // Tracking onto each matched box (the box becomes shipped, its records
-  // mirror the number), then the sheet in Box # order — unmatched labels
-  // last, as listed.
+  // mirror the number, it's marked a PayPal label). Adds each saved row's
+  // key to `saved` as it goes, so a failure partway still reports — and,
+  // for save-only, clears — the ones that landed.
+  async function writeTracking(saved: Set<number>) {
+    for (const r of assigned) {
+      const s = candidateById.get(r.parcelId!)?.shipment;
+      if (!s) continue;
+      const patch = await setParcelTracking(supabase, s, r.tracking, { mode: "paypal" });
+      patchShipmentLocal(s.id, patch);
+      await updateRecords(s.record_ids ?? [], { tracking_number: r.tracking.trim() }, { quiet: true });
+      saved.add(r.key);
+    }
+  }
+
+  // Just the tracking, no sheet — for labels already printed straight
+  // from PayPal. The saved rows leave the list (their boxes are no longer
+  // waiting on a label); unmatched ones stay.
+  async function saveOnly() {
+    if (assigned.length === 0 || problems.length > 0 || busy) return;
+    setBusy("saveOnly");
+    const saved = new Set<number>();
+    try {
+      await writeTracking(saved);
+      pushToast(
+        "success",
+        `Saved tracking on ${saved.size} box${saved.size === 1 ? "" : "es"}.`
+      );
+    } catch (err) {
+      pushToast(
+        "error",
+        `${saved.size ? `Saved ${saved.size}, then: ` : ""}${err instanceof Error ? err.message : "Saving failed."}`
+      );
+    } finally {
+      if (saved.size) {
+        setSavedBoxes(saved.size);
+        setRows((prev) => prev.filter((r) => !saved.has(r.key)));
+        setResult(null);
+      }
+      setBusy(null);
+    }
+  }
+
+  // The tracking, then the sheet in Box # order — unmatched labels last,
+  // as listed.
   async function saveAndPrint() {
     if (assigned.length === 0 || problems.length > 0 || busy || !layout) return;
     setBusy("save");
-    let saved = 0;
+    const savedKeys = new Set<number>();
     try {
-      for (const r of assigned) {
-        const s = candidateById.get(r.parcelId!)?.shipment;
-        if (!s) continue;
-        const patch = await setParcelTracking(supabase, s, r.tracking, { mode: "paypal" });
-        patchShipmentLocal(s.id, patch);
-        await updateRecords(s.record_ids ?? [], { tracking_number: r.tracking.trim() }, { quiet: true });
-        saved += 1;
-      }
+      await writeTracking(savedKeys);
+      const saved = savedKeys.size;
       const byBox = new Map(assigned.map((r) => [r.parcelId!, r]));
       const ordered: Row[] = [
         ...sortByPackOrder(
@@ -302,7 +340,7 @@ export function LabelsPage() {
     } catch (err) {
       pushToast(
         "error",
-        `${saved ? `Saved ${saved}, then: ` : ""}${err instanceof Error ? err.message : "Saving failed."}`
+        `${savedKeys.size ? `Saved ${savedKeys.size}, then: ` : ""}${err instanceof Error ? err.message : "Saving failed."}`
       );
     } finally {
       setBusy(null);
@@ -317,7 +355,8 @@ export function LabelsPage() {
           <p className="text-sm text-neutral-400">
             Drop PayPal label PDFs. Each is matched to a box awaiting a label
             by its ship-to name; saving records the tracking and prints them
-            in Box # order.
+            in Box # order — or just records it, if you already printed from
+            PayPal.
           </p>
         </div>
         <span className="text-xs text-neutral-500">
@@ -559,6 +598,17 @@ export function LabelsPage() {
           {busy === "save"
             ? "Saving…"
             : `Save tracking & print${assigned.length ? ` (${assigned.length})` : ""}`}
+        </button>
+        <button
+          type="button"
+          onClick={saveOnly}
+          disabled={assigned.length === 0 || problems.length > 0 || !!busy}
+          title="Already printed from PayPal? Write each tracking number onto its box (the box becomes shipped) — no sheet is opened"
+          className={buttonClass}
+        >
+          {busy === "saveOnly"
+            ? "Saving…"
+            : `Save tracking only${assigned.length ? ` (${assigned.length})` : ""}`}
         </button>
         <button
           type="button"
