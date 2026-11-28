@@ -18,6 +18,7 @@ export type DiscMode =
   | "inner" // colour-in-colour: colors[0] inside colors[1]
   | "stripes"
   | "wedges" // cornetto / pinwheel / quad
+  | "sunburst" // colour-in-colour with a splatter: patches, streaks from the label
   | "picture"; // can't be drawn from words: the disc stays in its sleeve
 
 export type DiscStyle = {
@@ -57,9 +58,11 @@ const COLOURS = (
     ["(royal|cobalt|electric) blue|cobalt", "#2452c4"],
     ["(navy|dark|midnight|deep) blue|navy", "#1c2b63"],
     ["blueberry", "#3b4f9e"],
+    ["indigo", "#3a4682"],
     ["(hot|neon) pink|magenta|fuchsia", "#e8318a"],
     ["(baby|light|pastel) pink|bubblegum", "#f3b9cf"],
-    ["(blood|dark|deep) red|oxblood( red)?", "#7d1016"],
+    ["(blood|dark|deep) red", "#7d1016"],
+    ["oxblood( red)?", "#8a4247"],
     ["ruby|crimson|cherry|scarlet", "#b3122b"],
     ["burgundy|maroon|wine|merlot", "#6b1a2c"],
     ["(forest|dark|deep) green|emerald|evergreen", "#1f5a3a"],
@@ -191,11 +194,11 @@ function parsePart(raw: string, qty: number): DiscStyle | null {
       mode = "marble";
     }
   }
-  // "Oxblood / Blue Colour-In-Colour With Black Splatter": one colour inside
-  // the other, flecked with a third. The splatter's colour is named last.
+  // "Oxblood / Blue Colour-In-Colour With Black Splatter": the two colours in
+  // patches, the third (named last) streaking out from the label.
   const inner = EFFECTS.find(([m]) => m === "inner")![1];
   if (mode === "splatter" && colors.length >= 3 && inner.test(text)) {
-    mode = "inner";
+    mode = "sunburst";
     colors = [colors[0], colors[1], colors[colors.length - 1]];
   }
   if (mode === "splatter" && colors.length === 1) {
@@ -352,15 +355,17 @@ export function discFace(style: DiscStyle): string {
   if (colors.length === 0) return "";
   if (colors.length === 1) return rgb(colors[0]);
   switch (mode) {
-    case "inner": {
-      const core = `radial-gradient(circle, ${rgb(colors[0])} 0 52%, ${rgb(colors[1])} 53%)`;
-      if (colors.length < 3) return core;
-      // A third colour is a splatter over the two.
-      const flecks = FLECKS.map(
-        ([x, y, r]) =>
-          `radial-gradient(circle at ${x}% ${y}%, ${rgb(colors[2])} 0 ${r}%, transparent ${r + 0.6}%)`
-      );
-      return `${flecks.join(", ")}, ${core}`;
+    case "inner":
+      return `radial-gradient(circle, ${rgb(colors[0])} 0 52%, ${rgb(colors[1])} 53%)`;
+    case "sunburst": {
+      // A dark ring at the label, thin streaks out to the rim, patches below.
+      const [a, b, c] = colors.map(rgb);
+      const streak = c ?? rgb({ hex: BLACK, alpha: 1 });
+      return [
+        `radial-gradient(circle, ${streak} 0 40%, transparent 62%)`,
+        `repeating-conic-gradient(from 4deg, ${streak} 0 2deg, transparent 3deg 11deg)`,
+        `conic-gradient(from 30deg, ${a}, ${b} 20%, ${a} 45%, ${b} 70%, ${a})`,
+      ].join(", ");
     }
     case "marble": {
       // Soft-edged swirl: the colours blend into each other, twice round.

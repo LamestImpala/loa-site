@@ -83,12 +83,26 @@ test("a three-colour splatter shows the third", () => {
   assert.ok(share(px, bluish) > 20);
 });
 
-test("colour-in-colour with a third colour splatters it over both", () => {
-  const two = discPixels(style("inner", "#c41e25", "#f2f0ea"), 5, SIZE);
-  const px = discPixels(style("inner", "#c41e25", "#f2f0ea", "#1f55b8"), 5, SIZE);
-  assert.equal(share(two, bluish), 0);
-  assert.ok(share(px, bluish) > 20);
+test("a sunburst streaks the third colour out from the label, thickest near it", () => {
+  const px = discPixels(style("sunburst", "#c41e25", "#f2f0ea", "#1f55b8"), 5, SIZE);
   assert.ok(share(px, reddish) > 40 && share(px, whitish) > 40);
+  // Blue share of a thin ring at d (as a fraction of the radius).
+  const ring = (d: number) => {
+    let n = 0;
+    let all = 0;
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const k = Math.hypot(x + 0.5 - MID, y + 0.5 - MID) / MID;
+        if (Math.abs(k - d) < 0.04) {
+          all++;
+          if (bluish(at(px, x, y))) n++;
+        }
+      }
+    }
+    return n / all;
+  };
+  assert.ok(ring(0.45) > 0.6, "near the label");
+  assert.ok(ring(0.88) > 0.03 && ring(0.88) < 0.35, "near the rim");
 });
 
 test("split, colour-in-colour and wedges land where the words say", () => {

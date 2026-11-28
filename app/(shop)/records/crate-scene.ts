@@ -332,6 +332,43 @@ const DISC_PARS = `
     }
     return m;
   }
+  // Value noise that repeats every per cells across, so a pattern laid round
+  // the disc in angle closes without a seam.
+  float wnoise(vec2 p, float per) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float x0 = i.x - per * floor(i.x / per);
+    float x1 = i.x + 1.0 - per * floor((i.x + 1.0) / per);
+    return mix(mix(h21(vec2(x0, i.y)), h21(vec2(x1, i.y)), f.x), mix(h21(vec2(x0, i.y + 1.0)), h21(vec2(x1, i.y + 1.0)), f.x), f.y);
+  }
+  float wfbm(vec2 p, float per) {
+    float a = 0.5;
+    float s = 0.0;
+    for (int k = 0; k < 4; k++) {
+      s += a * wnoise(p, per);
+      p = vec2(p.x * 2.0, p.y * 2.03 + 17.1);
+      per *= 2.0;
+      a *= 0.5;
+    }
+    return s;
+  }
+  // Colour-in-colour with a splatter (sunburst() in lib/disc-paint.ts): the
+  // two colours in patches, streaks of the third out from the label.
+  vec2 sunburst(float u, float r, float seed) {
+    float w = u + 0.018 * (wfbm(vec2(u * 14.0, r * 0.8 + seed), 14.0) - 0.5);
+    float blot = wfbm(vec2(w * 11.0, r * 0.5 + seed), 11.0)
+      + 0.35 * (wfbm(vec2(w * 36.0, r * 0.16 + seed + 3.1), 36.0) - 0.5)
+      + 0.25 * (wfbm(vec2(w * 110.0, r * 0.08 + seed + 5.3), 110.0) - 0.5)
+      - 0.05 * smoothstep(3.0, 4.2, r) * smoothstep(5.6, 4.8, r);
+    float reach = 3.2 + 3.4 * pow(wfbm(vec2(w * 60.0, seed + 9.4), 60.0), 1.3);
+    float thin = smoothstep(2.3, reach, r);
+    float streak = 0.75 * wfbm(vec2(w * 150.0, r * 0.07 + seed * 0.7), 150.0)
+      + 0.25 * wfbm(vec2(w * 150.0, r * 1.1 + seed + 4.2), 150.0);
+    float edge = 0.34 + 0.2 * thin;
+    float ring = smoothstep(2.85, 2.25, r);
+    return vec2(smoothstep(0.29, 0.48, blot), max(smoothstep(edge - 0.03, edge + 0.06, streak), ring * 0.92));
+  }
   vec4 discPattern(vec2 P, float r) {
     float ang = atan(P.y, P.x);
     vec4 A = uCol[0];
@@ -354,11 +391,12 @@ const DISC_PARS = `
     } else if (uMode == 4) {
       float wob = (fbm(vec2(cos(ang), sin(ang)) * 1.6 + uSeed) - 0.5) * 1.6;
       base = mix(B, A, smoothstep(3.75 + wob, 3.4 + wob, r));
-      // A third colour splatters over both.
-      if (uCount > 2) base = mix(base, C, splat(P * 1.3 - uSeed, 9.0, 0.0));
     } else if (uMode == 5) {
       float band = (P.y / 5.85 * 0.5 + 0.5) * float(uCount);
       base = band < 1.0 ? A : (band < 2.0 ? B : C);
+    } else if (uMode == 7) {
+      vec2 sb = sunburst(ang / 6.28318 + 0.5, r, uSeed);
+      base = mix(mix(A, B, sb.x), C, sb.y);
     } else if (uMode == 6) {
       // Pinwheel / quad pressings: wedges of alternating colour.
       float wedge = mod(floor((ang + 3.14159) / 6.28318 * uParts), float(uCount));
@@ -408,6 +446,7 @@ const DISC_MODES: Record<string, number> = {
   inner: 4,
   stripes: 5,
   wedges: 6,
+  sunburst: 7,
 };
 // A coloured pressing turns once it's out of the sleeve: one turn in about
 // ten seconds, slow enough to read the pattern as it comes past.

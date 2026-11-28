@@ -86,6 +86,59 @@ function splat(gx: number, gy: number, seed: number, wrap: number) {
   return m;
 }
 
+// Value noise that repeats every `per` cells across, so a pattern laid round
+// the disc in angle closes without a seam.
+function wnoise(x: number, y: number, per: number) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  let fx = x - ix;
+  let fy = y - iy;
+  fx = fx * fx * (3 - 2 * fx);
+  fy = fy * fy * (3 - 2 * fy);
+  const x0 = ix - per * Math.floor(ix / per);
+  const x1 = ix + 1 - per * Math.floor((ix + 1) / per);
+  const a = h21(x0, iy);
+  const b = h21(x1, iy);
+  const c = h21(x0, iy + 1);
+  const d = h21(x1, iy + 1);
+  return a + (b - a) * fx + (c + (d - c) * fx - (a + (b - a) * fx)) * fy;
+}
+
+function wfbm(x: number, y: number, per: number) {
+  let a = 0.5;
+  let s = 0;
+  for (let k = 0; k < 4; k++) {
+    s += a * wnoise(x, y, per);
+    x *= 2;
+    y = y * 2.03 + 17.1;
+    per *= 2;
+    a *= 0.5;
+  }
+  return s;
+}
+
+// Colour-in-colour with a splatter, as it comes out of the press: the two
+// colours in long patches round the disc, and streaks of the third shooting
+// out from the label, thick near it and thinning toward the rim. u is the
+// way round (0–1), r the distance out. Returns [how much B, how much C].
+export function sunburst(u: number, r: number, seed: number): [number, number] {
+  const w = u + 0.018 * (wfbm(u * 14, r * 0.8 + seed, 14) - 0.5);
+  const blot =
+    wfbm(w * 11, r * 0.5 + seed, 11) +
+    0.35 * (wfbm(w * 36, r * 0.16 + seed + 3.1, 36) - 0.5) +
+    0.25 * (wfbm(w * 110, r * 0.08 + seed + 5.3, 110) - 0.5) -
+    0.05 * smoothstep(3.0, 4.2, r) * smoothstep(5.6, 4.8, r);
+  // Each streak runs its own length out from the label.
+  const reach = 3.2 + 3.4 * wfbm(w * 60, seed + 9.4, 60) ** 1.3;
+  const thin = smoothstep(2.3, reach, r);
+  const streak =
+    0.75 * wfbm(w * 150, r * 0.07 + seed * 0.7, 150) + 0.25 * wfbm(w * 150, r * 1.1 + seed + 4.2, 150);
+  const edge = 0.34 + 0.2 * thin;
+  const ring = smoothstep(2.85, 2.25, r);
+  const c = Math.max(smoothstep(edge - 0.03, edge + 0.06, streak), ring * 0.92);
+  return [smoothstep(0.29, 0.48, blot), c];
+}
+
 // Evenly spaced rings; aa is how far c moves across one pixel.
 function lines(c: number, w: number, aa: number) {
   const f = Math.abs(fract(c) - 0.5);
@@ -109,6 +162,7 @@ const MODES: Record<string, number> = {
   inner: 4,
   stripes: 5,
   wedges: 6,
+  sunburst: 7,
 };
 
 const CREAM = [0.93, 0.89, 0.81];
@@ -165,11 +219,13 @@ export function discPixels(style: DiscStyle, seed: number, size: number): Uint8C
         const wob =
           (fbm(Math.cos(ang) * 1.6 + seed, Math.sin(ang) * 1.6 + seed) - 0.5) * 1.6;
         mix(B, A, smoothstep(3.75 + wob, 3.4 + wob, r));
-        // A third colour splatters over both.
-        if (count > 2) mix([...base], C, splat(x * 1.3 - seed, y * 1.3 - seed, 9, 0));
       } else if (mode === 5) {
         const band = ((y / R) * 0.5 + 0.5) * count;
         mix(A, band < 1 ? A : band < 2 ? B : C, 1);
+      } else if (mode === 7) {
+        const [b, c] = sunburst(ang / (Math.PI * 2) + 0.5, r, seed);
+        mix(A, B, b);
+        mix([...base], C, c);
       } else if (mode === 6) {
         const turn = Math.floor(((ang + Math.PI) / (Math.PI * 2)) * parts);
         const wedge = turn - count * Math.floor(turn / count);
