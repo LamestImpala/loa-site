@@ -78,10 +78,14 @@ const MARK: Record<AfterSaleItem["state"], { glyph: string; className: string; s
 export function AfterSale({
   items,
   actions,
+  highlight,
   children,
 }: {
   items: AfterSaleItem[];
   actions?: Partial<Record<AfterSaleItem["key"], React.ReactNode>>;
+  // An item that's the seller's move right now (a Reddit buyer's box was
+  // just delivered: send the review DM) — drawn as a tinted callout.
+  highlight?: AfterSaleItem["key"] | null;
   children?: React.ReactNode;
 }) {
   return (
@@ -92,7 +96,14 @@ export function AfterSale({
       {items.length > 0 ? (
         <ul className="mt-2 grid gap-1.5 text-sm">
           {items.map((i) => (
-            <li key={i.key} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <li
+              key={i.key}
+              className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
+                highlight === i.key
+                  ? "-mx-2 rounded-lg bg-amber-400/10 px-2 py-1.5 ring-1 ring-amber-400/30"
+                  : ""
+              }`}
+            >
               <span aria-hidden="true" className={`w-4 text-center ${MARK[i.state].className}`}>
                 {MARK[i.state].glyph}
               </span>
