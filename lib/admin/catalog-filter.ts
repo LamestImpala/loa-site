@@ -24,11 +24,15 @@ export const STATUS_FILTERS: { key: Exclude<StatusFilter, "all">; label: string 
 export const OFF_MARKET_HIGH = 1.3;
 export const OFF_MARKET_LOW = 0.6;
 
+// The Collection filter's value for Top Shelf records (records.top_shelf,
+// not a series name), as the shop shows them.
+export const TOP_SHELF_FILTER = "top-shelf";
+
 export type CatalogFilters = {
   search: string;
   kind: "all" | ItemKind; // records, posters or equipment
   genre: string; // "all" or a genre
-  collection: string; // "all", "none", or a series
+  collection: string; // "all", "none", TOP_SHELF_FILTER, or a series
   letter: string | null; // A–Z / "#"
   shown: "all" | "shown" | "hidden";
   sold: "all" | "sold" | "unsold";
@@ -78,7 +82,9 @@ export function filterRecords(
     if (f.kind !== "all" && kindOf(r) !== f.kind) return false;
     if (f.genre !== "all" && !(r.genres ?? []).includes(f.genre)) return false;
     if (f.collection === "none" && r.collection) return false;
-    if (
+    if (f.collection === TOP_SHELF_FILTER) {
+      if (!r.top_shelf) return false;
+    } else if (
       f.collection !== "all" &&
       f.collection !== "none" &&
       r.collection !== f.collection

@@ -7,6 +7,7 @@ import {
   DEFAULT_FILTERS,
   OFF_MARKET_HIGH,
   OFF_MARKET_LOW,
+  TOP_SHELF_FILTER,
   filterRecords,
   filtersActive,
   filtersFromQuery,
@@ -52,6 +53,14 @@ test("search matches artist, title, pressing, genres, and series, case-insensiti
   assert.deepEqual(ids(filterRecords(catalog, withF({ search: "death row" }), ctx)), [3]);
   assert.deepEqual(ids(filterRecords(catalog, withF({ search: "rock" }), ctx)), [1, 4]);
   assert.deepEqual(ids(filterRecords(catalog, withF({ search: "mofi" }), ctx)), [4]);
+});
+
+test("the Top Shelf collection filter reads records.top_shelf, not the series", () => {
+  const list = [...catalog, rec({ id: 5, collection: "VMP", top_shelf: true }), rec({ id: 6, top_shelf: true })];
+  assert.deepEqual(ids(filterRecords(list, withF({ collection: TOP_SHELF_FILTER }), ctx)), [5, 6]);
+  assert.deepEqual(ids(filterRecords(list, withF({ collection: "VMP" }), ctx)), [1, 5]);
+  const q = filtersToQuery(withF({ collection: TOP_SHELF_FILTER }), "artist");
+  assert.equal(filtersFromQuery(q).filters.collection, TOP_SHELF_FILTER);
 });
 
 test("genre, series, letter, shown, and sold filters", () => {

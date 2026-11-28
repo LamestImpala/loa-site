@@ -22,6 +22,7 @@ import {
   DEFAULT_FILTERS,
   FILTER_PARAMS,
   STATUS_FILTERS,
+  TOP_SHELF_FILTER,
   filterRecords,
   filtersActive,
   filtersFromQuery,
@@ -33,6 +34,7 @@ import {
   type SortKey,
   type StatusFilter,
 } from "@/lib/admin/catalog-filter";
+import { TOP_SHELF_LABEL } from "@/lib/record-info";
 import { photoPaths } from "@/lib/admin/missing";
 import { discogsStatusText, useAdmin, useSlice } from "../_shell/admin-provider";
 import { holdDay, usePriceHolds } from "../_shell/price-holds";
@@ -444,8 +446,31 @@ export function CatalogPage() {
     const raw = collectionRowEdits[r.id];
     if (raw === undefined) return;
     const value = raw.trim() || null;
+    // The shop shows Top Shelf as a collection, so typing it here means the
+    // Top Shelf switch, not a series name.
+    if (value && value.toLowerCase() === TOP_SHELF_LABEL.toLowerCase()) {
+      setCollectionRowEdits((prev) => {
+        const next = { ...prev };
+        delete next[r.id];
+        return next;
+      });
+      if (!r.top_shelf) await setTopShelf(r, true);
+      return;
+    }
     if (value === (r.collection ?? null)) return;
     await updateRecord(r.id, { collection: value });
+  }
+
+  // Top Shelf also locks the price (manual_price) so the daily run leaves
+  // it alone, and keeps updated_at so an old price drop isn't shown on the
+  // shop as a new "Drink me".
+  function setTopShelf(r: DbRecord, on: boolean) {
+    return updateRecord(
+      r.id,
+      on
+        ? { top_shelf: true, manual_price: true, updated_at: r.updated_at }
+        : { top_shelf: false, updated_at: r.updated_at }
+    );
   }
 
   async function saveNotes(r: DbRecord) {
@@ -833,6 +858,7 @@ export function CatalogPage() {
             className={`${inputClass} [&>option]:bg-neutral-900`}
           >
             <option value="all">Collection: All</option>
+            <option value={TOP_SHELF_FILTER}>Top Shelf</option>
             {allCollections.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -1340,6 +1366,20 @@ export function CatalogPage() {
                           title="Collection tag like VMP or IVC — saves when you click away"
                           className={`w-28 ${inputClass}`}
                         />
+                        <button
+                          type="button"
+                          aria-pressed={!!r.top_shelf}
+                          disabled={savingIds.has(r.id)}
+                          onClick={() => setTopShelf(r, !r.top_shelf)}
+                          title="Top Shelf: a record you love, priced at what it would take to let it go. The shop tags it, lists it under the Top Shelf collection and explains the price; it stays out of Reddit posts, and the price is kept manual."
+                          className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                            r.top_shelf
+                              ? "border-amber-400/70 bg-amber-300 text-black hover:bg-amber-200"
+                              : "border-white/15 text-neutral-300 hover:bg-white hover:text-black"
+                          }`}
+                        >
+                          {r.top_shelf ? "★ Top Shelf" : "☆ Top Shelf"}
+                        </button>
                         <label className="flex items-center gap-1 text-xs text-neutral-500">
                           Media
                           <select
@@ -1461,7 +1501,7 @@ export function CatalogPage() {
                         className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"
                         title={
                           r.top_shelf
-                            ? "Top Shelf keeps the price manual — untick Top Shelf first"
+                            ? "Top Shelf keeps the price manual — turn off Top Shelf (next to Collection) first"
                             : "Manual price: the daily Discogs run won't reprice, undercut, or flag this record"
                         }
                       >
@@ -1477,28 +1517,6 @@ export function CatalogPage() {
                           className="admin-checkbox"
                         />
                         manual
-                      </label>
-                      <label
-                        className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"
-                        title="Top Shelf: a record you love, priced at what it would take to let it go. The shop tags it and explains the price, it stays out of Reddit posts, and the price is kept manual."
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!r.top_shelf}
-                          disabled={savingIds.has(r.id)}
-                          onChange={(e) =>
-                            // Keeps updated_at, so an old price drop isn't
-                            // shown on the shop as a new one.
-                            updateRecord(
-                              r.id,
-                              e.target.checked
-                                ? { top_shelf: true, manual_price: true, updated_at: r.updated_at }
-                                : { top_shelf: false, updated_at: r.updated_at }
-                            )
-                          }
-                          className="admin-checkbox"
-                        />
-                        Top Shelf
                       </label>
                       {market[r.id]?.suggested ? (
                         <p
