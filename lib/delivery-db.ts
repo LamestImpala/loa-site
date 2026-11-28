@@ -2,20 +2,29 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Order, Shipment } from "./supabase.ts";
 import { ADMIN_EMAIL } from "./supabase.ts";
 import { saleGroups, saleShipping } from "./admin/combined.ts";
-import { boxesToTrack, cleanTrackingNumber, deliveredDay, shippoCarrier, trackingUpdate, type TrackLookup } from "./delivery.ts";
+import { boxesToTrack, cleanTrackingNumber, deliveredDay, paypalTxnOf, shippoCarrier, trackingUpdate, type TrackLookup } from "./delivery.ts";
 import { ADMIN_REVIEWS_URL, boughtPhrase } from "./review.ts";
 import { escapeHtml } from "./order-request.ts";
 
-// The /api/delivery-check sweep: ask the carrier (through Shippo) about
-// every recently dropped-off box that hasn't been delivered, and write
-// what it says onto the shipments row. When that finishes a sale with no
+// The /api/delivery-check sweep: ask about every recently dropped-off box
+// that hasn't been delivered (PayPal first, then the carrier through
+// Shippo — the route's lookup decides), and write what it hears onto the
+// shipments row. When that finishes a sale with no
 // buyer email (a Reddit buyer), the admin is emailed: the review ask is
 // theirs to send, and now is the time. Email buyers need nothing — the
 // daily review job emails them a few days after delivery.
 
 type TrackedBox = Pick<
   Shipment,
-  "id" | "order_id" | "sent_at" | "tracking_code" | "carrier" | "mode" | "delivered_at"
+  | "id"
+  | "order_id"
+  | "sent_at"
+  | "tracking_code"
+  | "carrier"
+  | "mode"
+  | "delivered_at"
+  | "paypal_tracker_id"
+  | "paypal_invoice_id"
 >;
 
 export type DeliverySweep = {
@@ -42,7 +51,7 @@ export async function sweepDeliveries(
   const since = new Date(now.getTime() - 31 * 86_400_000).toISOString();
   const { data, error } = await supabase
     .from("shipments")
-    .select("id, order_id, sent_at, tracking_code, carrier, mode, delivered_at")
+    .select("id, order_id, sent_at, tracking_code, carrier, mode, delivered_at, paypal_tracker_id, paypal_invoice_id")
     .is("delivered_at", null)
     .gte("sent_at", since)
     .order("sent_at", { ascending: true })
@@ -54,7 +63,11 @@ export async function sweepDeliveries(
   for (const b of boxes) {
     out.checked++;
     try {
-      const r = await lookup(shippoCarrier(b.carrier)!, cleanTrackingNumber(b.tracking_code));
+      const r = await lookup(shippoCarrier(b.carrier)!, cleanTrackingNumber(b.tracking_code), {
+        id: b.id,
+        paypalTxn: paypalTxnOf(b.paypal_tracker_id),
+        paypalInvoiceId: b.paypal_invoice_id,
+      });
       if (r.deliveredAt) {
         out.delivered.push({ shipmentId: b.id, orderId: b.order_id, at: r.deliveredAt, detail: r.detail });
         if (b.order_id != null) newlyDelivered.add(b.order_id);

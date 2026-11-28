@@ -119,7 +119,30 @@ export function parseShippoTrack(body: unknown, now: Date = new Date()): TrackRe
   return { status, detail: describe(current), deliveredAt };
 }
 
-export type TrackLookup = (carrier: string, number: string) => Promise<TrackResult>;
+// What a lookup may use besides the number: the box, and the PayPal
+// transaction its label or tracker hangs off (see paypalTxnOf).
+export type TrackBox = { id: number; paypalTxn: string | null; paypalInvoiceId: string | null };
+
+export type TrackLookup = (carrier: string, number: string, box?: TrackBox) => Promise<TrackResult>;
+
+// The PayPal transaction behind a box: its tracker id is
+// "{transactionId}-{trackingNumber}", and transaction ids have no hyphen.
+export function paypalTxnOf(trackerId: string | null | undefined): string | null {
+  const txn = (trackerId ?? "").split("-")[0].trim();
+  return txn || null;
+}
+
+// PayPal's tracker status, when it says the box was delivered. PayPal
+// only knows what the carrier or seller told it, so anything short of
+// DELIVERED is "don't know" (null) and the lookup goes on to Shippo.
+export function fromPayPalTracker(
+  status: string | null | undefined,
+  updatedAt: string | null | undefined,
+  now: Date = new Date()
+): TrackResult | null {
+  if ((status ?? "").toUpperCase() !== "DELIVERED") return null;
+  return { status: "DELIVERED", detail: "Delivered (per PayPal)", deliveredAt: isoOrNull(updatedAt) ?? now.toISOString() };
+}
 
 // Ask Shippo about one number. Throws on anything but a readable track,
 // so the sweep counts it as failed and asks again next run.
