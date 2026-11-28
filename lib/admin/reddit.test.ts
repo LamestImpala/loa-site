@@ -11,6 +11,8 @@ import {
   demandRatio,
   dropPct,
   forSaleOnShop,
+  hasTopShelfOnShop,
+  TOP_SHELF_SHOP_URL,
   offerable,
   heldPrices,
   holdDateText,
@@ -293,4 +295,30 @@ test("update body keeps the promise while it runs and says when it ended", () =>
   assert.ok(!ended.includes("Prices held through"));
   assert.match(ended, /price hold on this post ended Sunday, September 20/);
   assert.ok(!redditUpdateMarkdown(posted).includes("hold"));
+});
+
+test("posts mention Top Shelf only while the shop has some, naming no record or price", () => {
+  const plain = rec({ id: 1, artist: "Can", title: "Tago Mago", price: 40 });
+  const shelf = rec({ id: 2, artist: "Stick Figure", title: "Free Flow Sessions", price: 350, top_shelf: true });
+  assert.equal(hasTopShelfOnShop([plain], NOW), false);
+  assert.equal(hasTopShelfOnShop([plain, shelf], NOW), true);
+  assert.equal(hasTopShelfOnShop([plain, { ...shelf, listed: false }], NOW), false);
+
+  const note = (md: string) => lines(md).find((l) => l.startsWith("**Top Shelf:**"));
+  const weekly = redditWeeklyMarkdown([plain], 100, {}, undefined, { topShelf: true });
+  const line = note(weekly);
+  assert.ok(line, "note present");
+  assert.ok(line!.includes(TOP_SHELF_SHOP_URL));
+  assert.match(line!, /None of them are in this post/);
+  assert.ok(!/\$\d/.test(line!), "no price in the note");
+  assert.ok(!weekly.includes("Free Flow"));
+  // Below the table, never in it.
+  assert.ok(weekly.indexOf("**Top Shelf:**") > weekly.indexOf("| Artist"));
+  assert.equal(note(redditWeeklyMarkdown([plain], 100, {})), undefined);
+
+  assert.ok(note(redditUpdateMarkdown([plain], undefined, { topShelf: true })));
+  assert.equal(note(redditUpdateMarkdown([plain])), undefined);
+
+  assert.ok(note(redditMarkdown([plain, shelf], NOW)));
+  assert.equal(note(redditMarkdown([plain], NOW)), undefined);
 });

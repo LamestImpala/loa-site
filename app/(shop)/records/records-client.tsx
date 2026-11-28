@@ -1039,6 +1039,14 @@ export default function RecordsClient({
       ) : null}
 
       <div className="shop-shell shop-main">
+        {/* Top Shelf prices are above market on purpose; say why before the
+            first one, in words, not only in the chip's hover title. */}
+        {collection === TOP_SHELF_LABEL ? (
+          <div className="card shop-top-shelf-note" role="note">
+            <span className="tag tag-top-shelf">{TOP_SHELF_LABEL}</span>
+            <p>{TOP_SHELF_NOTE}</p>
+          </div>
+        ) : null}
         {visible.length > 0 && effectiveView === "crate" ? (
           <Crate
             records={visible}

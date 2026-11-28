@@ -14,6 +14,7 @@ import {
   postHoldActive,
   offerable,
   redditMarkdown,
+  hasTopShelfOnShop,
   redditStaleMarkdown,
   redditUpdateMarkdown,
   redditWeeklyMarkdown,
@@ -209,9 +210,13 @@ export function RedditPage() {
     // The post promises these prices for a week; the archive row carries
     // the same date, which is what actually holds them.
     const holdUntil = holdEnd().toISOString();
-    const md = redditWeeklyMarkdown(picks, liveCount, market, {
-      until: holdUntil,
-    });
+    const md = redditWeeklyMarkdown(
+      picks,
+      liveCount,
+      market,
+      { until: holdUntil },
+      { topShelf: hasTopShelfOnShop(records) }
+    );
     // Earlier copies that never went up (no URL saved) — this copy
     // replaces them, so their holds shouldn't linger.
     const drafts = topLevelPosts.filter(
@@ -278,7 +283,9 @@ export function RedditPage() {
         (p) =>
           [...p.record_ids].sort((a, b) => a - b).join(",") === idsKey
       ) ?? null;
-    const md = redditUpdateMarkdown(posted, parent ?? undefined);
+    const md = redditUpdateMarkdown(posted, parent ?? undefined, {
+      topShelf: hasTopShelfOnShop(records),
+    });
     if (await copyText(md, "Copy the post update")) {
       flash("update");
     }
@@ -320,7 +327,9 @@ export function RedditPage() {
   async function copyArchivedUpdateBody(post: RedditPost) {
     const posted = resolvePostedRecords(post.record_ids);
     if (posted.length === 0) return;
-    const md = redditUpdateMarkdown(posted, post);
+    const md = redditUpdateMarkdown(posted, post, {
+      topShelf: hasTopShelfOnShop(records),
+    });
     if (await copyText(md, "Copy the update body")) {
       flash(`update-${post.id}`);
     }
