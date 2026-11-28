@@ -7,6 +7,17 @@ import type { DbRecord, Invoice, Order, Shipment } from "@/lib/supabase";
 import { afterSaleChecklist, openAfterSale, type AfterSaleItem } from "@/lib/admin/after-sale";
 import { trackingLabel } from "@/lib/delivery";
 import {
+  deliveryBadge,
+  deliveryStatus,
+  reviewDmDue,
+  reviewNote,
+  shortDay,
+  type DeliveryKind,
+  type DeliveryStatus,
+} from "@/lib/admin/delivery-status";
+import { ensureReviewInvite } from "@/lib/admin/reviews-db";
+import { buyerFirstName, reviewDmText, reviewUrl } from "@/lib/review";
+import {
   ARCHIVE_AFTER_DAYS,
   buyerNudge,
   byLongestWaiting,
@@ -81,6 +92,57 @@ const primaryButtonClass =
 const amberPill = "border-amber-400/40 text-amber-300";
 const skyPill = "border-sky-400/40 text-sky-300";
 const greenPill = "border-green-500/40 bg-green-500/10 text-green-400";
+const redPill = "border-red-500/40 bg-red-500/10 text-red-300";
+
+// Once tracking knows where the boxes are, the "After the sale" pill says
+// so instead — the first thing the eye lands on in the card header.
+const DELIVERY_PILL: Record<DeliveryKind, string> = {
+  delivered: "border-green-500/60 bg-green-500/20 font-medium text-green-300",
+  transit: amberPill,
+  returning: redPill,
+  problem: redPill,
+};
+
+// The tinted line under the card header: where the boxes are, in the
+// carrier's words, and what the review ask is doing.
+const DELIVERY_BANNER: Record<DeliveryKind, { glyph: string; className: string }> = {
+  delivered: { glyph: "✓", className: "border-green-500/30 bg-green-500/10 text-green-200" },
+  transit: { glyph: "➜", className: "border-amber-400/30 bg-amber-400/10 text-amber-200" },
+  returning: { glyph: "↩", className: "border-red-500/30 bg-red-500/10 text-red-200" },
+  problem: { glyph: "!", className: "border-red-500/30 bg-red-500/10 text-red-200" },
+};
+
+function DeliveryBanner({ status, note }: { status: DeliveryStatus; note: string | null }) {
+  const look = DELIVERY_BANNER[status.kind];
+  const headline =
+    status.kind === "delivered"
+      ? `Delivered ${shortDay(status.at!)}`
+      : status.kind === "transit"
+        ? status.delivered > 0
+          ? `${status.delivered} of ${status.total} boxes delivered`
+          : "In transit"
+        : status.kind === "returning"
+          ? "Returning to you"
+          : "Delivery problem";
+  const parts = [
+    status.where,
+    status.kind === "delivered" && status.total > 1 ? `all ${status.total} boxes` : null,
+    note,
+    status.kind === "transit" ? "checked each evening" : null,
+  ].filter(Boolean);
+  return (
+    <p
+      className={`mt-3 rounded-lg border px-3 py-2 text-sm ${look.className}`}
+      title="From carrier tracking (Shippo), checked each evening"
+    >
+      <span aria-hidden="true" className="mr-1.5">
+        {look.glyph}
+      </span>
+      <span className="font-medium">{headline}</span>
+      {parts.length > 0 ? <span className="opacity-80"> · {parts.join(" · ")}</span> : null}
+    </p>
+  );
+}
 // What the card's pill says for the one job the order is waiting on.
 const JOB_PILL: Record<OrderJob, { label: string; title: string; className: string }> = {
   pack: {
@@ -168,6 +230,7 @@ export function FulfillmentPanel({
     orderRequests,
     closedRequests,
     reviewInvites,
+    setReviewInvites,
     reviews,
     removeFromDiscogs,
     discogsStatus,
@@ -476,6 +539,27 @@ export function FulfillmentPanel({
         "No thread URL — save the sale post in the Reddit section or type one here.",
         "error"
       );
+    }
+  }
+
+  // The review DM for a Reddit buyer, right from the card (as on Reviews):
+  // the link is made on first copy, which is what marks the buyer asked.
+  // A combined sale has one link, on its first order.
+  async function copyReviewDm(g: OrderGroup) {
+    const order = g.order;
+    if (!order) return;
+    const sale = saleReviewContext(order, orders, shipments);
+    try {
+      const invite = await ensureReviewInvite(supabase, sale ? Math.min(...sale.orderIds) : order.id);
+      setReviewInvites((prev) => (prev.some((i) => i.id === invite.id) ? prev : [invite, ...prev]));
+      const text = reviewDmText({
+        firstName: buyerFirstName(order),
+        records: g.records,
+        url: reviewUrl(invite.token),
+      });
+      if (await copyText(text, "Review request DM")) flashCopied(`${g.key}:review`);
+    } catch (e) {
+      note(g.key, e instanceof Error ? e.message : "Couldn't make the review link", "error");
     }
   }
 
@@ -1102,6 +1186,19 @@ export function FulfillmentPanel({
           now
         )
       : [];
+    // Carrier tracking, once the boxes have left: the header pill, the
+    // banner, and — for a Reddit buyer whose box landed — the review DM.
+    const delivery = gone ? deliveryStatus(g.shipments) : null;
+    const reviewItem = checklist.find((i) => i.key === "review");
+    const dmDue = reviewDmDue(reviewItem, delivery);
+    const shownPill =
+      job === "finish" && delivery
+        ? {
+            label: deliveryBadge(delivery),
+            title: delivery.where ?? "From carrier tracking",
+            className: DELIVERY_PILL[delivery.kind],
+          }
+        : pill;
     const onDiscogs = g.records.filter((r) => !!r.discogs_release_id && !r.discogs_removed);
     const discogsNote = onDiscogs.map((r) => discogsStatus[r.id]).find(Boolean);
     const handedOver = g.shipments.some(handDelivered);
@@ -1183,12 +1280,14 @@ export function FulfillmentPanel({
                     {plural(g.shipments.length, "box", "boxes")}
                   </span>
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-xs ${pill.className}`}
-                    title={pill.title}
+                    className={`rounded-full border px-2 py-0.5 text-xs ${shownPill.className}`}
+                    title={shownPill.title}
                   >
-                    {pill.label}
+                    {shownPill.label}
                   </span>
                 </div>
+
+                {delivery ? <DeliveryBanner status={delivery} note={reviewNote(reviewItem, delivery)} /> : null}
 
                 <OrderTimeline steps={timeline} />
 
@@ -1292,9 +1391,18 @@ export function FulfillmentPanel({
                 {gone ? (
                   <AfterSale
                     items={checklist}
+                    highlight={dmDue ? "review" : null}
                     actions={{
-                      review:
-                        checklist.find((i) => i.key === "review")?.state === "todo" ? (
+                      review: dmDue ? (
+                        <button
+                          type="button"
+                          onClick={() => copyReviewDm(g)}
+                          title="Copies a ready-to-paste DM with their private review link — paste it to them on Reddit"
+                          className="rounded-lg border border-white bg-white px-3 py-1 text-xs font-medium text-black transition hover:bg-neutral-200"
+                        >
+                          {isCopied(`${g.key}:review`) ? "Copied!" : "Copy review DM"}
+                        </button>
+                      ) : reviewItem?.state === "todo" ? (
                           <Link
                             href="/admin/reviews"
                             className="text-xs text-neutral-300 underline underline-offset-2 transition hover:text-white"
@@ -1565,7 +1673,7 @@ export function FulfillmentPanel({
                         ) : null}
                         {s.sent_at && !handDelivered(s) && s.delivered_at ? (
                           <span
-                            className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-xs text-sky-300"
+                            className="rounded-full border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-300"
                             title={s.tracking_detail ?? "The carrier scanned it delivered"}
                           >
                             Delivered {new Date(s.delivered_at).toLocaleDateString()}
