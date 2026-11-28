@@ -49,7 +49,7 @@ test("full-catalog post lists only listed, unsold, unheld records, alphabeticall
   assert.match(rows[0], /^\| Beatles \| Revolver \| \$30 \|/);
   assert.match(rows[1], /^\| Fela \| Zombie \|/);
   assert.match(rows[2], /^\| Zappa \| Hot Rats \|/);
-  assert.equal(lines(md)[0], "[For Sale] 3 vinyl records — collection sale, audiophile pressings — PayPal G&S");
+  assert.equal(lines(md)[0], "[For Sale] 3 vinyl records from a collection sale, audiophile pressings, PayPal G&S");
   assert.ok(md.includes(SHOP_URL));
   assert.ok(md.includes(`bundles of ${FREE_SHIPPING_MIN}+ records`));
 });
@@ -105,7 +105,7 @@ test("full-catalog title names the three biggest series", () => {
   assert.ok(lines(md)[0].includes("(VMP, IVC, MoFi)") || lines(md)[0].includes("(IVC, VMP, MoFi)"));
 });
 
-test("weekly post: headline artists by want count, Discogs links, year only", () => {
+test("weekly post: headline artists by want count, pressing code links to Discogs", () => {
   const market: MarketMap = {
     1: { forSale: 3, want: 50, have: 10, suggested: null, lowest: null, lowestPlausible: null },
     2: { forSale: 3, want: 900, have: 10, suggested: null, lowest: null, lowestPlausible: null },
@@ -123,12 +123,74 @@ test("weekly post: headline artists by want count, Discogs links, year only", ()
   );
   assert.equal(
     lines(md)[0],
-    `[For Sale] Weekly picks — High, Mid, Low — from a 120-record collection sale — PayPal G&S, free shipping on ${FREE_SHIPPING_MIN}+`
+    `[For Sale] Weekly picks: High, Mid, Low from a 120-record collection sale. PayPal G&S, free shipping on ${FREE_SHIPPING_MIN}+`
   );
   const rows = tableRows(md);
-  assert.equal(rows[2], "| Low | [A](https://www.discogs.com/release/111) | $30 | 1999 | NM/VG+ |");
-  assert.equal(rows[0], "| High | B | $30 |  | NM/VG+ |");
+  assert.equal(rows[2], "| Low | A | $30 | NM/VG+ |  | [X](https://www.discogs.com/release/111), 1999 |");
+  assert.equal(rows[0], "| High | B | $30 | NM/VG+ |  | no year |");
   assert.ok(!md.includes("Price drops"));
+});
+
+test("weekly rows: pressing code, colour, and names as a collector would write them", () => {
+  const row = (over: Parameters<typeof rec>[0]) =>
+    tableRows(redditWeeklyMarkdown([rec({ artist: "Band", discogs_release_id: 7, ...over })], 10, {}))[0];
+  const link = "(https://www.discogs.com/release/7)";
+  // Label + catalog number is the link; Discogs' " (2)" suffix is dropped.
+  assert.equal(
+    row({ artist: "Dead", title: "T", pressing: "2025 · Rhino Records (2) R1 6020 · Reissue" }),
+    `| Dead | T | $30 | NM/VG+ |  | [Rhino Records R1 6020]${link}, 2025 |`
+  );
+  // No year on Discogs: the cell just leaves it off.
+  assert.ok(row({ pressing: "Columbia E 80207 · Reissue, Remastered" }).endsWith(`| [Columbia E 80207]${link} |`));
+  // "Not On Label" says nothing to a buyer.
+  assert.ok(row({ pressing: "2022 · Not On Label R42022V · LP, Album" }).endsWith(`| [R42022V]${link}, 2022 |`));
+  assert.ok(
+    row({ pressing: "2025 · Not On Label (Pearl Jam Self-released) · 12\", 45 RPM" }).endsWith(`| [Self-released]${link}, 2025 |`)
+  );
+  assert.ok(row({ pressing: "2024 · Not On Label (Pink Floyd) · Unofficial Release" }).endsWith(`| [No label]${link}, 2024 |`));
+  assert.ok(row({ pressing: "" }).endsWith(`| [Discogs]${link} |`));
+  // Colour: Discogs' wording per disc, black when Discogs names none, blank
+  // until the release's details are fetched, the owner's words over all.
+  const vinyl = (...texts: string[]) => texts.map((text) => ({ qty: "1", text, descriptions: ["LP"] }));
+  assert.ok(row({ disc_formats: vinyl("Red Opaque", "Blue Opaque [Ocean Blue]") }).includes("| Red Opaque / Blue Opaque [Ocean Blue] |"));
+  assert.ok(row({ disc_formats: vinyl("200g, Clarity Vinyl") }).includes("| Clarity Vinyl |"));
+  assert.ok(row({ disc_formats: vinyl("180g, Gatefold") }).includes("| NM/VG+ | Black |"));
+  assert.ok(row({ disc_formats: null }).includes("| NM/VG+ |  |"));
+  assert.ok(row({ disc_formats: vinyl(""), disc_colors: "orange and black splatter" }).includes("| Orange and black splatter |"));
+  // Artist credits lose Discogs' numbering and a leading "Various,".
+  assert.ok(row({ artist: "The Movement (19)" }).startsWith("| The Movement | "));
+  assert.ok(row({ artist: "Various, Andrew Lloyd Webber And Tim Rice" }).startsWith("| Andrew Lloyd Webber And Tim Rice | "));
+  assert.ok(row({ artist: "Various" }).startsWith("| Various | "));
+  // ...and sort under the name shown.
+  const sorted = tableRows(
+    redditWeeklyMarkdown([rec({ artist: "Ween" }), rec({ artist: "Various, Bee Gees" }), rec({ artist: "Can" })], 10, {})
+  ).map((r) => r.split(" | ")[0]);
+  assert.deepEqual(sorted, ["| Bee Gees", "| Can", "| Ween"]);
+  const titled = redditWeeklyMarkdown(
+    [rec({ artist: "The Movement (19)" }), rec({ artist: "A" }), rec({ artist: "B" }), rec({ artist: "C" })],
+    10,
+    { 1: { forSale: 1, want: 9, have: 1, suggested: null, lowest: null, lowestPlausible: null } }
+  ).split("\n")[0];
+  assert.ok(/^\[For Sale\] Weekly picks: .+ and more from a 10-record collection sale\./.test(titled));
+  assert.ok(!titled.includes("(19)"));
+});
+
+test("post copy: storage and photo lines, and no long dashes anywhere", () => {
+  const picks = [rec({ artist: "A" }), rec({ artist: "B", sold: true })];
+  const post = { id: 9, parent_id: null, title: "t", body: "", record_ids: [], reddit_url: null, retired_at: null, created_at: "", hold_until: iso(NOW + DAY) };
+  const bodies = [
+    redditMarkdown(picks, NOW),
+    redditWeeklyMarkdown(picks, 10, {}, { until: iso(NOW + DAY), now: NOW, timeZone: "UTC" }, { topShelf: true }),
+    redditUpdateMarkdown(picks, post, { now: NOW, timeZone: "UTC", topShelf: true }),
+    redditUpdateMarkdown(picks, post, { now: NOW + 30 * DAY, timeZone: "UTC" }),
+    redditStaleMarkdown({ ...post, kind: "weekly" }, picks, "https://reddit.com/new"),
+    redditStaleMarkdown({ ...post, kind: "full" }, picks, "https://reddit.com/new"),
+  ];
+  for (const md of bodies) {
+    assert.ok(!md.includes("—"), md.split("\n").find((l) => l.includes("—")));
+    assert.ok(md.includes("**Storage:** smoke-free home."));
+    assert.ok(md.includes("**Photos:** happy to send photos of any record, just ask."));
+  }
 });
 
 test("weekly post never mentions price drops, even when the pick has recent ones", () => {
@@ -149,10 +211,10 @@ test("update body strikes sold rows and counts what's left", () => {
     rec({ id: 1, artist: "B", title: "Gone", sold: true }),
     rec({ id: 2, artist: "A", title: "Here" }),
   ]);
-  assert.equal(lines(md)[0], `**Weekly update** — 1 of 2 still available — browse everything at ${SHOP_URL}`);
+  assert.equal(lines(md)[0], `**Weekly update:** 1 of 2 still available. Browse everything at ${SHOP_URL}`);
   const rows = tableRows(md);
-  assert.equal(rows[0], "| A | Here | $30 | 2020 | NM/VG+ |");
-  assert.equal(rows[1], "| ~~B~~ | ~~Gone~~ | **SOLD** | 2020 | NM/VG+ |");
+  assert.equal(rows[0], "| A | Here | $30 | NM/VG+ |  | Label CAT-1, 2020 |");
+  assert.equal(rows[1], "| ~~B~~ | ~~Gone~~ | **SOLD** | NM/VG+ |  | Label CAT-1, 2020 |");
 });
 
 test("retire body keeps the posted table shape under a pointer banner", () => {
@@ -160,14 +222,14 @@ test("retire body keeps the posted table shape under a pointer banner", () => {
   const post = { id: 9, parent_id: null, title: "t", body: "", record_ids: [1, 2], reddit_url: null, retired_at: null, created_at: "" };
   const full = redditStaleMarkdown({ ...post, kind: "full" }, posted, "https://reddit.com/new");
   const weekly = redditStaleMarkdown({ ...post, kind: "weekly" }, posted, "https://reddit.com/new");
-  assert.ok(full.startsWith("**⚠️ This post is outdated — see my [newest post](https://reddit.com/new)"));
+  assert.ok(full.startsWith("**⚠️ This post is outdated. See my [newest post](https://reddit.com/new)"));
   assert.ok(full.includes("| Artist | Title | Price | Pressing | Media | Sleeve | Notes |"));
   assert.equal(tableRows(full)[1], "| ~~Zed~~ | ~~Title 1~~ | **SOLD** | 2020 · Label CAT-1 · US | NM | VG+ | n |");
   assert.equal(tableRows(full)[0], "| Amy | Title 2 | $30 | 2020 · Label CAT-1 · US | NM | VG+ |  |");
-  assert.ok(weekly.includes("| Artist | Title | Price | Year | Grade (M/S) |"));
+  assert.ok(weekly.includes("| Artist | Title | Price | Grade (M/S) | Color | Pressing (Discogs) |"));
   assert.equal(tableRows(weekly).length, 2);
   const held = redditStaleMarkdown({ ...post, kind: "weekly", hold_until: iso(NOW + DAY) }, posted, "https://reddit.com/new");
-  assert.ok(held.startsWith("**⚠️ This post is outdated and its prices are no longer held — see my [newest post]"));
+  assert.ok(held.startsWith("**⚠️ This post is outdated and its prices are no longer held. See my [newest post]"));
 });
 
 test("demand ratio is wants per copy, never dividing by zero", () => {
