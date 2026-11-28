@@ -99,9 +99,34 @@ export function cspHeaders(options: PolicyOptions = {}): Header[] {
  * While the full policy is report-only, this enforces the one rule that
  * cannot wait: no other site may frame these pages. Empty once the full
  * policy is enforced, since that carries the same rule.
+ *
+ * Never send this on a nonce page. On Vercel the render sees the response
+ * headers set so far as if they were request headers, and Next.js looks
+ * for the nonce in `content-security-policy` before the report-only
+ * header. A frame-only policy there has no script-src, so no script tag
+ * gets its nonce. Those pages rely on X-Frame-Options until the full
+ * policy is enforced.
  */
 export function frameGuardHeaders(): Header[] {
   return CSP_ENFORCED ? [] : [{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" }];
+}
+
+/** The policy headers for a page without a nonce: the full policy plus the frame rule. */
+export function staticPolicyHeaders(options: { dev?: boolean } = {}): Header[] {
+  return [...frameGuardHeaders(), ...cspHeaders({ dev: options.dev })];
+}
+
+/**
+ * The `headers()` rules for next.config.ts. The first covers every
+ * response and must not carry a policy header (see frameGuardHeaders).
+ * The second adds the policy everywhere except the nonce pages, which
+ * proxy.ts covers.
+ */
+export function configHeaderRules(options: { dev?: boolean } = {}): { source: string; headers: Header[] }[] {
+  return [
+    { source: "/:path*", headers: BASE_HEADERS },
+    { source: STATIC_CSP_SOURCE, headers: staticPolicyHeaders(options) },
+  ];
 }
 
 /** A fresh nonce for one response. */

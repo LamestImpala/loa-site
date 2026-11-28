@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { LOA_HOST, OLD_SHOP_HOST, SHOP_HOST, matchesHost } from "@/lib/hosts";
-import { contentSecurityPolicy, cspHeaders, needsNonce, newNonce } from "@/lib/security-headers";
+import {
+  contentSecurityPolicy,
+  cspHeaders,
+  needsNonce,
+  newNonce,
+  staticPolicyHeaders,
+} from "@/lib/security-headers";
 
 const dev = process.env.NODE_ENV === "development";
 
@@ -61,7 +67,7 @@ export function proxy(request: NextRequest) {
     // host. On the shop those paths are ordinary shop pages (a not-found),
     // so they get the same policy as the rest of the shop here.
     if (needsNonce(pathname)) {
-      for (const h of cspHeaders({ dev })) response.headers.set(h.key, h.value);
+      for (const h of staticPolicyHeaders({ dev })) response.headers.set(h.key, h.value);
     }
     return response;
   }
@@ -74,7 +80,10 @@ export function proxy(request: NextRequest) {
   // The admin and pick'em get a content security policy with a fresh nonce
   // on every request. Next.js reads the policy from the request headers
   // while rendering and puts the nonce on its own script tags; the browser
-  // gets the same policy on the response.
+  // gets the same policy on the response. This must be the only policy
+  // header these pages get: on Vercel the render also sees response
+  // headers, and one without the nonce would hide it (see
+  // frameGuardHeaders in lib/security-headers.ts).
   if (needsNonce(pathname)) {
     const nonce = newNonce();
     const requestHeaders = new Headers(request.headers);
