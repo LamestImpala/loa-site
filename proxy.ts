@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { LOA_HOST, OLD_SHOP_HOST, SHOP_HOST, matchesHost } from "@/lib/hosts";
+import { contentSecurityPolicy, cspHeaders, needsNonce, newNonce } from "@/lib/security-headers";
+
+const dev = process.env.NODE_ENV === "development";
 
 function stripPort(host: string) {
   return host.split(":")[0];
@@ -53,12 +56,33 @@ export function proxy(request: NextRequest) {
     // Serve the (shop) subtree; anything outside it belongs to LOA.
     const url = request.nextUrl.clone();
     url.pathname = pathname === "/" ? "/records" : `/records${pathname}`;
-    return NextResponse.rewrite(url);
+    const response = NextResponse.rewrite(url);
+    // next.config.ts leaves the policy off /admin and /pickem for every
+    // host. On the shop those paths are ordinary shop pages (a not-found),
+    // so they get the same policy as the rest of the shop here.
+    if (needsNonce(pathname)) {
+      for (const h of cspHeaders({ dev })) response.headers.set(h.key, h.value);
+    }
+    return response;
   }
 
   // The shop moved to its own domain. Localhost keeps /records reachable for dev.
   if (isLoaHost && (pathname === "/records" || pathname.startsWith("/records/"))) {
     return NextResponse.redirect(new URL(`https://${SHOP_HOST}/`), 308);
+  }
+
+  // The admin and pick'em get a content security policy with a fresh nonce
+  // on every request. Next.js reads the policy from the request headers
+  // while rendering and puts the nonce on its own script tags; the browser
+  // gets the same policy on the response.
+  if (needsNonce(pathname)) {
+    const nonce = newNonce();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.delete("content-security-policy-report-only");
+    requestHeaders.set("content-security-policy", contentSecurityPolicy({ nonce, dev }));
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    for (const h of cspHeaders({ nonce, dev })) response.headers.set(h.key, h.value);
+    return response;
   }
 
   return NextResponse.next();
