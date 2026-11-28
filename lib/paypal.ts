@@ -386,7 +386,7 @@ export async function getTransactionDetails(
 // bought inside PayPal from the paid invoice.
 export async function listTrackers(
   transactionId: string
-): Promise<{ trackingNumber: string; carrier: string; status: string; updatedAt: string | null }[]> {
+): Promise<{ trackingNumber: string; carrier: string; status: string }[]> {
   const token = await getPayPalAccessToken();
   const res = await fetch(
     `${paypalBase()}/v1/shipping/trackers?transaction_id=${encodeURIComponent(transactionId)}`,
@@ -403,7 +403,6 @@ export async function listTrackers(
     tracking_number?: string;
     carrier?: string;
     status?: string;
-    last_updated_time?: string;
   }[] = body?.trackers ?? [];
   return trackers
     .filter((t) => t.tracking_number)
@@ -411,7 +410,6 @@ export async function listTrackers(
       trackingNumber: t.tracking_number as string,
       carrier: t.carrier ?? "USPS",
       status: t.status ?? "SHIPPED",
-      updatedAt: t.last_updated_time ?? null,
     }));
 }
 

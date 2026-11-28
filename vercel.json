@@ -23,6 +23,6 @@
     { "path": "/api/paypal-costs", "schedule": "*/30 * * * *" },
     { "path": "/api/review-requests", "schedule": "0 17 * * *" },
     { "path": "/api/discogs-import", "schedule": "0 * * * *" },
-    { "path": "/api/delivery-check", "schedule": "40 */4 * * *" }
+    { "path": "/api/delivery-check", "schedule": "0 2 * * *" }
   ]
 }
