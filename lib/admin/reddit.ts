@@ -175,7 +175,8 @@ export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
 // Discogs release so buyers can check the pressing themselves — the post
 // deliberately says nothing about scarcity or demand.
 
-// A price drop recent enough to headline a weekly post.
+// A price drop recent enough to count when picking a weekly post's records
+// (the post itself doesn't mention it).
 const DROP_WINDOW_DAYS = 14;
 export const isRecentDrop = (r: DbRecord, now: number = Date.now()) =>
   r.prev_price != null &&
@@ -208,7 +209,8 @@ const REDDIT_TABLE_HEADER = [
 
 // The title leads with the three most-wanted artists in the pick (Discogs
 // want count) — that is what a collector scanning the sub actually reads —
-// and says "price drops" only when the pick carries some.
+// and never mentions price drops: the owner sees no need to call them out
+// in the post.
 export function redditWeeklyMarkdown(
   selected: DbRecord[],
   liveCount: number,
@@ -219,7 +221,6 @@ export function redditWeeklyMarkdown(
   const list = [...selected].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
   );
-  const drops = list.filter(isRecentDrop).length;
   const headliners: string[] = [];
   for (const r of [...list].sort(
     (a, b) => (market[b.id]?.want ?? 0) - (market[a.id]?.want ?? 0)
@@ -227,7 +228,7 @@ export function redditWeeklyMarkdown(
     if (!headliners.includes(r.artist)) headliners.push(r.artist);
     if (headliners.length === 3) break;
   }
-  const title = `[For Sale] ${drops > 0 ? "Price drops + scarce picks" : "Weekly picks"}${
+  const title = `[For Sale] Weekly picks${
     headliners.length ? ` — ${headliners.map(cell).join(", ")}` : ""
   } — from a ${liveCount}-record collection sale — PayPal G&S, free shipping on ${FREE_SHIPPING_MIN}+`;
   return [
@@ -235,12 +236,6 @@ export function redditWeeklyMarkdown(
     "",
     `**Weekly update** — browse everything at ${SHOP_URL}`,
     "",
-    ...(drops > 0
-      ? [
-          `**Price drops** — ${drops} of these ${list.length} came down in the last two weeks.`,
-          "",
-        ]
-      : []),
     ...(hold
       ? holdLines(
           { hold_until: hold.until, retired_at: null },
