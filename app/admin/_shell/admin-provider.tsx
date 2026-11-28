@@ -817,7 +817,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       setSaving(id, true);
       const { error } = await supabase
         .from("records")
-        .update({ ...patch, updated_at: new Date().toISOString() })
+        // A patch may carry updated_at to keep it: the shop reads a recent
+        // updated_at under a lower price as a fresh drop ("Drink me").
+        .update({ updated_at: new Date().toISOString(), ...patch })
         .eq("id", id);
       setSaving(id, false);
       if (error) {

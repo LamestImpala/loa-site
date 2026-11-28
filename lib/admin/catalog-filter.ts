@@ -103,7 +103,8 @@ export function filterRecords(
     }
     if (f.interest === "manual-off-market") {
       const sugg = ctx.market[r.id]?.suggested;
-      if (!r.manual_price || r.sold || !r.listed || !sugg) return false;
+      // Top Shelf is off market on purpose, so it is never on the audit list.
+      if (!r.manual_price || r.top_shelf || r.sold || !r.listed || !sugg) return false;
       const ratio = r.price / sugg;
       if (ratio <= OFF_MARKET_HIGH && ratio >= OFF_MARKET_LOW) return false;
     }

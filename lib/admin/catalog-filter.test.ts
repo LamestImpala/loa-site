@@ -98,6 +98,7 @@ test("manual-off-market: hand-priced listings outside 60–130% of the grade sug
   const stats = (suggested: number | null) => ({ forSale: 1, want: 1, have: 1, suggested, lowest: null, lowestPlausible: null });
   const market: MarketMap = {
     1: stats(100), 2: stats(100), 3: stats(100), 4: stats(100), 5: stats(100), 6: stats(null), 7: stats(100), 8: stats(100),
+    9: stats(100),
   };
   const records = [
     rec({ id: 1, manual_price: true, price: 100 * OFF_MARKET_HIGH }), // boundary: in range
@@ -108,6 +109,7 @@ test("manual-off-market: hand-priced listings outside 60–130% of the grade sug
     rec({ id: 6, manual_price: true, price: 200 }), // no suggestion to compare against
     rec({ id: 7, manual_price: true, price: 200, sold: true }),
     rec({ id: 8, manual_price: true, price: 200, listed: false }),
+    rec({ id: 9, manual_price: true, price: 350, top_shelf: true }), // off market on purpose
   ];
   assert.deepEqual(ids(filterRecords(records, withF({ interest: "manual-off-market" }), { ...ctx, market })), [2, 4]);
 });

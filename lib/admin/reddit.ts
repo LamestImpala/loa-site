@@ -109,8 +109,15 @@ function topCollections(list: DbRecord[], n: number) {
 
 // What a new post may offer: on the shop and not reserved — a record held
 // for a buyer or on a live invoice would read as available for weeks.
-// Posters and equipment never go in the r/VinylCollectors post.
+// Posters and equipment never go in the r/VinylCollectors post, and nor do
+// Top Shelf records: priced to keep, they'd be read against Discogs there
+// without the shop's note explaining why.
 export const offerable = (r: DbRecord, now: number = Date.now()) =>
+  forSaleOnShop(r, now) && !r.top_shelf;
+
+// A record a buyer can get on the shop right now, Top Shelf included: what
+// a post's "N records on the shop" count means.
+export const forSaleOnShop = (r: DbRecord, now: number = Date.now()) =>
   kindOf(r) === "record" && r.listed && !reserved(r, now);
 
 export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {

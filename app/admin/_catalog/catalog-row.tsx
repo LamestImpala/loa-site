@@ -137,7 +137,14 @@ export const CatalogRow = memo(function CatalogRow({
           </p>
         ) : null}
         <p className="mt-1 text-xs text-neutral-500">
-          {r.manual_price ? (
+          {r.top_shelf ? (
+            <span
+              className="text-amber-300"
+              title="Top Shelf: tagged on the shop, kept out of Reddit posts, price kept manual"
+            >
+              Top Shelf
+            </span>
+          ) : r.manual_price ? (
             <span title="Manual price: the daily run leaves it alone">manual</span>
           ) : null}
           {stats?.suggested ? (

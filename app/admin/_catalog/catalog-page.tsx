@@ -1459,12 +1459,16 @@ export function CatalogPage() {
                       </div>
                       <label
                         className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"
-                        title="Manual price: the daily Discogs run won't reprice, undercut, or flag this record"
+                        title={
+                          r.top_shelf
+                            ? "Top Shelf keeps the price manual — untick Top Shelf first"
+                            : "Manual price: the daily Discogs run won't reprice, undercut, or flag this record"
+                        }
                       >
                         <input
                           type="checkbox"
                           checked={!!r.manual_price}
-                          disabled={savingIds.has(r.id)}
+                          disabled={savingIds.has(r.id) || !!r.top_shelf}
                           onChange={(e) =>
                             updateRecord(r.id, {
                               manual_price: e.target.checked,
@@ -1473,6 +1477,28 @@ export function CatalogPage() {
                           className="admin-checkbox"
                         />
                         manual
+                      </label>
+                      <label
+                        className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"
+                        title="Top Shelf: a record you love, priced at what it would take to let it go. The shop tags it and explains the price, it stays out of Reddit posts, and the price is kept manual."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!r.top_shelf}
+                          disabled={savingIds.has(r.id)}
+                          onChange={(e) =>
+                            // Keeps updated_at, so an old price drop isn't
+                            // shown on the shop as a new one.
+                            updateRecord(
+                              r.id,
+                              e.target.checked
+                                ? { top_shelf: true, manual_price: true, updated_at: r.updated_at }
+                                : { top_shelf: false, updated_at: r.updated_at }
+                            )
+                          }
+                          className="admin-checkbox"
+                        />
+                        Top Shelf
                       </label>
                       {market[r.id]?.suggested ? (
                         <p

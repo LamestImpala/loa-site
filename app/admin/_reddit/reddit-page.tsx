@@ -9,6 +9,7 @@ import {
   heldPrices,
   holdDateText,
   holdEnd,
+  forSaleOnShop,
   pickWeekly,
   postHoldActive,
   offerable,
@@ -200,11 +201,11 @@ export function RedditPage() {
     if (skipped > 0) {
       pushToast(
         "info",
-        `Left out ${skipped} pick${skipped === 1 ? "" : "s"} that are hidden, held or on an invoice.`
+        `Left out ${skipped} pick${skipped === 1 ? "" : "s"} that are hidden, held, on an invoice or Top Shelf.`
       );
     }
     warnIfStillLive("weekly");
-    const liveCount = records.filter((r) => offerable(r)).length;
+    const liveCount = records.filter((r) => forSaleOnShop(r)).length;
     // The post promises these prices for a week; the archive row carries
     // the same date, which is what actually holds them.
     const holdUntil = holdEnd().toISOString();
