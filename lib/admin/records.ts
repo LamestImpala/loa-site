@@ -28,8 +28,10 @@ export const holdUntilText = (r: Pick<DbRecord, "hold_until">) =>
 export const reserved = (r: DbRecord, now: number = Date.now()) =>
   r.sold || holdActive(r, now);
 
-// A draft: added in the admin, never yet on the shop. Publishing clears
-// the flag for good — a record hidden later is just hidden.
+// A draft: added in the admin and still missing a price (or, for a
+// record, its grades). Once it has them it stops being a draft and waits
+// in Stock, hidden, until the owner ticks Shown (see withDraftCleared).
+// The flag never comes back — a record hidden later is just hidden.
 export const isDraft = (r: Pick<DbRecord, "draft" | "listed" | "sold">) =>
   r.draft === true && !r.listed && !r.sold;
 
@@ -45,6 +47,18 @@ export function publishBlock(
   if (!(Number(r.price) > 0)) return "set a price above $0 first";
   if (kindOf(r) === "record" && (!r.media || !r.sleeve)) return "grade the media and sleeve first";
   return null;
+}
+
+// The edit to save, plus `draft: false` when it gives a draft the last
+// thing it was missing. It stays hidden (listed is untouched): putting it
+// on the shop is the owner's call, made with Shown.
+export function withDraftCleared<P extends Partial<DbRecord>>(
+  r: DbRecord,
+  patch: P
+): P | (P & { draft: false }) {
+  if (!isDraft(r) || "draft" in patch) return patch;
+  if (publishBlock({ ...r, ...patch })) return patch;
+  return { ...patch, draft: false };
 }
 
 // The daily price run publishes a draft on its own when it is a record

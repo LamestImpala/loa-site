@@ -15,6 +15,7 @@ import {
   invoiceHold,
   isDraft,
   publishBlock,
+  withDraftCleared,
 } from "@/lib/admin/records";
 import { discogsReady } from "@/lib/admin/fulfillment";
 import { bucketEventsByDay } from "@/lib/admin/interest";
@@ -291,10 +292,12 @@ export function CatalogPage() {
     pushToast(
       "success",
       !isDraft(added)
-        ? `Added ${name} ✓`
+        ? added.listed
+          ? `Added ${name} ✓`
+          : `Added ${name} to Stock, hidden — tick Shown to put it on the shop.`
         : awaitsPriceRun(added)
           ? `Saved ${name} as a draft — the next price run prices it and puts it on the shop.`
-          : `Saved ${name} as a draft — publish it from its drawer when it's ready.`
+          : `Saved ${name} as a draft — give it a price${isRecord(added) ? " and grades" : ""} in its drawer.`
     );
     openDrawer(added.id);
   }
@@ -382,6 +385,24 @@ export function CatalogPage() {
   const setPriceDraft = useCallback((id: number, value: string) => {
     setPriceEdits((prev) => ({ ...prev, [id]: value }));
   }, []);
+  // Saves an edit; when it gives a draft its last missing piece (price or
+  // grades), the draft clears and the item waits in Stock, hidden.
+  const saveReadying = useCallback(
+    async (r: DbRecord, patch: Partial<DbRecord>) => {
+      const full = withDraftCleared(r, patch);
+      const readied = full.draft === false;
+      const ok = await updateRecord(r.id, full, { quiet: readied });
+      if (ok && readied) {
+        pushToast(
+          "success",
+          `"${r.artist} — ${r.title}" is ready — in Stock, hidden. Tick Shown to put it on the shop.`
+        );
+      }
+      return ok;
+    },
+    [pushToast, updateRecord]
+  );
+
   const savePrice = useCallback(
     async (r: DbRecord, raw: string | undefined) => {
       const value = Number(raw);
@@ -397,7 +418,7 @@ export function CatalogPage() {
         );
         return;
       }
-      if (await updateRecord(r.id, { price: value, prev_price: r.price })) {
+      if (await saveReadying(r, { price: value, prev_price: r.price })) {
         setPriceEdits((prev) => {
           const next = { ...prev };
           delete next[r.id];
@@ -405,7 +426,7 @@ export function CatalogPage() {
         });
       }
     },
-    [pushToast, updateRecord, priceHolds]
+    [pushToast, saveReadying, priceHolds]
   );
 
   // The buyer's name lives on the order when there is one, so the rename
@@ -768,7 +789,7 @@ export function CatalogPage() {
         title="Catalog"
         description={
           draftsSupported
-            ? "Everything you sell. A new item starts as a draft, off the shop until it has a price. Shown controls whether an item is on the shop at all; Sold keeps it visible with a SOLD badge."
+            ? "Everything you sell. A new item is a draft until it has a price (and a record its grades); then it waits here, hidden, until you tick Shown. Shown controls whether an item is on the shop at all; Sold keeps it visible with a SOLD badge."
             : "Everything you sell. Shown controls whether an item is on the shop at all; Sold keeps it visible with a SOLD badge."
         }
         actions={
@@ -1242,7 +1263,7 @@ export function CatalogPage() {
                         {awaitsPriceRun(r)
                           ? "The next price run (6 AM) sets its price from Discogs and puts it on the shop. To publish sooner, set a price below."
                           : blocked
-                            ? `To publish it, ${blocked}.`
+                            ? `It stays a draft until then — ${blocked}.`
                             : "It has a price — publish it when the listing looks right."}
                       </p>
                       <button
@@ -1346,7 +1367,7 @@ export function CatalogPage() {
                             value={r.media}
                             disabled={savingIds.has(r.id)}
                             onChange={(e) =>
-                              updateRecord(r.id, { media: e.target.value })
+                              saveReadying(r, { media: e.target.value })
                             }
                             className={`${inputClass} [&>option]:bg-neutral-900`}
                           >
@@ -1362,7 +1383,7 @@ export function CatalogPage() {
                             value={r.sleeve}
                             disabled={savingIds.has(r.id)}
                             onChange={(e) =>
-                              updateRecord(r.id, { sleeve: e.target.value })
+                              saveReadying(r, { sleeve: e.target.value })
                             }
                             className={`${inputClass} [&>option]:bg-neutral-900`}
                           >

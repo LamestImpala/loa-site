@@ -13,6 +13,7 @@ import {
   needsPhotos,
   publishBlock,
   reserved,
+  withDraftCleared,
 } from "./records.ts";
 
 const NOW = Date.parse("2026-09-22T12:00:00Z");
@@ -75,4 +76,26 @@ test("needs photos: on the shop, unsold, at the nudge price, with only a stock c
   assert.equal(needsPhotos(rec({ price: 90, photo_urls: ["a.jpg"] })), false);
   assert.equal(needsPhotos(rec({ price: 90, sold: true })), false);
   assert.equal(needsPhotos(rec({ price: 90, listed: false })), false);
+});
+
+test("a draft leaves Draft, still hidden, once its price and grades are in", () => {
+  const draft = rec({ draft: true, listed: false, price: 0, media: "VG+", sleeve: "VG+" });
+  // The price was the last thing missing: out of Draft, not on the shop.
+  assert.deepEqual(withDraftCleared(draft, { price: 30 }), { price: 30, draft: false });
+  // Still $0 — stays a draft.
+  assert.deepEqual(withDraftCleared(draft, { notes: "x" }), { notes: "x" });
+
+  const ungraded = rec({ draft: true, listed: false, price: 30, media: "", sleeve: "" });
+  assert.deepEqual(withDraftCleared(ungraded, { media: "VG+" }), { media: "VG+" });
+  const halfGraded = { ...ungraded, media: "VG+" };
+  assert.deepEqual(withDraftCleared(halfGraded, { sleeve: "VG" }), { sleeve: "VG", draft: false });
+
+  // Posters and gear need only a price.
+  const p = poster({ draft: true, listed: false, price: 0 });
+  assert.deepEqual(withDraftCleared(p, { price: 20 }), { price: 20, draft: false });
+
+  // Not a draft (already shown, or hidden later): the edit goes through as is.
+  assert.deepEqual(withDraftCleared(rec({ draft: false, listed: false, price: 5 }), { price: 9 }), { price: 9 });
+  // An explicit draft value (publishing) wins.
+  assert.deepEqual(withDraftCleared(draft, { listed: true, draft: false }), { listed: true, draft: false });
 });
