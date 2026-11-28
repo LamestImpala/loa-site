@@ -59,7 +59,7 @@ const COLOURS = (
     ["blueberry", "#3b4f9e"],
     ["(hot|neon) pink|magenta|fuchsia", "#e8318a"],
     ["(baby|light|pastel) pink|bubblegum", "#f3b9cf"],
-    ["(blood|dark|deep) red|oxblood", "#7d1016"],
+    ["(blood|dark|deep) red|oxblood( red)?", "#7d1016"],
     ["ruby|crimson|cherry|scarlet", "#b3122b"],
     ["burgundy|maroon|wine|merlot", "#6b1a2c"],
     ["(forest|dark|deep) green|emerald|evergreen", "#1f5a3a"],
@@ -155,6 +155,14 @@ function shade(hex: string, amount: number) {
   return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, "0")}`;
 }
 
+// Discogs' wording for the tag, cut between words if it runs long.
+function shortLabel(raw: string, max = 90) {
+  const text = raw.trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max + 1).replace(/\s+\S*$/, "");
+  return cut || text.slice(0, max);
+}
+
 function parsePart(raw: string, qty: number): DiscStyle | null {
   const text = raw.toLowerCase();
   const found = coloursIn(text);
@@ -183,6 +191,13 @@ function parsePart(raw: string, qty: number): DiscStyle | null {
       mode = "marble";
     }
   }
+  // "Oxblood / Blue Colour-In-Colour With Black Splatter": one colour inside
+  // the other, flecked with a third. The splatter's colour is named last.
+  const inner = EFFECTS.find(([m]) => m === "inner")![1];
+  if (mode === "splatter" && colors.length >= 3 && inner.test(text)) {
+    mode = "inner";
+    colors = [colors[0], colors[1], colors[colors.length - 1]];
+  }
   if (mode === "splatter" && colors.length === 1) {
     colors = [{ hex: BLACK, alpha: 1 }, colors[0]];
   }
@@ -192,7 +207,7 @@ function parsePart(raw: string, qty: number): DiscStyle | null {
   // Plain black needs no special drawing or tag.
   if (mode === "solid" && colors[0].hex === BLACK && colors[0].alpha === 1) return null;
 
-  const style: DiscStyle = { mode, colors: colors.slice(0, 3), label: raw.trim().slice(0, 60) };
+  const style: DiscStyle = { mode, colors: colors.slice(0, 3), label: shortLabel(raw) };
   if (mode === "wedges") style.parts = /\bquad\b/.test(text) ? 4 : 8;
   return style;
 }
@@ -337,8 +352,16 @@ export function discFace(style: DiscStyle): string {
   if (colors.length === 0) return "";
   if (colors.length === 1) return rgb(colors[0]);
   switch (mode) {
-    case "inner":
-      return `radial-gradient(circle, ${rgb(colors[0])} 0 52%, ${rgb(colors[1])} 53%)`;
+    case "inner": {
+      const core = `radial-gradient(circle, ${rgb(colors[0])} 0 52%, ${rgb(colors[1])} 53%)`;
+      if (colors.length < 3) return core;
+      // A third colour is a splatter over the two.
+      const flecks = FLECKS.map(
+        ([x, y, r]) =>
+          `radial-gradient(circle at ${x}% ${y}%, ${rgb(colors[2])} 0 ${r}%, transparent ${r + 0.6}%)`
+      );
+      return `${flecks.join(", ")}, ${core}`;
+    }
     case "marble": {
       // Soft-edged swirl: the colours blend into each other, twice round.
       const loop = [...colors, ...colors, colors[0]].map(rgb);
