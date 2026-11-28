@@ -22,6 +22,7 @@
     { "path": "/api/pickem/nfl/live", "schedule": "0 5 * * 1,2,5" },
     { "path": "/api/paypal-costs", "schedule": "*/30 * * * *" },
     { "path": "/api/review-requests", "schedule": "0 17 * * *" },
-    { "path": "/api/discogs-import", "schedule": "0 * * * *" }
+    { "path": "/api/discogs-import", "schedule": "0 * * * *" },
+    { "path": "/api/delivery-check", "schedule": "40 */4 * * *" }
   ]
 }

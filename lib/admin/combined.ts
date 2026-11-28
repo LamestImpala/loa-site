@@ -55,15 +55,46 @@ export type SaleShipping = {
   lastSent: string | null; // when the sale's last box went out
   unsent: boolean; // a box is still at home (or a paid order has no box yet)
   mailed: boolean; // at least one box was mailed, not handed over
+  // When the last box reached the buyer — tracking said delivered, or it
+  // was handed over — once every box has. Null while one is on its way.
+  lastArrived: string | null;
 };
+
+type ShippedBox = Pick<Shipment, "order_id" | "sent_at"> & {
+  mode?: string | null;
+  delivered_at?: string | null;
+};
+
+// When a box reached the buyer: a handed-over box at its hand-over, a
+// mailed one when tracking scanned it delivered. Null = not yet known.
+export const arrivedAt = (s: ShippedBox): string | null =>
+  handDelivered(s) ? s.sent_at : (s.delivered_at ?? null);
+
+const later = (a: string | null, b: string) => (!a || Date.parse(b) > Date.parse(a) ? b : a);
+
+// Where one set of boxes stands (an order's, or a whole sale's).
+export function boxesShipping(boxes: ShippedBox[]): SaleShipping {
+  const out: SaleShipping = { lastSent: null, unsent: boxes.length === 0, mailed: false, lastArrived: null };
+  let waiting = boxes.length === 0;
+  for (const s of boxes) {
+    if (!handDelivered(s)) out.mailed = true;
+    if (!s.sent_at) out.unsent = true;
+    else out.lastSent = later(out.lastSent, s.sent_at);
+    const arrived = s.sent_at ? arrivedAt(s) : null;
+    if (!arrived) waiting = true;
+    else out.lastArrived = later(out.lastArrived, arrived);
+  }
+  if (waiting) out.lastArrived = null;
+  return out;
+}
 
 // Where a sale's boxes stand, over its paid orders (a refunded order's
 // boxes don't hold the sale up). Keyed like saleGroups.
 export function saleShipping(
   orders: (Linked & Pick<Order, "status">)[],
-  shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[]
+  shipments: ShippedBox[]
 ): Map<number, SaleShipping> {
-  const byOrder = new Map<number, typeof shipments>();
+  const byOrder = new Map<number, ShippedBox[]>();
   for (const s of shipments) {
     if (s.order_id == null) continue;
     const list = byOrder.get(s.order_id) ?? [];
@@ -72,19 +103,15 @@ export function saleShipping(
   }
   const out = new Map<number, SaleShipping>();
   for (const [root, members] of saleGroups(orders)) {
-    const sale: SaleShipping = { lastSent: null, unsent: false, mailed: false };
-    for (const o of members) {
-      if (o.status !== "paid") continue;
-      const boxes = byOrder.get(o.id) ?? [];
-      if (boxes.length === 0) sale.unsent = true;
-      for (const s of boxes) {
-        if (!handDelivered(s)) sale.mailed = true;
-        if (!s.sent_at) sale.unsent = true;
-        else if (!sale.lastSent || Date.parse(s.sent_at) > Date.parse(sale.lastSent)) {
-          sale.lastSent = s.sent_at;
-        }
-      }
+    const paid = members.filter((o) => o.status === "paid");
+    const sale = boxesShipping(paid.flatMap((o) => byOrder.get(o.id) ?? []));
+    // A paid order with no box yet holds the sale up.
+    if (paid.some((o) => (byOrder.get(o.id) ?? []).length === 0)) {
+      sale.unsent = true;
+      sale.lastArrived = null;
     }
+    // No paid order at all: nothing went out, nothing is waiting.
+    if (paid.length === 0) sale.unsent = false;
     out.set(root, sale);
   }
   return out;
@@ -118,13 +145,15 @@ export type SaleReviewContext = {
   orderIds: number[]; // every order in the sale
   lastSent: string | null; // when the sale's last box went out
   unsent: boolean; // one of the sale's boxes is still at home
+  lastArrived: string | null; // when the last box reached the buyer, once all have
+  mailed: boolean; // a box was mailed, not handed over
   email: boolean; // one of its paid orders has an email on file
 };
 
 export function saleReviewContext(
   order: Order,
   orders: Order[],
-  shipments: (Pick<Shipment, "order_id" | "sent_at"> & { mode?: string | null })[]
+  shipments: ShippedBox[]
 ): SaleReviewContext | null {
   const mates = saleMates(order, orders);
   if (mates.length === 0) return null;
@@ -134,6 +163,8 @@ export function saleReviewContext(
     orderIds: members.map((o) => o.id),
     lastSent: sale?.lastSent ?? null,
     unsent: sale?.unsent ?? false,
+    lastArrived: sale?.lastArrived ?? null,
+    mailed: sale?.mailed ?? false,
     email: members.some((o) => o.status === "paid" && !!o.buyer_email),
   };
 }

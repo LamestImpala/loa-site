@@ -369,6 +369,35 @@ test("timeline: boxed counts as pulled; labels and drop-offs count box by box", 
   assert.equal(gone.sent.at, "2026-11-08T15:00:00Z", "when the last box left");
 });
 
+test("timeline: Delivered appears once tracking has looked, and counts box by box", () => {
+  const o = order({ id: 1, status: "paid", paypal_invoice_id: "INV-1" });
+  const recs = [rec({ id: 1, sold: true, order_id: 1 }), rec({ id: 2, sold: true, order_id: 1 })];
+  const box = (id: number, over: Partial<ReturnType<typeof shipment>> = {}) =>
+    labeled({ id, order_id: 1, record_ids: [id - 10], packed_at: "2026-11-06T10:00:00Z", sent_at: "2026-11-07T15:00:00Z", ...over });
+  const state = (s: ReturnType<typeof shipment>[]) =>
+    Object.fromEntries(orderTimeline(groupOf(o, recs, s), {}).map((x) => [x.key, x]));
+
+  assert.equal(state([box(11), box(12)]).delivered, undefined, "never tracked: no step");
+
+  const moving = state([
+    box(11, { tracking_checked_at: "2026-11-08T00:00:00Z", tracking_status: "TRANSIT" }),
+    box(12, { tracking_checked_at: "2026-11-08T00:00:00Z", tracking_status: "TRANSIT" }),
+  ]);
+  assert.deepEqual([moving.delivered.state, moving.delivered.detail], ["current", "in transit"]);
+
+  const half = state([
+    box(11, { tracking_checked_at: "2026-11-09T00:00:00Z", delivered_at: "2026-11-09T20:00:00Z" }),
+    box(12, { tracking_checked_at: "2026-11-09T00:00:00Z", tracking_status: "TRANSIT" }),
+  ]);
+  assert.deepEqual([half.delivered.state, half.delivered.detail], ["current", "1 of 2 boxes"]);
+
+  const all = state([
+    box(11, { delivered_at: "2026-11-09T20:00:00Z" }),
+    box(12, { delivered_at: "2026-11-10T20:00:00Z" }),
+  ]);
+  assert.deepEqual([all.delivered.state, all.delivered.at], ["done", "2026-11-10T20:00:00Z"]);
+});
+
 test("timeline: a cash sale handed over has no invoice or label, and says Handed over", () => {
   const o = order({ id: 1, status: "paid" });
   const recs = [rec({ id: 1, sold: true, order_id: 1, sold_at: "2026-11-11T18:00:00Z" })];

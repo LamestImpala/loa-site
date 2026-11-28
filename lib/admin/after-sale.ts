@@ -1,8 +1,9 @@
 import type { Order, ReviewInvite, ShopReview } from "../supabase.ts";
 import { kindOf } from "../items.ts";
-import { INVITE_AFTER_DAYS, INVITE_UNTIL_DAYS } from "../review.ts";
+import { INVITE_AFTER_DELIVERY_DAYS, INVITE_UNTIL_DAYS, reviewDueAt } from "../review.ts";
+import { deliveredDay } from "../delivery.ts";
 import type { OrderGroup } from "./fulfillment.ts";
-import { saleInvite, type SaleReviewContext } from "./combined.ts";
+import { boxesShipping, saleInvite, type SaleReviewContext } from "./combined.ts";
 
 // What's left on an order once its boxes have gone: ask for a review,
 // take the records out of the Discogs collection, and (Reddit buyers)
@@ -100,33 +101,42 @@ function reviewItem(
           : `link copied ${shortDate(invite.created_at)}`,
     };
   }
-  // Email buyers get the link from the daily job, INVITE_AFTER_DAYS after
-  // the last box left — as long as that day is still inside its window.
+  // Email buyers get the link from the daily job a few days after the last
+  // box arrived (or INVITE_AFTER_DAYS after it left, when tracking never
+  // says delivered) — as long as that day is still inside its window.
   // A combined sale is asked once, counted from its last box — so it waits
   // while another of its orders still has a box at home.
   if (sale?.unsent) {
     return { ...base, state: "scheduled", detail: "waits for the combined order's box to go" };
   }
   const email = sale ? sale.email : !!g.buyerEmail;
-  const sentAt = sale
-    ? sale.lastSent
-      ? Date.parse(sale.lastSent)
-      : 0
-    : g.shipments
-        .map((s) => (s.sent_at ? Date.parse(s.sent_at) : NaN))
-        .filter((t) => Number.isFinite(t))
-        .reduce((a, b) => Math.max(a, b), 0);
-  if (email && sentAt > 0 && now <= sentAt + INVITE_UNTIL_DAYS * DAY) {
+  const shipping = sale
+    ? { lastSent: sale.lastSent, lastArrived: sale.lastArrived, mailed: sale.mailed }
+    : boxesShipping(g.shipments.filter((s) => !!s.sent_at));
+  const sentAt = shipping.lastSent ? Date.parse(shipping.lastSent) : 0;
+  // "delivered Nov 27" once tracking has said so; a hand-over says nothing.
+  const landed =
+    shipping.lastArrived && shipping.mailed ? `delivered ${deliveredDay(shipping.lastArrived)}` : null;
+  const dueAt = reviewDueAt({ lastSent: shipping.lastSent, lastArrived: shipping.lastArrived });
+  if (email && sentAt > 0 && dueAt != null && now <= sentAt + INVITE_UNTIL_DAYS * DAY) {
     return {
       ...base,
       state: "scheduled",
-      detail: `emails itself ${shortDate(sentAt + INVITE_AFTER_DAYS * DAY)}`,
+      detail: landed
+        ? `${landed} · emails itself ${shortDate(dueAt)}`
+        : shipping.mailed
+          ? `emails itself by ${shortDate(dueAt)} — ${INVITE_AFTER_DELIVERY_DAYS} days after delivery if sooner`
+          : `emails itself ${shortDate(dueAt)}`,
     };
   }
   return {
     ...base,
     state: "todo",
-    detail: email ? "the automatic email didn't go — copy a link" : "copy a review DM",
+    detail: email
+      ? "the automatic email didn't go — copy a link"
+      : landed
+        ? `${landed} — copy a review DM`
+        : "copy a review DM",
   };
 }
 

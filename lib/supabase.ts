@@ -164,6 +164,12 @@ export type Shipment = {
   paypal_synced_at: string | null;
   packed_at: string | null; // sealed on /admin/pack with its records checked in; null for parcels made on the fulfillment card
   sent_at: string | null; // dropped off with the carrier ("Mark dropped off" on /admin/ship) or handed over in person; null = still in the house
+  // Carrier tracking, written by /api/delivery-check from Shippo. Optional:
+  // they read as undefined until the 20261127 migration is applied.
+  delivered_at?: string | null; // scanned delivered; null = not yet, or never tracked
+  tracking_status?: string | null; // PRE_TRANSIT / TRANSIT / DELIVERED / RETURNED / FAILURE / UNKNOWN
+  tracking_detail?: string | null; // the carrier's words for the latest scan, with its place
+  tracking_checked_at?: string | null; // last asked; null = never (older boxes)
 };
 
 // Money facts about one PayPal invoice, typed in from the transaction

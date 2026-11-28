@@ -124,6 +124,27 @@ Schema: `supabase/migrations/20261025_shop_email.sql`. Rules with tests:
 `lib/order-request.ts`, `lib/resend-webhook.ts`, `lib/admin/messages.ts`,
 `lib/admin/buyers.ts`; mail in `lib/email.ts`.
 
+## Delivery tracking
+
+`/api/delivery-check` (Vercel cron, every 4 hours) asks Shippo where each
+box dropped off in the last 30 days is, and writes the carrier's answer on
+the shipments row (`delivered_at`, `tracking_status`, `tracking_detail`).
+The order card shows a **Delivered** step and a chip on each box. The daily
+review job (`/api/review-requests`) then emails email buyers 3 days after
+the last box was delivered (or handed over); when tracking never says
+delivered it still goes 10 days after drop-off. For a sale with no buyer
+email (Reddit), the admin gets an email when the last box lands, since the
+review DM is theirs to send.
+
+Setup, once: make a Shippo account, copy the **live** API token (Settings →
+API), and add it to Vercel env as `SHIPPO_API_KEY` (mark it Sensitive).
+Until it is set the job does nothing. Shippo bills about 2¢ per tracked
+number for labels not bought through it. `?dry=1` asks Shippo and reports
+without writing or emailing.
+
+Schema: `supabase/migrations/20261127_shipment_delivery.sql`. Rules with
+tests: `lib/delivery.ts`, `lib/review.ts` (`reviewDueAt`).
+
 ## Pick'em
 
 `/pickem` is a free football pick'em, NFL and college, one league at a time

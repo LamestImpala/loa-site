@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DbRecord, Invoice, Order, Shipment } from "@/lib/supabase";
 import { afterSaleChecklist, openAfterSale, type AfterSaleItem } from "@/lib/admin/after-sale";
+import { trackingLabel } from "@/lib/delivery";
 import {
   ARCHIVE_AFTER_DAYS,
   buyerNudge,
@@ -1560,6 +1561,25 @@ export function FulfillmentPanel({
                             title="Marked dropped off on the Drop off page"
                           >
                             Dropped off {new Date(s.sent_at).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                        {s.sent_at && !handDelivered(s) && s.delivered_at ? (
+                          <span
+                            className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2 py-0.5 text-xs text-sky-300"
+                            title={s.tracking_detail ?? "The carrier scanned it delivered"}
+                          >
+                            Delivered {new Date(s.delivered_at).toLocaleDateString()}
+                          </span>
+                        ) : s.sent_at && !handDelivered(s) && trackingLabel(s.tracking_status) ? (
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-xs ${
+                              s.tracking_status === "RETURNED" || s.tracking_status === "FAILURE"
+                                ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                                : "border-white/15 text-neutral-400"
+                            }`}
+                            title={s.tracking_detail ?? "Latest carrier scan"}
+                          >
+                            {trackingLabel(s.tracking_status)}
                           </span>
                         ) : null}
                         {handDelivered(s) ? (
