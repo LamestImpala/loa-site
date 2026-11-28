@@ -1,10 +1,5 @@
 import type { NextConfig } from "next";
-import {
-  BASE_HEADERS,
-  STATIC_CSP_SOURCE,
-  cspHeaders,
-  frameGuardHeaders,
-} from "./lib/security-headers";
+import { configHeaderRules } from "./lib/security-headers";
 
 const dev = process.env.NODE_ENV === "development";
 
@@ -18,15 +13,11 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["shop.localhost"],
   // Don't advertise the framework in an X-Powered-By header.
   poweredByHeader: false,
-  // Security headers (lib/security-headers.ts). The first rule covers every
-  // response. The second adds the content security policy to everything
-  // except /admin and /pickem, where proxy.ts sends one with a per-request
-  // nonce instead.
+  // Security headers (lib/security-headers.ts): the basic set on every
+  // response, and the content security policy on everything except /admin
+  // and /pickem, where proxy.ts sends one with a per-request nonce instead.
   async headers() {
-    return [
-      { source: "/:path*", headers: [...BASE_HEADERS, ...frameGuardHeaders()] },
-      { source: STATIC_CSP_SOURCE, headers: cspHeaders({ dev }) },
-    ];
+    return configHeaderRules({ dev });
   },
   images: {
     // The optimizer fetches whatever these patterns allow, so each one names

@@ -5,11 +5,13 @@ import {
   BASE_HEADERS,
   CSP_ENFORCED,
   STATIC_CSP_SOURCE,
+  configHeaderRules,
   contentSecurityPolicy,
   cspHeaders,
   frameGuardHeaders,
   needsNonce,
   newNonce,
+  staticPolicyHeaders,
 } from "./security-headers.ts";
 
 function directive(policy: string, name: string): string[] {
@@ -109,4 +111,32 @@ test("phase: report-only sends the full policy unenforced plus an enforced frame
       { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
     ]);
   }
+});
+
+test("config rules: a nonce page gets no policy header from next.config", () => {
+  // On Vercel the render sees these response headers, and Next.js reads the
+  // nonce from the first policy header it finds. One without the nonce
+  // (seen live Nov 28: the frame-only policy) leaves every script tag bare.
+  const rules = configHeaderRules();
+  assert.equal(rules.length, 2);
+  for (const path of ["/admin", "/admin/ship/orders", "/pickem"]) {
+    for (const rule of rules) {
+      const matches = rule.source === "/:path*" || new RegExp(`^${rule.source}$`).test(path);
+      if (!matches) continue;
+      for (const h of rule.headers) {
+        assert.ok(!/^content-security-policy/i.test(h.key), `${rule.source} sends ${h.key} to ${path}`);
+      }
+    }
+  }
+  // Every response still gets the basic set, framing included.
+  assert.deepEqual(rules[0], { source: "/:path*", headers: BASE_HEADERS });
+  assert.ok(BASE_HEADERS.some((h) => h.key === "X-Frame-Options" && h.value === "DENY"));
+});
+
+test("config rules: every other page gets the full policy and the frame rule", () => {
+  const [, rule] = configHeaderRules();
+  assert.equal(rule.source, STATIC_CSP_SOURCE);
+  assert.deepEqual(rule.headers, staticPolicyHeaders());
+  assert.deepEqual(staticPolicyHeaders(), [...frameGuardHeaders(), ...cspHeaders()]);
+  assert.ok(!rule.headers.some((h) => h.value.includes("nonce-")));
 });
