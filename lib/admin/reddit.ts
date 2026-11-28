@@ -120,6 +120,22 @@ export const offerable = (r: DbRecord, now: number = Date.now()) =>
 export const forSaleOnShop = (r: DbRecord, now: number = Date.now()) =>
   kindOf(r) === "record" && r.listed && !reserved(r, now);
 
+// Top Shelf records stay out of the posts, but the shop still has them. The
+// sub doesn't allow asking more than list price for anything released in the
+// last 90 days, so the post names no Top Shelf record or price: it only says
+// the tag exists, what it means, and where to look.
+export const TOP_SHELF_SHOP_URL = `${SHOP_URL}/?coll=Top+Shelf`;
+export const hasTopShelfOnShop = (records: DbRecord[], now: number = Date.now()) =>
+  records.some((r) => r.top_shelf && forSaleOnShop(r, now));
+function topShelfLines(show: boolean | undefined): string[] {
+  return show
+    ? [
+        `**Top Shelf:** some records on the site are tagged Top Shelf. They're the ones I reach for first, priced at what it would take for me to let them go rather than at market, and I'm just as happy to keep them. None of them are in this post. They're [on the site](${TOP_SHELF_SHOP_URL}) if you're curious.`,
+        "",
+      ]
+    : [];
+}
+
 export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
   const list = records
     .filter((r) => offerable(r, now))
@@ -147,6 +163,7 @@ export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
     "|---|---|---|---|---|---|---|",
     ...rows,
     "",
+    ...topShelfLines(hasTopShelfOnShop(records, now)),
     REDDIT_HOW_TO_BUY,
   ].join("\n");
 }
@@ -196,7 +213,8 @@ export function redditWeeklyMarkdown(
   selected: DbRecord[],
   liveCount: number,
   market: MarketMap,
-  hold?: { until: string; now?: number; timeZone?: string }
+  hold?: { until: string; now?: number; timeZone?: string },
+  opts: { topShelf?: boolean } = {}
 ) {
   const list = [...selected].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
@@ -239,6 +257,7 @@ export function redditWeeklyMarkdown(
     "",
     `**Shipping:** ${SELLER_INFO.shipping}`,
     "",
+    ...topShelfLines(opts.topShelf),
     REDDIT_HOW_TO_BUY,
   ].join("\n");
 }
@@ -256,7 +275,7 @@ const updateRow = (r: DbRecord) =>
 export function redditUpdateMarkdown(
   posted: DbRecord[],
   hold?: PostHold,
-  opts: { now?: number; timeZone?: string } = {}
+  opts: { now?: number; timeZone?: string; topShelf?: boolean } = {}
 ) {
   const list = [...posted].sort((a, b) =>
     (a.artist + a.title).localeCompare(b.artist + b.title)
@@ -275,6 +294,7 @@ export function redditUpdateMarkdown(
     "",
     `**Shipping:** ${SELLER_INFO.shipping}`,
     "",
+    ...topShelfLines(opts.topShelf),
     REDDIT_HOW_TO_BUY,
   ].join("\n");
 }
