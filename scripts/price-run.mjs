@@ -449,7 +449,9 @@ export function discFormats(rel) {
 }
 
 // Listed records whose disc_formats is still null get it filled in, a
-// batch a day so the run stays inside its time limit.
+// batch at a time so the run stays inside its time limit. It runs again
+// after the price pass, so drafts that pass publishes show their disc
+// colour the same day instead of the next.
 const DISC_FORMATS_PER_RUN = 150;
 
 async function backfillDiscFormats() {
@@ -894,6 +896,9 @@ async function main() {
   console.log(
     `Done: ${checked} checked, ${autoApplied} auto-applied (raises only, ${climbs} climb steps, ${published} drafts priced and published), ${decays} decay steps queued, ${flagged} flagged, ${aboveLowest} above a comparable listing, ${implausible} cheapest listings ignored as not comparable, ${reservedSkips} held for a buyer (left alone), ${postHoldSkips} price-held for a Reddit post (left alone), ${errors} errors`
   );
+
+  // Drafts this run just published have no disc colour yet: fill them now.
+  if (!DRY_RUN && published > 0) await backfillDiscFormats();
 
   const pendingCuts = summary.filter((s) => s.action === "above-lowest");
   const newOnShop = summary.filter((s) => s.published);
