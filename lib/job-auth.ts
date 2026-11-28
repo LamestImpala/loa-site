@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { tokenAal } from "./admin/mfa.ts";
 import { ADMIN_EMAIL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "./supabase.ts";
@@ -54,6 +55,16 @@ export async function requireAdmin(
   return token ? clientFor(token) : null;
 }
 
+// Whether two secrets are the same, taking the same time whether they
+// differ at the first character or the last, so response times can't be
+// used to guess the cron secret a character at a time. Both sides are
+// hashed first: `timingSafeEqual` needs equal lengths, and this way the
+// secret's length doesn't show either.
+export function sameSecret(a: string, b: string): boolean {
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(a), digest(b));
+}
+
 // Auth for the job routes: Vercel cron sends `Authorization: Bearer
 // $CRON_SECRET`; an admin page sends the owner's Supabase access token.
 export async function authorizeJob(
@@ -63,6 +74,6 @@ export async function authorizeJob(
   const token = bearerToken(req);
   if (!token) return false;
   const secret = process.env.CRON_SECRET;
-  if (secret && token === secret) return true;
+  if (secret && sameSecret(token, secret)) return true;
   return (await adminToken(req, lookup)) !== null;
 }
