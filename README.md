@@ -126,9 +126,12 @@ Schema: `supabase/migrations/20261025_shop_email.sql`. Rules with tests:
 
 ## Delivery tracking
 
-`/api/delivery-check` (Vercel cron, every 4 hours) asks Shippo where each
-box dropped off in the last 30 days is, and writes the carrier's answer on
-the shipments row (`delivered_at`, `tracking_status`, `tracking_detail`).
+`/api/delivery-check` (Vercel cron, every 4 hours) finds out where each
+box dropped off in the last 30 days is, and writes the answer on the
+shipments row (`delivered_at`, `tracking_status`, `tracking_detail`). It
+asks PayPal first (free: the box's tracker on its transaction — what PayPal
+said is logged as "PayPal says …"); when PayPal doesn't say delivered it
+asks the carrier through Shippo.
 The order card shows a **Delivered** step and a chip on each box. The daily
 review job (`/api/review-requests`) then emails email buyers 3 days after
 the last box was delivered (or handed over); when tracking never says

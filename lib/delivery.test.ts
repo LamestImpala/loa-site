@@ -6,7 +6,9 @@ import {
   cleanTrackingNumber,
   deliveredDay,
   fetchShippoTrack,
+  fromPayPalTracker,
   parseShippoTrack,
+  paypalTxnOf,
   shippoCarrier,
   trackingLabel,
   trackingUpdate,
@@ -226,4 +228,40 @@ test("a failed lookup is counted and the rest go on", async () => {
   );
   assert.deepEqual(r.failed, [{ shipmentId: 30, error: "Shippo 500" }]);
   assert.equal(db.tables.shipments.filter((s) => s.tracking_status === "TRANSIT").length, 3);
+});
+
+test("PayPal: the transaction comes off the tracker id; only DELIVERED counts", () => {
+  assert.equal(paypalTxnOf("8XK12345AB678901C-9449050206217052340403"), "8XK12345AB678901C");
+  assert.equal(paypalTxnOf(null), null);
+  assert.equal(paypalTxnOf(""), null);
+  assert.equal(fromPayPalTracker("SHIPPED", null, now), null, "shipped: don't know, ask Shippo");
+  assert.equal(fromPayPalTracker(undefined, null, now), null);
+  assert.deepEqual(fromPayPalTracker("DELIVERED", "2026-11-27T23:49:00Z", now), {
+    status: "DELIVERED",
+    detail: "Delivered (per PayPal)",
+    deliveredAt: "2026-11-27T23:49:00.000Z",
+  });
+  assert.equal(fromPayPalTracker("delivered", null, now)?.deliveredAt, now.toISOString(), "no date: now");
+});
+
+test("the sweep hands each lookup its box and PayPal transaction", async () => {
+  const { client } = fakeSupabase({
+    shipments: [
+      { id: 25, order_id: 25, sent_at: daysAgo(5), tracking_code: "9449050206217052340403", carrier: "USPS", mode: "paypal", delivered_at: null, paypal_tracker_id: "8XK12345AB678901C-9449050206217052340403", paypal_invoice_id: "INV2-DFSE" },
+      { id: 26, order_id: 26, sent_at: daysAgo(5), tracking_code: "A1", carrier: "USPS", mode: "manual", delivered_at: null, paypal_tracker_id: null, paypal_invoice_id: "INV2-4XTH" },
+    ],
+  });
+  const seen: unknown[] = [];
+  await sweepDeliveries(
+    client,
+    async (_c, _n, box) => {
+      seen.push(box);
+      return { status: "TRANSIT", detail: null, deliveredAt: null };
+    },
+    { now }
+  );
+  assert.deepEqual(seen, [
+    { id: 25, paypalTxn: "8XK12345AB678901C", paypalInvoiceId: "INV2-DFSE" },
+    { id: 26, paypalTxn: null, paypalInvoiceId: "INV2-4XTH" },
+  ]);
 });
