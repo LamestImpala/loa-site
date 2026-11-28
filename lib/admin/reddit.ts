@@ -1,6 +1,8 @@
 import type { DbRecord, RedditPost } from "../supabase.ts";
 import { FREE_SHIPPING_MIN, SELLER_INFO } from "../records.ts";
 import { kindOf } from "../items.ts";
+import { cleanDiscogsName, splitPressing } from "../record-info.ts";
+import { discColourLines } from "../disc-style.ts";
 import { reserved } from "./records.ts";
 import type { MarketMap, MarketStats } from "./market.ts";
 
@@ -17,13 +19,42 @@ function cell(s: string | undefined) {
     .trim();
 }
 
+// Discogs artist credits read like a database export in a table cell:
+// "The Movement (19)", "Various, Andrew Lloyd Webber And Tim Rice". The post
+// shows the name a collector would write.
+const artistName = (r: Pick<DbRecord, "artist">) =>
+  cell(cleanDiscogsName(r.artist).replace(/^Various,\s+(?=\S)/, ""));
+
+// Rows sort by the name as shown, so a cleaned-up credit lands where a
+// reader looks for it.
+const byArtistTitle = (a: DbRecord, b: DbRecord) =>
+  (artistName(a) + a.title).localeCompare(artistName(b) + b.title);
+
 // Reddit posts should funnel buyers to the site, where every record has a
 // "Request to buy" button that pre-fills the DM; SELLER_INFO.contact stays
 // as-is for the site's own hero card.
 export const SHOP_URL = "https://curiouserrecords.com";
-const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL} — every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.
+const REDDIT_HOW_TO_BUY = `**How to buy:** browse the full list with live prices at ${SHOP_URL}. Every record has a "Request to buy" button that pre-fills a DM to me. Or just PM me here; I'm happy to complete everything through Reddit messages. First come, first served.
 
-**Offers:** reasonable offers welcome on bundles of ${FREE_SHIPPING_MIN}+ records (which also ship free) — singles are priced as listed.`;
+**Offers:** reasonable offers welcome on bundles of ${FREE_SHIPPING_MIN}+ records (which also ship free). Singles are priced as listed.`;
+
+// How the records were kept, and the offer that stands in for photos in
+// the post: the owner sends pictures of any copy a buyer asks about.
+const REDDIT_CARE = [
+  "**Storage:** smoke-free home. Every record is kept on a shelf in proper inner and outer sleeves.",
+  "",
+  "**Photos:** happy to send photos of any record, just ask.",
+  "",
+];
+
+const sellerLines = () => [
+  `**Location:** ${SELLER_INFO.location}`,
+  "",
+  `**Payment:** ${SELLER_INFO.payment}`,
+  "",
+  `**Shipping:** ${SELLER_INFO.shipping}`,
+  "",
+];
 
 // The price hold: a weekly post promises its prices for PRICE_HOLD_DAYS.
 // The post row carries hold_until; while it runs (and the post is not
@@ -85,11 +116,11 @@ function holdLines(
   const date = holdDateText(hold.hold_until, timeZone);
   return postHoldActive(hold, now)
     ? [
-        `**Prices held through ${date}.** After that, prices may change without notice — the current price is always the one on ${SHOP_URL}. Availability is live on the site.`,
+        `**Prices held through ${date}.** After that, prices may change without notice. The current price is always the one on ${SHOP_URL}. Availability is live on the site.`,
         "",
       ]
     : [
-        `The price hold on this post ended ${date} — the current price for every record is the one on ${SHOP_URL}.`,
+        `The price hold on this post ended ${date}. The current price for every record is the one on ${SHOP_URL}.`,
         "",
       ];
 }
@@ -136,29 +167,29 @@ function topShelfLines(show: boolean | undefined): string[] {
     : [];
 }
 
+// The full-catalog table keeps the whole pressing line, minus Discogs'
+// " (2)" label suffixes.
+const fullPressing = (r: DbRecord) => cell(cleanDiscogsName(r.pressing));
+
 export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
   const list = records
     .filter((r) => offerable(r, now))
-    .sort((a, b) => (a.artist + a.title).localeCompare(b.artist + b.title));
+    .sort(byArtistTitle);
   const rows = list.map((r) => {
     const title = r.photos
       ? `[${cell(r.title)}](${r.photos.trim()})`
       : cell(r.title);
-    return `| ${cell(r.artist)} | ${title} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`;
+    return `| ${artistName(r)} | ${title} | $${r.price} | ${fullPressing(r)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`;
   });
   const series = topCollections(list, 3);
-  const title = `[For Sale] ${list.length} vinyl records — collection sale, audiophile pressings${series.length ? ` (${series.join(", ")})` : ""} — PayPal G&S`;
+  const title = `[For Sale] ${list.length} vinyl records from a collection sale, audiophile pressings${series.length ? ` (${series.join(", ")})` : ""}, PayPal G&S`;
   return [
     title,
     "",
-    `**${SELLER_INFO.pageTitle}** — browse everything at ${SHOP_URL}`,
+    `**${SELLER_INFO.pageTitle}.** Browse everything at ${SHOP_URL}`,
     "",
-    `**Location:** ${SELLER_INFO.location}`,
-    "",
-    `**Payment:** ${SELLER_INFO.payment}`,
-    "",
-    `**Shipping:** ${SELLER_INFO.shipping}`,
-    "",
+    ...REDDIT_CARE,
+    ...sellerLines(),
     "| Artist | Title | Price | Pressing | Media | Sleeve | Notes |",
     "|---|---|---|---|---|---|---|",
     ...rows,
@@ -171,9 +202,10 @@ export function redditMarkdown(records: DbRecord[], now: number = Date.now()) {
 // Weekly post is built from the hand-picked records ("Sel" column), not the
 // whole catalog, and never shows an old price — steep markdowns read as
 // suspicious to buyers. Price sits right after Title so mobile readers see
-// it without scrolling the table sideways. Each title links to its exact
-// Discogs release so buyers can check the pressing themselves — the post
-// deliberately says nothing about scarcity or demand.
+// it without scrolling the table sideways. The last column is the pressing's
+// label and catalog number, linked to its exact Discogs release so buyers
+// can check the pressing themselves — the post deliberately says nothing
+// about scarcity or demand.
 
 // A price drop recent enough to count when picking a weekly post's records
 // (the post itself doesn't mention it).
@@ -189,28 +221,57 @@ export const dropPct = (r: DbRecord) => 1 - r.price / Number(r.prev_price);
 export const demandRatio = (s: MarketStats | undefined) =>
   s && s.want !== null && s.have !== null ? s.want / Math.max(s.have, 1) : null;
 
-// Pressing strings start with the release year ("2023 · Label CATNO · …")
-// when Discogs knew it; the weekly table shows just that year.
-const pressingYear = (r: DbRecord) =>
-  r.pressing.match(/^(\d{4})\b/)?.[1] ?? "";
+// The code a collector looks a pressing up by: label and catalog number
+// ("Analogue Productions UHQR 0016"). Discogs files a private pressing under
+// "Not On Label", which says nothing: its catalog number stands alone, and
+// a release with neither is named for what it is.
+function pressingCode(r: DbRecord): string {
+  const label = (splitPressing(r.pressing).label ?? "").replace(/\s+none$/i, "");
+  const m = label.match(/^Not On Label(?:\s*\(([^)]*)\))?\s*(.*)$/i);
+  if (!m) return label;
+  if (m[2]) return m[2];
+  return /self-released/i.test(m[1] ?? "") ? "Self-released" : "No label";
+}
 
-const weeklyTitle = (r: DbRecord) =>
-  r.discogs_release_id
-    ? `[${cell(r.title)}](https://www.discogs.com/release/${r.discogs_release_id})`
-    : cell(r.title);
+// "[Columbia E 80207](discogs link), 2023". A release Discogs has no year
+// for just leaves the year off, so the table never shows an empty cell.
+function pressingCell(r: DbRecord): string {
+  const code = cell(pressingCode(r)).replace(/[\[\]]/g, "");
+  const linked = r.discogs_release_id
+    ? `[${code || "Discogs"}](https://www.discogs.com/release/${r.discogs_release_id})`
+    : code;
+  const year = splitPressing(r.pressing).year;
+  return [linked, year].filter(Boolean).join(", ");
+}
+
+// The disc's colour in Discogs' wording (or the owner's own, which wins).
+// A release Discogs lists with no colour is standard black; one whose
+// details haven't been fetched yet says nothing rather than guess.
+function colourCell(r: DbRecord): string {
+  const lines = discColourLines(r.disc_formats, r.disc_colors);
+  if (lines.length) {
+    const text = lines.map((l) => l.label).join(" / ");
+    return cell(text.charAt(0).toUpperCase() + text.slice(1));
+  }
+  return Array.isArray(r.disc_formats) || r.disc_colors ? "Black" : "";
+}
+
+const weeklyCells = (r: DbRecord) =>
+  `${cell(r.media)}/${cell(r.sleeve)} | ${colourCell(r)} | ${pressingCell(r)} |`;
 
 const weeklyRow = (r: DbRecord) =>
-  `| ${cell(r.artist)} | ${weeklyTitle(r)} | $${r.price} | ${pressingYear(r)} | ${cell(r.media)}/${cell(r.sleeve)} |`;
+  `| ${artistName(r)} | ${cell(r.title)} | $${r.price} | ${weeklyCells(r)}`;
 
 const REDDIT_TABLE_HEADER = [
-  "| Artist | Title | Price | Year | Grade (M/S) |",
-  "|---|---|---|---|---|",
+  "| Artist | Title | Price | Grade (M/S) | Color | Pressing (Discogs) |",
+  "|---|---|---|---|---|---|",
 ];
 
 // The title leads with the three most-wanted artists in the pick (Discogs
 // want count) — that is what a collector scanning the sub actually reads —
 // and never mentions price drops: the owner sees no need to call them out
-// in the post.
+// in the post. Post copy is written without long dashes; they read as
+// machine-written to the sub.
 export function redditWeeklyMarkdown(
   selected: DbRecord[],
   liveCount: number,
@@ -218,23 +279,23 @@ export function redditWeeklyMarkdown(
   hold?: { until: string; now?: number; timeZone?: string },
   opts: { topShelf?: boolean } = {}
 ) {
-  const list = [...selected].sort((a, b) =>
-    (a.artist + a.title).localeCompare(b.artist + b.title)
-  );
+  const list = [...selected].sort(byArtistTitle);
   const headliners: string[] = [];
   for (const r of [...list].sort(
     (a, b) => (market[b.id]?.want ?? 0) - (market[a.id]?.want ?? 0)
   )) {
-    if (!headliners.includes(r.artist)) headliners.push(r.artist);
+    const name = artistName(r);
+    if (!headliners.includes(name)) headliners.push(name);
     if (headliners.length === 3) break;
   }
+  const more = new Set(list.map(artistName)).size > headliners.length;
   const title = `[For Sale] Weekly picks${
-    headliners.length ? ` — ${headliners.map(cell).join(", ")}` : ""
-  } — from a ${liveCount}-record collection sale — PayPal G&S, free shipping on ${FREE_SHIPPING_MIN}+`;
+    headliners.length ? `: ${headliners.join(", ")}${more ? " and more" : ""}` : ""
+  } from a ${liveCount}-record collection sale. PayPal G&S, free shipping on ${FREE_SHIPPING_MIN}+`;
   return [
     title,
     "",
-    `**Weekly update** — browse everything at ${SHOP_URL}`,
+    `**Weekly update.** Browse everything at ${SHOP_URL}`,
     "",
     ...(hold
       ? holdLines(
@@ -246,12 +307,8 @@ export function redditWeeklyMarkdown(
     ...REDDIT_TABLE_HEADER,
     ...list.map(weeklyRow),
     "",
-    `**Location:** ${SELLER_INFO.location}`,
-    "",
-    `**Payment:** ${SELLER_INFO.payment}`,
-    "",
-    `**Shipping:** ${SELLER_INFO.shipping}`,
-    "",
+    ...REDDIT_CARE,
+    ...sellerLines(),
     ...topShelfLines(opts.topShelf),
     REDDIT_HOW_TO_BUY,
   ].join("\n");
@@ -260,7 +317,7 @@ export function redditWeeklyMarkdown(
 // Sold records stay visible as struck-through rows with the price hidden.
 const updateRow = (r: DbRecord) =>
   r.sold
-    ? `| ~~${cell(r.artist)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${pressingYear(r)} | ${cell(r.media)}/${cell(r.sleeve)} |`
+    ? `| ~~${artistName(r)}~~ | ~~${cell(r.title)}~~ | **SOLD** | ${weeklyCells(r)}`
     : weeklyRow(r);
 
 // Body-only refresh of the live weekly post (Reddit titles can't be edited,
@@ -272,23 +329,17 @@ export function redditUpdateMarkdown(
   hold?: PostHold,
   opts: { now?: number; timeZone?: string; topShelf?: boolean } = {}
 ) {
-  const list = [...posted].sort((a, b) =>
-    (a.artist + a.title).localeCompare(b.artist + b.title)
-  );
+  const list = [...posted].sort(byArtistTitle);
   const openCount = list.filter((r) => !r.sold).length;
   return [
-    `**Weekly update** — ${openCount} of ${list.length} still available — browse everything at ${SHOP_URL}`,
+    `**Weekly update:** ${openCount} of ${list.length} still available. Browse everything at ${SHOP_URL}`,
     "",
     ...holdLines(hold, opts.now ?? Date.now(), opts.timeZone),
     ...REDDIT_TABLE_HEADER,
     ...list.map(updateRow),
     "",
-    `**Location:** ${SELLER_INFO.location}`,
-    "",
-    `**Payment:** ${SELLER_INFO.payment}`,
-    "",
-    `**Shipping:** ${SELLER_INFO.shipping}`,
-    "",
+    ...REDDIT_CARE,
+    ...sellerLines(),
     ...topShelfLines(opts.topShelf),
     REDDIT_HOW_TO_BUY,
   ].join("\n");
@@ -307,9 +358,7 @@ export function redditStaleMarkdown(
   posted: DbRecord[],
   newestUrl: string
 ) {
-  const list = [...posted].sort((a, b) =>
-    (a.artist + a.title).localeCompare(b.artist + b.title)
-  );
+  const list = [...posted].sort(byArtistTitle);
   // Full-catalog posts use the wide 7-column table; weekly posts and their
   // updates use the compact weekly columns — match whichever was posted.
   const fullRow = (r: DbRecord) => {
@@ -317,8 +366,8 @@ export function redditStaleMarkdown(
       ? `[${cell(r.title)}](${r.photos.trim()})`
       : cell(r.title);
     return r.sold
-      ? `| ~~${cell(r.artist)}~~ | ~~${title}~~ | **SOLD** | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`
-      : `| ${cell(r.artist)} | ${title} | $${r.price} | ${cell(r.pressing)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`;
+      ? `| ~~${artistName(r)}~~ | ~~${title}~~ | **SOLD** | ${fullPressing(r)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`
+      : `| ${artistName(r)} | ${title} | $${r.price} | ${fullPressing(r)} | ${cell(r.media)} | ${cell(r.sleeve)} | ${cell(r.notes)} |`;
   };
   const table =
     post.kind === "full"
@@ -331,16 +380,12 @@ export function redditStaleMarkdown(
   return [
     `**⚠️ This post is outdated${
       post.hold_until ? " and its prices are no longer held" : ""
-    } — see my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_URL}.**`,
+    }. See my [newest post](${newestUrl}) for current availability, or browse everything at ${SHOP_URL}.**`,
     "",
     ...table,
     "",
-    `**Location:** ${SELLER_INFO.location}`,
-    "",
-    `**Payment:** ${SELLER_INFO.payment}`,
-    "",
-    `**Shipping:** ${SELLER_INFO.shipping}`,
-    "",
+    ...REDDIT_CARE,
+    ...sellerLines(),
     REDDIT_HOW_TO_BUY,
   ].join("\n");
 }

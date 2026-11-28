@@ -127,7 +127,7 @@ export const SELLER_INFO: SellerInfo = {
   contactEmail: "orders@curiouserrecords.com", // the shop's mailbox; replies land in /admin
   location: "Phoenix, AZ",
   contact: "Request to buy by email or Reddit DM. First come, first served.",
-  payment: "PayPal G&S (invoice sent after claim) — I cover the G&S fee.",
+  payment: "PayPal G&S (invoice sent after claim). I cover the G&S fee.",
   shipping: "$6 USPS Media Mail for 1–2 records (USA); free shipping on 3 or more. Records ship outside the jacket in a proper LP mailer.",
   posterShipping: "$12 flat (USA) for any number of posters, rolled together in a sturdy tube.",
   gearShipping: "Shipping is quoted per order — I'll reply with the rate before sending the invoice. Local pickup in Phoenix, AZ is always free.",
