@@ -155,7 +155,9 @@ export default function RecordsClient({
       if (grade !== "any" && !meetsGrade(r.media, grade)) return false;
       if (priceBand !== "any" && !inPriceBand(r.price, priceBand)) return false;
       if (decade !== "all" && pressingDecade(r.pressing) !== decade) return false;
-      if (collection && r.collection !== collection) return false;
+      if (collection === TOP_SHELF_LABEL) {
+        if (!r.top_shelf) return false;
+      } else if (collection && r.collection !== collection) return false;
       if (letter && artistLetter(r.artist) !== letter) return false;
       if (!q) return true;
       return `${r.artist} ${r.title} ${r.pressing}`.toLowerCase().includes(q);
@@ -220,11 +222,16 @@ export default function RecordsClient({
     [records]
   );
 
-  const collections = useMemo(
-    () =>
-      [...new Set(records.map((r) => r.collection).filter(Boolean))].sort() as string[],
-    [records]
-  );
+  // Curated series, with Top Shelf first while any record wears the tag:
+  // it filters on records.top_shelf rather than records.collection.
+  const collections = useMemo(() => {
+    const series = [
+      ...new Set(records.map((r) => r.collection).filter(Boolean)),
+    ].sort() as string[];
+    return records.some((r) => r.top_shelf)
+      ? [TOP_SHELF_LABEL, ...series.filter((c) => c !== TOP_SHELF_LABEL)]
+      : series;
+  }, [records]);
 
   const activeLetters = useMemo(
     () => new Set(records.map((r) => artistLetter(r.artist))),
@@ -927,7 +934,15 @@ export default function RecordsClient({
               <button
                 key={c}
                 type="button"
-                className={collection === c ? "tag tag-accent" : "tag tag-outline"}
+                className={
+                  collection === c
+                    ? "tag tag-accent"
+                    : c === TOP_SHELF_LABEL
+                      ? "tag tag-top-shelf"
+                      : "tag tag-outline"
+                }
+                title={c === TOP_SHELF_LABEL ? TOP_SHELF_NOTE : undefined}
+                aria-pressed={collection === c}
                 onClick={() => setCollection(collection === c ? null : c)}
               >
                 {c}
