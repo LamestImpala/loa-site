@@ -215,7 +215,7 @@ export const CatalogRow = memo(function CatalogRow({
               title={
                 awaitsPriceRun(r)
                   ? "Not on the shop yet — the next price run sets its price and publishes it"
-                  : "Not on the shop yet — open it to set a price and publish"
+                  : "Not on the shop yet — open it to set a price (and grades)"
               }
             >
               {awaitsPriceRun(r) ? "Draft · pricing at 6 AM" : "Draft"}

@@ -3,14 +3,16 @@
 /*
  * The Catalog's "Add item" drawer: a record fetched from Discogs, or a
  * poster / piece of equipment typed in by hand, with photos of the actual
- * copy taken at the same time. Everything is saved as a draft — off the
- * shop until it has a price (see isDraft in lib/admin/records.ts).
+ * copy taken at the same time. Everything is saved off the shop: a draft
+ * until it has a price (and a record its grades), then hidden in Stock
+ * until the owner ticks Shown (see withDraftCleared in lib/admin/records.ts).
  */
 import { useEffect, useMemo, useState } from "react";
 import type { DbRecord, ItemDetails, ItemKind } from "@/lib/supabase";
 import { KINDS, KIND_LABELS } from "@/lib/items";
 import type { ReleaseDetails } from "@/lib/record-info";
 import { recordRowFromRelease } from "@/lib/admin/discogs-row";
+import { publishBlock } from "@/lib/admin/records";
 import { useAdmin } from "../_shell/admin-provider";
 import { buttonClass, drawerClass, inputClass, primaryButtonClass } from "../_shell/ui";
 import { ConditionSelect, DetailsInputs } from "./item-fields";
@@ -130,8 +132,20 @@ export function AddItemDrawer({
     }
   }
 
-  // What the insert adds for a draft; nothing before the migration.
-  const draftFields = draftsSupported ? { listed: false, draft: true } : {};
+  // What the insert adds: hidden, and a draft unless it already has its
+  // price (and a record its grades). Nothing before the migration.
+  const draftFields = (row: Record<string, unknown>) =>
+    draftsSupported
+      ? {
+          listed: false,
+          draft: !!publishBlock({
+            kind: (row.kind as DbRecord["kind"]) ?? "record",
+            price: Number(row.price),
+            media: String(row.media ?? ""),
+            sleeve: String(row.sleeve ?? ""),
+          }),
+        }
+      : {};
 
   // Insert the row, then put its photos up under the new id.
   async function save(row: Record<string, unknown>) {
@@ -139,7 +153,7 @@ export function AddItemDrawer({
     setSaving(true);
     const { data, error: insertError } = await supabase
       .from("records")
-      .insert({ ...row, ...draftFields })
+      .insert({ ...row, ...draftFields(row) })
       .select()
       .single();
     if (insertError) {
@@ -239,17 +253,27 @@ export function AddItemDrawer({
   }
 
   const price = Number(kind === "record" ? record?.price : item.price);
+  const ready = !publishBlock({
+    kind,
+    price,
+    media: kind === "record" ? (record?.media ?? "") : "",
+    sleeve: kind === "record" ? (record?.sleeve ?? "") : "",
+  });
   const hint = !draftsSupported
     ? "It goes on the shop as soon as it's added."
-    : kind === "record" && price === 0
-      ? "Saved as a draft, off the shop. The next price run (6 AM) sets its price from Discogs — the cheapest comparable listing + $6, or 85% of the suggestion for its grade — and puts it on the shop."
-      : price > 0
-        ? "Saved as a draft, off the shop. Check it over in its drawer, then Publish."
-        : "Saved as a draft, off the shop. Give it a price in its drawer, then Publish.";
+    : ready
+      ? "Saved to Stock, hidden. Tick Shown when you want it on the shop."
+      : kind === "record" && price === 0
+        ? "Saved as a draft, off the shop. The next price run (6 AM) sets its price from Discogs — the cheapest comparable listing + $6, or 85% of the suggestion for its grade — and puts it on the shop."
+        : kind === "record"
+          ? "Saved as a draft, off the shop, until it has a price and grades. Then it waits in Stock, hidden, until you tick Shown."
+          : "Saved as a draft, off the shop, until it has a price. Then it waits in Stock, hidden, until you tick Shown.";
   const saveLabel = saving
     ? "Saving…"
     : draftsSupported
-      ? "Save draft"
+      ? ready
+        ? "Save to Stock"
+        : "Save draft"
       : `Add ${KIND_LABELS[kind].toLowerCase()}`;
 
   const photoPicker = (
